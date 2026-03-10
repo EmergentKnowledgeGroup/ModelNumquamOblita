@@ -948,6 +948,10 @@ def _citation_ids(atom: MemoryAtom) -> list[str]:
     return sorted(citations)
 
 
+def _source_ids(atom: MemoryAtom) -> set[str]:
+    return {citation.split("#", 1)[0] for citation in _citation_ids(atom) if "#" in citation}
+
+
 def _active_atoms(store: AtomStore) -> list[MemoryAtom]:
     atoms = []
     for atom in store.list_atoms():
@@ -1091,6 +1095,76 @@ def _alternate_detail(atoms: list[MemoryAtom], *, current_index: int, prefer_sub
     return ""
 
 
+def _atom_equivalence_signature(atom: MemoryAtom) -> str:
+    tokens = [token.lower() for token in _WORD_RE.findall(str(getattr(atom, "canonical_text", "") or "")) if token]
+    return " ".join(tokens)
+
+
+def _equivalent_expectations(
+    atoms: list[MemoryAtom],
+    atom: MemoryAtom,
+    *,
+    signature_index: dict[str, list[MemoryAtom]] | None = None,
+) -> tuple[list[str], list[str]]:
+    signature = _atom_equivalence_signature(atom)
+    if signature_index is None:
+        candidates = [candidate for candidate in atoms if _atom_equivalence_signature(candidate) == signature]
+    else:
+        candidates = list(signature_index.get(signature) or [])
+    if not candidates:
+        candidates = [atom]
+    atom_ids: set[str] = set()
+    citations: set[str] = set()
+    for candidate in candidates:
+        atom_ids.add(candidate.atom_id)
+        citations.update(_citation_ids(candidate))
+    return sorted(atom_ids), sorted(citations)
+
+
+def _related_alternate_detail(
+    atoms: list[MemoryAtom],
+    *,
+    atom: MemoryAtom,
+    current_index: int,
+    subject: str = "",
+    detail: str = "",
+) -> str:
+    if len(atoms) <= 1:
+        return ""
+    target_subject = _normalize_display_cue(subject, max_words=4)
+    target_detail = _normalize_display_cue(detail or _detail_fragment_for_atom(atom, max_words=12), max_words=12)
+    target_detail_tokens = {token.lower() for token in _meaningful_tokens(target_detail)}
+    target_topics = {token.lower() for token in _meaningful_tokens(_primary_topic(atom))}
+    target_sources = _source_ids(atom)
+    best_detail = ""
+    best_score = -1
+    total = len(atoms)
+    for offset in range(1, total):
+        candidate = atoms[(current_index + offset) % total]
+        if candidate.atom_id == atom.atom_id:
+            continue
+        candidate_subject, candidate_detail = _subject_and_detail_for_atom(candidate)
+        candidate_detail = _normalize_display_cue(candidate_detail, max_words=10)
+        if not candidate_detail or candidate_detail.lower() == target_detail.lower():
+            continue
+        candidate_tokens = {token.lower() for token in _meaningful_tokens(candidate_detail)}
+        detail_overlap = len(target_detail_tokens.intersection(candidate_tokens))
+        if detail_overlap < 2:
+            continue
+        candidate_topics = {token.lower() for token in _meaningful_tokens(_primary_topic(candidate))}
+        candidate_sources = _source_ids(candidate)
+        same_subject = bool(
+            target_subject and candidate_subject and target_subject.lower() == candidate_subject.lower()
+        )
+        same_source = bool(target_sources.intersection(candidate_sources))
+        topic_overlap = len(target_topics.intersection(candidate_topics))
+        score = (detail_overlap * 5) + (topic_overlap * 2) + (3 if same_subject else 0) + (2 if same_source else 0)
+        if score > best_score:
+            best_score = score
+            best_detail = candidate_detail
+    return best_detail
+
+
 def _subject_and_detail_for_atom(atom: MemoryAtom) -> tuple[str, str]:
     subject = _normalize_display_cue(_named_entity_from_text(getattr(atom, "canonical_text", "")), max_words=3)
     if subject.lower() in _IDENTITY_SUBJECT_VALUES or subject.lower() in _ENTITY_STOPWORDS:
@@ -1179,7 +1253,17 @@ def _memory_prompt_for_family(
         entity = normalized_subject or (_normalize_display_cue(_primary_entity(atom)) if atom is not None else "")
         if entity.lower() in _IDENTITY_SUBJECT_VALUES or not _is_strong_subject(entity):
             entity = ""
-        wrong_detail = _alternate_detail(atoms or [], current_index=atom_index, prefer_subject=entity)
+        wrong_detail = (
+            _related_alternate_detail(
+                atoms or [],
+                atom=atom,
+                current_index=atom_index,
+                subject=entity,
+                detail=normalized_detail,
+            )
+            if atom is not None
+            else ""
+        )
         if entity and wrong_detail:
             return f"I might be mixing this up: did {entity} mention this memory {_detail_quote(wrong_detail)}, or am I remembering it wrong?"
         if event_phrase:
@@ -1189,7 +1273,17 @@ def _memory_prompt_for_family(
         entity = normalized_subject or (_normalize_display_cue(_primary_entity(atom)) if atom is not None else "")
         if entity.lower() in _IDENTITY_SUBJECT_VALUES or not _is_strong_subject(entity):
             entity = ""
-        wrong_detail = _alternate_detail(atoms or [], current_index=atom_index, prefer_subject=entity)
+        wrong_detail = (
+            _related_alternate_detail(
+                atoms or [],
+                atom=atom,
+                current_index=atom_index,
+                subject=entity,
+                detail=normalized_detail,
+            )
+            if atom is not None
+            else ""
+        )
         if entity and wrong_detail:
             return f"I might be mixing this up. Did {entity} say this: {_detail_quote(wrong_detail)}?"
         if wrong_detail:
@@ -1247,13 +1341,30 @@ def generate_truthset(
     supported_ratio: float = 0.67,
     fixture_mode: str = "basic",
 ) -> list[TruthsetCase]:
-    atoms = _active_atoms(store)
+    active_atoms = _active_atoms(store)
+    atoms = list(active_atoms)
     eligible_atoms = [atom for atom in atoms if _truthset_atom_eligible(atom)]
     if eligible_atoms:
         atoms = eligible_atoms
     atoms = sorted(atoms, key=_truthset_prompt_quality, reverse=True)
     if not atoms:
         return []
+    signature_index: dict[str, list[MemoryAtom]] = {}
+    for atom in active_atoms:
+        signature = _atom_equivalence_signature(atom)
+        if not signature:
+            continue
+        signature_index.setdefault(signature, []).append(atom)
+    case_atoms: list[MemoryAtom] = []
+    seen_signatures: set[str] = set()
+    for atom in atoms:
+        signature = _atom_equivalence_signature(atom) or atom.atom_id
+        if signature in seen_signatures:
+            continue
+        seen_signatures.add(signature)
+        case_atoms.append(atom)
+    if case_atoms:
+        atoms = case_atoms
 
     total = max(1, int(total_cases))
     supported_target = max(1, min(total, int(round(total * float(supported_ratio)))))
@@ -1269,7 +1380,7 @@ def generate_truthset(
             cue = _query_cue_for_atom(atom)
             subject, detail = _subject_and_detail_for_atom(atom)
             retrieval_cue = _retrieval_cue_for_atom(atom, cue)
-            source_ids = _citation_ids(atom)
+            expected_atom_ids, source_ids = _equivalent_expectations(atoms, atom, signature_index=signature_index)
             cases.append(
                 TruthsetCase(
                     case_id=f"tc_{idx + 1:04d}",
@@ -1287,7 +1398,7 @@ def generate_truthset(
                     retrieval_query=retrieval_cue,
                     expected_decision="PASS",
                     expected_citations=source_ids,
-                    expected_atom_ids=[atom.atom_id],
+                    expected_atom_ids=expected_atom_ids,
                 )
             )
     else:
@@ -1328,7 +1439,7 @@ def generate_truthset(
             cue = _query_cue_for_atom(atom)
             subject, detail = _subject_and_detail_for_atom(atom)
             retrieval_cue = _retrieval_cue_for_atom(atom, cue)
-            source_ids = _citation_ids(atom)
+            expected_atom_ids, source_ids = _equivalent_expectations(atoms, atom, signature_index=signature_index)
             query = _memory_prompt_for_family(
                 family=family,
                 cue=cue or "that moment",
@@ -1347,7 +1458,7 @@ def generate_truthset(
                     retrieval_query=retrieval_cue,
                     expected_decision="PASS",
                     expected_citations=source_ids,
-                    expected_atom_ids=[atom.atom_id],
+                    expected_atom_ids=expected_atom_ids,
                 )
             )
 
@@ -1356,20 +1467,23 @@ def generate_truthset(
         correction_target = max(1, unsupported_target // 2)
     if len(atoms) <= 1:
         correction_target = 0
-    abstain_target = max(0, unsupported_target - correction_target)
-
     case_cursor = supported_target
 
-    for idx in range(correction_target):
-        case_cursor += 1
-        atom = atoms[idx % len(atoms)]
-        wrong_atom = atoms[(idx + max(1, len(atoms) // 3)) % len(atoms)]
+    generated_corrections = 0
+    for idx in range(len(atoms)):
+        if generated_corrections >= correction_target:
+            break
+        atom = atoms[idx]
         subject, detail = _subject_and_detail_for_atom(atom)
-        _wrong_subject, wrong_detail = _subject_and_detail_for_atom(wrong_atom)
+        wrong_detail = _related_alternate_detail(
+            atoms,
+            atom=atom,
+            current_index=idx,
+            subject=subject,
+            detail=detail,
+        )
         if not wrong_detail:
-            wrong_detail = _alternate_detail(atoms, current_index=idx, prefer_subject=subject)
-        if detail and wrong_detail and wrong_detail.lower() == detail.lower():
-            wrong_detail = _alternate_detail(atoms, current_index=idx + 1, prefer_subject=subject)
+            continue
         named_anchor = _normalize_display_cue(_named_entity_from_text(str(getattr(atom, "canonical_text", ""))), max_words=4)
         if (
             named_anchor.lower() in _IDENTITY_SUBJECT_VALUES
@@ -1390,9 +1504,11 @@ def generate_truthset(
             query = f"I might be mixing this up. Was this memory right: {_detail_quote(_normalize_display_cue(detail, max_words=10))}?"
         else:
             query = "I might be mixing something up from earlier. Can you correct me?"
+        case_cursor += 1
+        generated_corrections += 1
         cue = _query_cue_for_atom(atom)
         retrieval_cue = _retrieval_cue_for_atom(atom, cue)
-        source_ids = _citation_ids(atom)
+        expected_atom_ids, source_ids = _equivalent_expectations(atoms, atom, signature_index=signature_index)
         cases.append(
             TruthsetCase(
                 case_id=f"tc_{case_cursor:04d}",
@@ -1402,10 +1518,12 @@ def generate_truthset(
                 retrieval_query=retrieval_cue,
                 expected_decision="PASS",
                 expected_citations=source_ids,
-                expected_atom_ids=[atom.atom_id],
+                expected_atom_ids=expected_atom_ids,
                 high_risk=True,
             )
         )
+
+    abstain_target = max(0, unsupported_target - generated_corrections)
 
     for idx in range(abstain_target):
         case_cursor += 1

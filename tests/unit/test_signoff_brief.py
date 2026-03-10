@@ -19,8 +19,13 @@ def test_render_signoff_brief_pass() -> None:
             "turns": 10,
             "failed_turns": 0,
         },
+        safety_verdict="PASS",
+        human_quality_verdict="PASS",
+        quality_defect_case_count=0,
     )
     assert "decision: `PASS`" in md
+    assert "safety_verdict: `PASS`" in md
+    assert "human_quality_verdict: `PASS`" in md
     assert "decision: PASS" in txt
     assert "Reasons and next actions" in md
     assert "- none" in md
@@ -33,8 +38,12 @@ def test_render_signoff_brief_fail_includes_actions() -> None:
         reasons=["eval_case_coverage_insufficient", "unmapped_reason_code"],
         eval_summary={},
         load_summary={},
+        safety_verdict="FAIL",
+        human_quality_verdict="FAIL",
+        quality_defect_case_count=2,
     )
     assert "decision: `FAIL`" in md
+    assert "quality_defect_case_count: `2`" in md
     assert "eval_case_coverage_insufficient" in md
     assert "Increase `--eval-cases`" in md
     assert "unmapped_reason_code" in txt

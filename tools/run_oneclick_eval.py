@@ -819,6 +819,7 @@ def main() -> int:
     )
     parser.add_argument("--run-dir", default="", help="Output directory root.")
     parser.add_argument("--skip-import", action="store_true", help="Skip import step and use existing store.")
+    parser.add_argument("--truthset", default="", help="Optional truthset.jsonl to reuse for judged eval.")
     parser.add_argument("--requested-cases", type=int, default=6)
     parser.add_argument("--scan-budget", type=int, default=600000)
     parser.add_argument(
@@ -890,7 +891,7 @@ def main() -> int:
         "--max-non-led-regression-pct",
         type=float,
         default=3.0,
-        help="Maximum allowed regression (%) for the non-led metric family.",
+        help="Maximum allowed regression (%%) for the non-led metric family.",
     )
     parser.add_argument(
         "--frozen-waiver",
@@ -1088,6 +1089,8 @@ def main() -> int:
         "--min-conflict-coverage",
         str(float(args.min_conflict_coverage)),
     ]
+    if str(args.truthset).strip():
+        eval_cmd.extend(["--truthset", str(Path(args.truthset).expanduser().resolve())])
     if args.disable_episodes:
         eval_cmd.append("--disable-episodes")
     elif episode_cards_path is not None:

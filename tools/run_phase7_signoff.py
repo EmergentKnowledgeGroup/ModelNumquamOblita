@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -90,11 +91,84 @@ def _open_store(path: Path):
     raise ValueError(f"unsupported memories path: {path}")
 
 
+def _parse_kv_lines(lines: list[str]) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    for line in lines:
+        text = str(line or "").strip()
+        if "=" not in text:
+            continue
+        key, value = text.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key and value:
+            payload[key] = value
+    return payload
+
+
+def _load_json_if_exists(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
+
+
+def _acceptance_gate_reasons(acceptance_gate: dict[str, Any], *, readout_path: Path) -> list[str]:
+    reasons: list[str] = []
+    if not acceptance_gate:
+        reasons.append("acceptance_gate_missing")
+        return reasons
+
+    missing = [
+        field
+        for field in ("decision", "safety_verdict", "human_quality_verdict")
+        if not str(acceptance_gate.get(field) or "").strip()
+    ]
+    if missing:
+        reasons.append(f"acceptance_gate_missing_fields:{','.join(sorted(missing))}")
+        return reasons
+
+    quality = acceptance_gate.get("quality") if isinstance(acceptance_gate.get("quality"), dict) else {}
+    if "defect_case_count" not in quality:
+        reasons.append("acceptance_gate_quality_missing:defect_case_count")
+    if "top_failure_examples" not in quality:
+        reasons.append("acceptance_gate_quality_missing:top_failure_examples")
+    if not readout_path.exists():
+        reasons.append("human_readout_missing")
+
+    safety_verdict = str(acceptance_gate.get("safety_verdict") or "").strip().upper()
+    human_quality_verdict = str(acceptance_gate.get("human_quality_verdict") or "").strip().upper()
+    if safety_verdict != "PASS":
+        reasons.append("safety_verdict_not_pass")
+    if human_quality_verdict != "PASS":
+        reasons.append("human_quality_verdict_not_pass")
+    for failure in list(acceptance_gate.get("failures") or []):
+        token = str(failure or "").strip()
+        if token:
+            reasons.append(f"acceptance_gate_failure:{token}")
+    return reasons
+
+
+def _question_quality_reasons(question_quality_summary: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    if not question_quality_summary:
+        reasons.append("question_quality_summary_missing")
+        return reasons
+    decision = str(question_quality_summary.get("decision") or "").strip().upper()
+    if decision != "PASS":
+        reasons.append("question_quality_verdict_not_pass")
+        if int(question_quality_summary.get("weak_cases") or 0) > 0:
+            reasons.append("weak_question_cases_present")
+        if int(question_quality_summary.get("blocking_defect_cases") or 0) > 0:
+            reasons.append("blocking_question_defect_cases_present")
+    return reasons
+
+
 def _signoff_reasons(
     *,
     eval_summary: dict,
     load_summary: dict,
     limits: dict[str, float],
+    acceptance_gate: dict[str, Any] | None = None,
     continuity_summary: dict[str, Any] | None = None,
     drift_decision: str | None = None,
 ) -> list[str]:
@@ -154,30 +228,39 @@ def _signoff_reasons(
     if reasons:
         return reasons
 
-    if float(eval_summary.get("false_memory_rate") or 0.0) > 0.02:
+    gate_metrics = acceptance_gate.get("metrics") if isinstance(acceptance_gate, dict) else {}
+
+    def _metric(name: str) -> float:
+        if isinstance(gate_metrics, dict) and name in gate_metrics:
+            return float(gate_metrics.get(name) or 0.0)
+        if name == "latency_p95_ms":
+            return float(eval_summary.get("latency_p95_ms", eval_summary.get("p95_latency_ms")) or 0.0)
+        return float(eval_summary.get(name) or 0.0)
+
+    if _metric("false_memory_rate") > 0.02:
         reasons.append("false_memory_rate_exceeded")
-    episode_false_recall_rate = float(eval_summary.get("episode_false_recall_rate") or 0.0)
+    episode_false_recall_rate = _metric("episode_false_recall_rate")
     if episode_false_recall_rate > float(limits["max_episode_false_recall_rate"]):
         reasons.append("episode_false_recall_rate_exceeded")
-    routine_over_recall_rate = float(
-        eval_summary.get("routine_over_recall_rate", eval_summary.get("over_recall_rate") or 0.0)
-    )
+    routine_over_recall_rate = _metric("routine_over_recall_rate")
+    if routine_over_recall_rate <= 0.0:
+        routine_over_recall_rate = float(eval_summary.get("over_recall_rate") or 0.0)
     if routine_over_recall_rate > float(limits["max_routine_over_recall_rate"]):
         reasons.append("routine_over_recall_rate_exceeded")
     episode_supported_cases = int(eval_summary.get("episode_supported_cases") or 0)
     if episode_supported_cases > 0:
-        episode_hit_rate = float(eval_summary.get("episode_hit_rate") or 0.0)
+        episode_hit_rate = _metric("episode_hit_rate")
         if episode_hit_rate < float(limits["min_episode_hit_rate"]):
             reasons.append("episode_hit_rate_below_floor")
-    if float(eval_summary.get("citation_hit_rate") or 0.0) < 0.98:
+    if _metric("citation_hit_rate") < 0.98:
         reasons.append("citation_hit_rate_below_floor")
-    if float(eval_summary.get("decision_accuracy") or 0.0) < float(limits["min_decision_accuracy"]):
+    if _metric("decision_accuracy") < float(limits["min_decision_accuracy"]):
         reasons.append("decision_accuracy_below_floor")
-    if float(eval_summary.get("retrieval_hit_rate") or 0.0) < float(limits["min_retrieval_hit_rate"]):
+    if _metric("retrieval_hit_rate") < float(limits["min_retrieval_hit_rate"]):
         reasons.append("retrieval_hit_rate_below_floor")
-    if unsupported_cases > 0 and float(eval_summary.get("abstain_precision") or 0.0) < float(limits["min_abstain_precision"]):
+    if unsupported_cases > 0 and _metric("abstain_precision") < float(limits["min_abstain_precision"]):
         reasons.append("abstain_precision_below_floor")
-    if float(eval_summary.get("p95_latency_ms") or 0.0) > float(limits["p95_latency_ms_max"]):
+    if _metric("latency_p95_ms") > float(limits["p95_latency_ms_max"]):
         reasons.append("eval_p95_latency_exceeded")
     if float(load_summary.get("latency_p95_ms") or 0.0) > float(limits["load_p95_latency_ms_max"]):
         reasons.append("load_p95_latency_exceeded")
@@ -203,12 +286,24 @@ def main() -> int:
     parser.add_argument("--eval-cases", type=int, default=120)
     parser.add_argument("--load-turns", type=int, default=40)
     parser.add_argument("--scan-budget", type=int, default=600000)
+    parser.add_argument("--readout-max-cases", type=int, default=24, help="Maximum cases rendered in judged eval readout.")
     parser.add_argument(
         "--fixture-mode",
         choices=["basic", "trust-v2", "trust-v3"],
         default="trust-v3",
         help="Fixture family generation mode when auto-generating truthset.",
     )
+    parser.add_argument("--disable-episodes", action="store_true", help="Disable episode-card retrieval during judged eval.")
+    parser.add_argument("--episode-cards", default="", help="Optional episode_cards json path to use during judged eval.")
+    parser.add_argument("--skip-episode-build", action="store_true", help="Forward-compatible no-op for oneclick parity.")
+    parser.add_argument("--responder-provider", default="mock", choices=["mock", "lmstudio", "openai"])
+    parser.add_argument("--responder-provider-base-url", default="http://127.0.0.1:1234")
+    parser.add_argument("--responder-provider-chat-path", default="/api/v1/chat")
+    parser.add_argument("--responder-model", default="qwen/qwen3-32b")
+    parser.add_argument("--responder-openai-api-key", default="")
+    parser.add_argument("--responder-openai-base-url", default="https://api.openai.com")
+    parser.add_argument("--responder-timeout-s", type=float, default=60.0)
+    parser.add_argument("--max-weak-question-cases", type=int, default=0)
     parser.add_argument("--continuity-turns", type=int, default=12, help="Number of turns for long-thread continuity harness.")
     parser.add_argument("--continuity-interval", type=int, default=4, help="Run one continuity recall probe every N turns.")
     parser.add_argument("--skip-continuity-harness", action="store_true", help="Skip continuity harness checks.")
@@ -373,7 +468,8 @@ def main() -> int:
             )
         eval_cases = eval_cases[: eval_plan.effective_cases]
         requested_eval_cases = len(eval_cases)
-        write_truthset_jsonl(eval_cases, out_dir / "truthset.generated.jsonl")
+        truthset_generated_path = out_dir / "truthset.generated.jsonl"
+        write_truthset_jsonl(eval_cases, truthset_generated_path)
 
         runtime_eval = RuntimeSession(
             retriever=MemoryRetriever(store),
@@ -397,6 +493,82 @@ def main() -> int:
             summary=eval_summary_obj,
             records=eval_records,
         )
+
+        judged_eval_dir = out_dir / "judged_eval"
+        judged_eval_cmd = [
+            sys.executable,
+            str(REPO_ROOT / "tools" / "run_oneclick_eval.py"),
+            "--skip-import",
+            "--store",
+            str(memories_path),
+            "--truthset",
+            str(truthset_generated_path),
+            "--run-dir",
+            str(judged_eval_dir),
+            "--requested-cases",
+            str(max(1, requested_eval_cases)),
+            "--scan-budget",
+            str(max(1, int(args.scan_budget))),
+            "--fixture-mode",
+            str(args.fixture_mode),
+            "--readout-max-cases",
+            str(max(1, int(args.readout_max_cases))),
+            "--responder-provider",
+            str(args.responder_provider),
+            "--responder-provider-base-url",
+            str(args.responder_provider_base_url),
+            "--responder-provider-chat-path",
+            str(args.responder_provider_chat_path),
+            "--responder-model",
+            str(args.responder_model),
+            "--responder-openai-api-key",
+            str(args.responder_openai_api_key),
+            "--responder-openai-base-url",
+            str(args.responder_openai_base_url),
+            "--responder-timeout-s",
+            str(float(args.responder_timeout_s)),
+            "--max-weak-question-cases",
+            str(max(0, int(args.max_weak_question_cases))),
+            "--min-decision-accuracy",
+            str(float(limits["min_decision_accuracy"])),
+            "--min-retrieval-hit-rate",
+            str(float(limits["min_retrieval_hit_rate"])),
+            "--min-abstain-precision",
+            str(float(limits["min_abstain_precision"])),
+            "--max-routine-over-recall-rate",
+            str(float(limits["max_routine_over_recall_rate"])),
+            "--max-total-p95-ms",
+            str(float(limits["p95_latency_ms_max"])),
+        ]
+        if args.disable_episodes:
+            judged_eval_cmd.append("--disable-episodes")
+        elif str(args.episode_cards).strip():
+            judged_eval_cmd.extend(["--episode-cards", str(Path(args.episode_cards).expanduser().resolve())])
+        if args.skip_episode_build:
+            judged_eval_cmd.append("--skip-episode-build")
+        judged_eval_result = subprocess.run(
+            judged_eval_cmd,
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        judged_eval_outputs = _parse_kv_lines(str(judged_eval_result.stdout or "").splitlines())
+        judged_eval_manifest = Path(
+            judged_eval_outputs.get("manifest", str(judged_eval_dir / "oneclick_manifest.json"))
+        ).resolve()
+        acceptance_gate_json = Path(
+            judged_eval_outputs.get("acceptance_gate_json", str(judged_eval_dir / "eval" / "acceptance_gate.json"))
+        ).resolve()
+        human_readout_md = Path(
+            judged_eval_outputs.get("human_readout_md", str(judged_eval_dir / "eval" / "human_readout.md"))
+        ).resolve()
+        question_quality_summary_json = Path(
+            judged_eval_outputs.get(
+                "question_validation_summary_json",
+                str((judged_eval_dir / "question_quality" / "question_validation_summary.json").resolve()),
+            )
+        ).resolve()
 
         # Load track
         runtime_load = RuntimeSession(
@@ -479,19 +651,32 @@ def main() -> int:
 
         eval_summary = json.loads(eval_summary_json.read_text(encoding="utf-8"))
         load_summary_data = json.loads(load_summary_json.read_text(encoding="utf-8"))
+        acceptance_gate = _load_json_if_exists(acceptance_gate_json)
+        question_quality_summary = _load_json_if_exists(question_quality_summary_json)
         reasons = _signoff_reasons(
             eval_summary=eval_summary,
             load_summary=load_summary_data,
             limits=limits,
+            acceptance_gate=acceptance_gate,
             continuity_summary=continuity_summary_data,
             drift_decision=drift_decision,
         )
+        if judged_eval_result.returncode not in {0, 2, 3}:
+            reasons.append(f"judged_eval_runner_failed:{judged_eval_result.returncode}")
+        reasons.extend(_acceptance_gate_reasons(acceptance_gate, readout_path=human_readout_md))
+        reasons.extend(_question_quality_reasons(question_quality_summary))
+        reasons = list(dict.fromkeys(reasons))
         decision = "PASS" if not reasons else "FAIL"
+        safety_verdict = str(acceptance_gate.get("safety_verdict") or "").strip().upper()
+        human_quality_verdict = str(acceptance_gate.get("human_quality_verdict") or "").strip().upper()
+        quality_payload = acceptance_gate.get("quality") if isinstance(acceptance_gate.get("quality"), dict) else {}
 
         manifest = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "profile": args.profile,
             "decision": decision,
+            "safety_verdict": safety_verdict,
+            "human_quality_verdict": human_quality_verdict,
             "reasons": reasons,
             "gates": limits,
             "memories_path": str(memories_path),
@@ -500,6 +685,15 @@ def main() -> int:
                 "summary_json": str(eval_summary_json),
                 "summary_md": str(eval_summary_md),
                 "records_json": str(eval_records_json),
+                "truthset_jsonl": str(truthset_generated_path),
+            },
+            "judged_eval": {
+                "manifest_json": str(judged_eval_manifest),
+                "acceptance_gate_json": str(acceptance_gate_json),
+                "human_readout_md": str(human_readout_md),
+                "question_quality_summary_json": str(question_quality_summary_json),
+                "runner_returncode": int(judged_eval_result.returncode),
+                "decision": str(acceptance_gate.get("decision") or "").strip(),
             },
             "load": {
                 "summary_json": str(load_summary_json),
@@ -524,6 +718,11 @@ def main() -> int:
                 "report_json": drift_json,
                 "report_md": drift_md,
             },
+            "quality": {
+                "defect_case_count": int(quality_payload.get("defect_case_count") or 0),
+                "blocking_defect_cases": int(quality_payload.get("blocking_defect_cases") or 0),
+                "top_failure_examples": list(quality_payload.get("top_failure_examples") or []),
+            },
         }
 
         manifest_json = out_dir / "signoff_manifest.json"
@@ -537,6 +736,9 @@ def main() -> int:
             reasons=reasons,
             eval_summary=eval_summary,
             load_summary=load_summary_data,
+            safety_verdict=safety_verdict,
+            human_quality_verdict=human_quality_verdict,
+            quality_defect_case_count=int(quality_payload.get("defect_case_count") or 0),
         )
         brief_md.write_text(brief_markdown, encoding="utf-8")
         brief_txt.write_text(brief_text, encoding="utf-8")
@@ -550,9 +752,12 @@ def main() -> int:
             "# Phase 7 Signoff",
             "",
             f"- decision: `{decision}`",
+            f"- safety_verdict: `{safety_verdict or 'UNKNOWN'}`",
+            f"- human_quality_verdict: `{human_quality_verdict or 'UNKNOWN'}`",
             f"- profile: `{args.profile}`",
             f"- memories_path: `{memories_path}`",
             f"- atom_count: `{atom_count}`",
+            f"- quality_defect_case_count: `{int(quality_payload.get('defect_case_count') or 0)}`",
             "",
             "## Gate thresholds",
             f"- min_eval_cases: `{int(limits['min_eval_cases'])}`",
@@ -581,6 +786,10 @@ def main() -> int:
                 "## Artifacts",
                 f"- eval.summary_json: `{eval_summary_json}`",
                 f"- eval.summary_md: `{eval_summary_md}`",
+                f"- eval.truthset_jsonl: `{truthset_generated_path}`",
+                f"- judged_eval.acceptance_gate_json: `{acceptance_gate_json}`",
+                f"- judged_eval.human_readout_md: `{human_readout_md}`",
+                f"- judged_eval.question_quality_summary_json: `{question_quality_summary_json}`",
                 f"- load.summary_json: `{load_summary_json}`",
                 f"- load.summary_md: `{load_summary_md}`",
                 f"- continuity.summary_json: `{continuity_summary_json or '(not generated)'}`",
@@ -594,6 +803,8 @@ def main() -> int:
         manifest_md.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
         print(f"decision={decision}")
+        print(f"safety_verdict={safety_verdict or 'UNKNOWN'}")
+        print(f"human_quality_verdict={human_quality_verdict or 'UNKNOWN'}")
         print(f"manifest_json={manifest_json}")
         print(f"manifest_md={manifest_md}")
         print(f"eval_summary_json={eval_summary_json}")

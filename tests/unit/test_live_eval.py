@@ -7,7 +7,8 @@ from engine.contracts import AtomType, CandidateAtom, SourceRef
 from engine.memory import AtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
 from engine.runtime import RuntimeSession
-from engine.runtime.live_eval import TruthsetCase, evaluate_truthset, generate_truthset, plan_live_eval_workload
+from engine.runtime.live_eval import TruthsetCase, _related_alternate_detail, _subject_and_detail_for_atom
+from engine.runtime.live_eval import evaluate_truthset, generate_truthset, plan_live_eval_workload
 from engine.runtime.live_eval import LiveEvalRecord
 from engine.runtime.live_eval import summarize_live_eval_records, validate_live_eval_required_metrics
 
@@ -135,6 +136,97 @@ def test_generate_truthset_skips_semantic_correction_with_single_atom() -> None:
     families = [case.fixture_family for case in cases]
     assert "semantic_correction" not in families
     assert sum(1 for family in families if family in {"unsupported_probe", "unsupported_pressure"}) >= 4
+
+
+def test_related_alternate_detail_prefers_semantic_overlap() -> None:
+    store = AtomStore()
+    c1 = _candidate("c1", "Claude said nuclear launch codes are a hard boundary.", "conv_1")
+    c1.entities = ["Claude", "user", "assistant"]
+    c1.topics = ["safety"]
+    c2 = _candidate("c2", "Xander started building a Lego Enterprise D at 4am.", "conv_2")
+    c2.entities = ["Xander", "user", "assistant"]
+    c2.topics = ["lego"]
+    c3 = _candidate("c3", "Dex wants 48 lines clean tight nothing wasted.", "conv_3")
+    c3.entities = ["Dex", "user", "assistant"]
+    c3.topics = ["editing"]
+    c4 = _candidate("c4", "Claude said bioweapon synthesis is a hard boundary.", "conv_4")
+    c4.entities = ["Claude", "user", "assistant"]
+    c4.topics = ["safety"]
+    for candidate in (c1, c2, c3, c4):
+        store.add_candidate(candidate)
+
+    atoms = list(store.list_atoms())
+    target = next(atom for atom in atoms if "nuclear launch codes" in atom.canonical_text)
+    unrelated_one = next(atom for atom in atoms if "Lego Enterprise D" in atom.canonical_text)
+    unrelated_two = next(atom for atom in atoms if "48 lines clean tight" in atom.canonical_text)
+    related = next(atom for atom in atoms if "bioweapon synthesis" in atom.canonical_text)
+    subject, detail = _subject_and_detail_for_atom(target)
+
+    alternate = _related_alternate_detail(
+        [target, unrelated_one, unrelated_two, related],
+        atom=target,
+        current_index=0,
+        subject=subject,
+        detail=detail,
+    )
+
+    assert "bioweapon synthesis" in alternate.lower()
+    assert "lego enterprise" not in alternate.lower()
+    assert "48 lines" not in alternate.lower()
+
+
+def test_generate_truthset_skips_semantic_correction_without_related_alternates() -> None:
+    store = AtomStore()
+    c1 = _candidate("c1", "Dean said we should ship the patch Friday morning.", "conv_1")
+    c1.entities = ["Dean", "user", "assistant"]
+    c1.topics = ["release_plan"]
+    c2 = _candidate("c2", "Xander started building a Lego Enterprise D at 4am.", "conv_2")
+    c2.entities = ["Xander", "user", "assistant"]
+    c2.topics = ["lego"]
+    c3 = _candidate("c3", "Dex wants 48 lines clean tight nothing wasted.", "conv_3")
+    c3.entities = ["Dex", "user", "assistant"]
+    c3.topics = ["editing"]
+    for candidate in (c1, c2, c3):
+        store.add_candidate(candidate)
+
+    cases = generate_truthset(store, total_cases=8, supported_ratio=0.5, fixture_mode="trust-v3")
+    families = [case.fixture_family for case in cases]
+
+    assert "semantic_correction" not in families
+    assert sum(1 for family in families if family in {"unsupported_probe", "unsupported_pressure"}) >= 4
+
+
+def test_generate_truthset_expands_expected_alignment_for_duplicate_atoms() -> None:
+    store = AtomStore()
+    primary = _candidate(
+        "c1",
+        '*Dex said* "48 lines, clean, tight, nothing wasted, what\'s next" while we were reviewing the plan.',
+        "conv_a",
+    )
+    primary.entities = ["Dex", "user", "assistant"]
+    primary.topics = ["planning"]
+    duplicate = _candidate(
+        "c2",
+        'Dex said "48 lines, clean, tight, nothing wasted, what\'s next" while we were reviewing the plan.',
+        "conv_b",
+    )
+    duplicate.entities = ["Dex", "user", "assistant"]
+    duplicate.topics = ["planning"]
+    other = _candidate("c3", "Xander wants the memory system to stay fail-closed.", "conv_c")
+    other.entities = ["Xander", "user", "assistant"]
+    other.topics = ["memory"]
+    for candidate in (primary, duplicate, other):
+        store.add_candidate(candidate)
+
+    cases = generate_truthset(store, total_cases=4, supported_ratio=1.0, fixture_mode="basic")
+    target = next(case for case in cases if "48 lines" in case.query)
+
+    expected_atom_ids = {
+        atom.atom_id for atom in store.list_atoms() if "48 lines, clean, tight, nothing wasted" in atom.canonical_text
+    }
+
+    assert set(target.expected_atom_ids) == expected_atom_ids
+    assert set(target.expected_citations) == {"conv_a#c1_msg", "conv_b#c2_msg"}
 
 
 def test_truthset_case_from_dict_backfills_fixture_family() -> None:

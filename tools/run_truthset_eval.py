@@ -84,6 +84,29 @@ def _default_episode_cards_path() -> Path | None:
     return None
 
 
+def _normalize_compare_path(value: str | Path) -> str:
+    try:
+        resolved = Path(str(value)).expanduser().resolve()
+    except Exception:
+        resolved = Path(str(value))
+    return str(resolved).replace("\\", "/").rstrip("/").lower()
+
+
+def _episode_cards_match_store(cards_path: Path, memories_path: Path) -> bool:
+    try:
+        payload = json.loads(cards_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    target = _normalize_compare_path(memories_path)
+    for key in ("source_store", "memories_path"):
+        raw = str(payload.get(key) or "").strip()
+        if raw and _normalize_compare_path(raw) == target:
+            return True
+    return False
+
+
 def _open_store(path: Path):
     suffix = path.suffix.lower()
     if suffix in {".sqlite3", ".sqlite", ".db"}:
@@ -226,11 +249,17 @@ def main() -> int:
             )
             episode_cards_path: Path | None = None
             if not bool(args.disable_episodes):
-                episode_cards_path = (
-                    Path(str(args.episode_cards)).expanduser().resolve()
-                    if str(args.episode_cards).strip()
-                    else _default_episode_cards_path()
-                )
+                if str(args.episode_cards).strip():
+                    episode_cards_path = Path(str(args.episode_cards)).expanduser().resolve()
+                else:
+                    default_cards = _default_episode_cards_path()
+                    if default_cards is not None:
+                        if _episode_cards_match_store(default_cards, memories_path):
+                            episode_cards_path = default_cards
+                        else:
+                            logger.emit(
+                                f"warning=episode_cards store mismatch, disabling episodes: {default_cards}"
+                            )
                 if episode_cards_path is not None and not episode_cards_path.exists():
                     logger.emit(f"warning=episode_cards path not found, disabling episodes: {episode_cards_path}")
                     episode_cards_path = None

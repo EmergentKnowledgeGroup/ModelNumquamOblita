@@ -55,6 +55,9 @@ def render_signoff_brief(
     reasons: list[str],
     eval_summary: dict[str, Any],
     load_summary: dict[str, Any],
+    safety_verdict: str = "",
+    human_quality_verdict: str = "",
+    quality_defect_case_count: int = 0,
 ) -> tuple[str, str]:
     generated_at = datetime.now(timezone.utc).isoformat()
     status = "PASS" if str(decision).upper() == "PASS" else "FAIL"
@@ -89,6 +92,9 @@ def render_signoff_brief(
         [
             "",
             "## Key metrics",
+            f"- safety_verdict: `{str(safety_verdict or 'UNKNOWN').strip().upper() or 'UNKNOWN'}`",
+            f"- human_quality_verdict: `{str(human_quality_verdict or 'UNKNOWN').strip().upper() or 'UNKNOWN'}`",
+            f"- quality_defect_case_count: `{int(quality_defect_case_count or 0)}`",
             f"- decision_accuracy: `{_fmt_pct(float(eval_summary.get('decision_accuracy') or 0.0))}`",
             f"- citation_hit_rate: `{_fmt_pct(float(eval_summary.get('citation_hit_rate') or 0.0))}`",
             f"- false_memory_rate: `{_fmt_pct(float(eval_summary.get('false_memory_rate') or 0.0))}`",
@@ -102,6 +108,9 @@ def render_signoff_brief(
         [
             "",
             "Key metrics:",
+            f"- safety_verdict: {str(safety_verdict or 'UNKNOWN').strip().upper() or 'UNKNOWN'}",
+            f"- human_quality_verdict: {str(human_quality_verdict or 'UNKNOWN').strip().upper() or 'UNKNOWN'}",
+            f"- quality_defect_case_count: {int(quality_defect_case_count or 0)}",
             f"- decision_accuracy: {_fmt_pct(float(eval_summary.get('decision_accuracy') or 0.0))}",
             f"- citation_hit_rate: {_fmt_pct(float(eval_summary.get('citation_hit_rate') or 0.0))}",
             f"- false_memory_rate: {_fmt_pct(float(eval_summary.get('false_memory_rate') or 0.0))}",

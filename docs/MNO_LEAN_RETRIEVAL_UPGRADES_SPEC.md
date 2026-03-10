@@ -1,9 +1,11 @@
 # MNO Lean Retrieval + Verification Upgrades (Borrowed From HippocampAI)
 
-Version: 2026-03-04 (design-only)
-Status: Draft
+Version: 2026-03-10 (design-only; second SpecSwarm pass locked)
+Status: Locked after second SpecSwarm + author QA
 Standalone note: imported into the standalone MNO repo on 2026-03-10. Historical mixed-repo freeze language is superseded by the standalone boundary rule below.
-Execution companion: `docs/MNO_LEAN_RETRIEVAL_BLOCKERBOARD.md` (phase/blocker tracker)
+Execution companions:
+- `docs/MNO_LEAN_RETRIEVAL_EXECUTION_CHECKLIST.md`
+- `docs/MNO_LEAN_RETRIEVAL_BLOCKERBOARD.md`
 
 ## 0. What This Is
 
@@ -24,9 +26,10 @@ These terms are used in a strict way in this spec:
 - Aligned evidence: evidence items that are actually about the query’s topic/entities/time intent (not just vaguely related).
 - Contradiction: two atoms that are explicitly linked as conflicting (conflict edge/graph), not an LLM “guess”.
 - Contradiction neighbor: an atom that is directly connected to another atom via a conflict edge.
-- Routine chat: turn that should not use long-term memory retrieval (smalltalk/banter, no memory request).
-- Explicit memory request signal: a user turn that clearly asks for “remember/recall/previously/last time/what did we decide”.
-- Store revision token: a value that changes whenever the store state changes in a way that affects retrieval.
+- Routine chat: turn that should not use long-term memory retrieval (smalltalk/banter, no memory request). In this spec, Phase 0 must use the repo's existing routine-chat skip behavior and MUST NOT redefine the detector.
+- Explicit memory request signal: a user turn that clearly asks for “remember/recall/previously/last time/what did we decide”. In this spec, Phase 0 must use the repo's existing detector semantics and MUST NOT widen it.
+- Failsafe floor: the minimum retrieval behavior that still runs when routing reduces search. In Phase 0 this means the existing baseline lexical path plus BM25 if BM25 is enabled for the phase; it must use existing bounded budgets and may still return empty.
+- Store revision token: a monotonic per-store-scope value that changes whenever retrieval-relevant state changes. If atom-store and continuity/graph state use different revision domains, cache keys MUST include both revision components.
 
 ## 0.2 Standalone Boundary Rule (No Cross-Plumbing Reintroduction)
 
@@ -117,7 +120,7 @@ We want the **benefits**, without importing HippocampAI’s large platform footp
   - which atom types to prioritize,
   - which retrieval channels to run (see 4.2–4.3),
   - channel budgets (top-Ks),
-  - Phase 0: only shapes retrieval once LTM retrieval is already invoked (no runtime gating changes),
+  - Phase 0: only shapes retrieval once the existing routine-chat skip and explicit-memory-request gating has already decided to invoke LTM retrieval (no runtime gating changes),
   - Runtime/tooling: may influence “do we even query LTM” decisions (still respecting routine-chat skip rules).
 
 **Safety constraints**
@@ -126,12 +129,15 @@ We want the **benefits**, without importing HippocampAI’s large platform footp
   - it means “still run a minimal relevance-gated baseline retrieval (lexical/BM25),”
   - it does not mean “inject something so the pack is non-empty,”
   - the minimal baseline retrieval may return empty, and that is acceptable.
+- In Phase 0, low-confidence routing or `mixed` classification MUST fall back to the union of the existing baseline channels with existing bounded budgets. Routing may reduce channels only when the profile classification is confident enough to do so safely.
+- In Phase 0, “confident enough” means deterministic and test-covered behavior inside retrieval-core safe surfaces; do not introduce a new probabilistic threshold or config knob just to decide routing confidence.
 - Retrieval override query semantics (runtime/tooling; optional) must be strict:
   - override query MUST NOT be user-provided text,
   - override query is accepted only via internal debug/eval interfaces behind a flag,
   - override query MUST NOT change routine-chat skip behavior unless an explicit memory request signal is present,
   - override usage must be auditable in traces (who/what set it; may require runtime trace plumbing).
 - Phase 0: do not expose or rely on any override query interface (no runtime/tools changes). Keep it disabled.
+- Empty retrieval results remain valid. Routing/fallback logic MUST NOT invent filler evidence or otherwise turn an empty pack into `PASS`.
 
 **Why it helps**
 - Less irrelevant retrieval = fewer chances to accidentally support the wrong thing.
@@ -148,8 +154,11 @@ Routing and filtering can accidentally “hide” contradictions if they are too
 **Hard rule**
 - Trigger: if any selected candidate/evidence item has an explicit conflict edge, conflict coverage is required.
 - Required behavior:
-  - the pack builder must reserve slots to include up to N directly-conflicting atoms, or
+  - the pack builder must fetch contradiction neighbors before routing/type filters can exclude them,
+  - the pack builder must reserve slots to include up to 2 directly-conflicting atoms by default, or
   - the service verdict must fail closed (`CLARIFY`/`ABSTAIN`) if required conflict coverage cannot fit budget.
+- If more than two contradiction neighbors compete for budget, selection must be deterministic and reproducible (retrieval rank first, then recency only among already-relevant contradiction neighbors, then atom id as final tie-break).
+- If a required contradiction neighbor was not present in the original candidate list, it must receive a deterministic conflict-rank below the lowest ranked non-conflict candidate; the pack builder must drop the lowest ranked non-conflict items first to make room, or fail closed if that still cannot satisfy conflict coverage.
 - Do not infer contradictions via LLM semantics in this phase; use explicit conflict graph/edges only.
 
 This rule exists to prevent “one-sided evidence packs” from producing confident memory claims.
@@ -159,20 +168,23 @@ This rule exists to prevent “one-sided evidence packs” from producing confid
 **Idea borrowed:** HippocampAI runs BM25 in parallel with embeddings.
 
 **High-level behavior**
-- Build a keyword index over atom `canonical_text` (and optionally light metadata like entities/topics).
+- Build a keyword index over atom `canonical_text`.
+- Runtime/tooling phases may later add existing metadata fields to the index, but Phase 0 MUST NOT require new schema fields or new contract fields.
 - For each query, compute BM25 scores and return top-K candidate atom ids.
 
 **Lean constraint**
 - Must be in-process and bounded.
 - Must have a clean invalidation story when the store changes.
+- Phase 0 BM25 must remain dependency-free and must not require schema migration. Any persistent index used in Phase 0 must be safely droppable and fully derivable from existing stored atoms on rebuild.
 
 **Phase 0 (retrieval-core safe) note**
 - Do not introduce new config keys for BM25 during Phase 0 (no `engine/config.py` edits).
 - Use existing retrieval budgets for initial constraints (top-k + rerank limits) and tune later runtime/tooling.
+- Any BM25 implementation that needs new field weights, new schema fields, or new user-visible knobs is runtime/tooling, not Phase 0.
 
 **Quality guardrails**
 - Tokenization must downweight or ignore very common terms (stopwords / high document-frequency tokens).
-- BM25 results should be query-conditioned and must include a minimum relevance floor (to avoid “junk by recency/common tokens”).
+- BM25 results should be query-conditioned and must include a minimum relevance floor (to avoid “junk by recency/common tokens”). In Phase 0 this floor must use existing bounded retrieval admission behavior or a fixed internal constant validated in tests, not a new config knob.
 - If BM25 is built over multiple fields, field weighting must be conservative (text > metadata).
 
 **Safety constraints**
@@ -205,10 +217,12 @@ This rule exists to prevent “one-sided evidence packs” from producing confid
   - per-channel admission thresholds (filter before ranking; don’t fuse garbage),
   - downweight low-precision channels (continuity expansions) vs high-precision (lexical/BM25),
   - RRF is rank-based: do not mix raw channel score scales into fusion without an explicit, tested normalization rule,
+  - empty channels must be ignored rather than backfilled with unrelated candidates,
   - deterministic tie-breaking so evals remain reproducible.
 
 **Spec note (avoid double-weighting)**
 - The repo already has a weighted scoring formula for candidates. Implementers must avoid “double counting” (e.g., RRF + reapplying the same weights again) unless explicitly validated in evals.
+- Phase 0 must use a fixed internal RRF constant and deterministic tie-break order; if an implementation requires new config-level RRF knobs, that work moves to runtime/tooling.
 
 **Why it helps**
 - Prevents one channel from dominating.
@@ -232,6 +246,8 @@ This rule exists to prevent “one-sided evidence packs” from producing confid
 - Do not add new API payload fields or “Why this answer?” endpoints during Phase 0 (no server/adapters edits).
 - Do not update readout tooling during Phase 0 (no `tools/*` edits).
 - Diagnostics may exist only as internal debug data (e.g., in-memory for unit tests) until runtime/tooling.
+- Phase 0 diagnostics must be process-local and non-persistent by default.
+- Phase 0 diagnostics must not persist to disk or logs and must never include raw user text or raw memory text.
 
 **Safety constraints**
 - This is observability only. No new path to “PASS”.
@@ -242,7 +258,7 @@ This rule exists to prevent “one-sided evidence packs” from producing confid
 **Diagnostics safety constraints**
 - By default, diagnostics must not log raw memory text (`canonical_text`) or raw user text.
 - Default diagnostics should log atom ids, section, scores, and reason codes.
-- Any “include text in artifacts” mode must be explicit opt-in and must document PII handling expectations.
+- Any “include text in artifacts” mode is runtime/tooling only, must be explicit opt-in, and must document redaction plus retention expectations.
 - De-duplication must be conservative:
   - never dedupe across distinct atoms solely by canonical text/topic similarity,
   - only drop true duplicates (same atom id / explicit equivalence),
@@ -257,17 +273,19 @@ This rule exists to prevent “one-sided evidence packs” from producing confid
 **Idea borrowed:** HippocampAI uses different half-lives by memory type.
 
 **High-level behavior**
-- Tune default half-life policy by `AtomType` (example idea, not final):
+- Tune default half-life policy by `AtomType` only if the concrete values are fixed in code/tests without adding user-visible knobs:
   - `EPISODE`: shorter (events go stale faster),
   - `ATOMIC_FACT`: medium,
   - `RELATIONAL`: medium,
   - `AFFECTIVE`: longer (identity/emotion may stay salient),
   - `PROCEDURAL_STYLE`: long.
+- If concrete type-specific values cannot be justified from the baseline suite without adding runtime/config plumbing, Phase 0 must keep current decay values and defer type-specific retuning to runtime/tooling.
 
 **Safety constraints**
 - Decay affects rank, not truth.
 - Conflicted atoms should not be “decayed away” into invisibility when they matter for uncertainty.
 - Explicit time intent (e.g., dates/years/time ranges in the query) must override default recency bias so older-but-relevant evidence is still retrievable.
+- If the query explicitly compares multiple timeframes (“then vs now”, “used to vs currently”), temporal decay must not collapse the older side out of the candidate set when both periods are necessary for a truthful answer.
 
 **Why it helps**
 - Reduces stale answers and makes “current preferences” win naturally.
@@ -295,13 +313,15 @@ This rule exists to prevent “one-sided evidence packs” from producing confid
   - store revision token,
   - retrieval profile and enabled channels,
   - key configuration knobs (budgets/thresholds),
+  - retrieval-version salt for rollout/backout safety,
   - (if enabled) embedding model / reranker model version identifiers.
-- Evals should run with caches disabled (or with a dedicated test proving cache scoping and invalidation correctness).
+- Evals should run with caches disabled via an internal test-only switch or by clearing in-process caches between cases; do not add new user-visible config just for eval cache control.
 - Store revision token semantics must be explicit:
   - revision MUST change on atom insert/update/delete,
   - revision MUST change on conflict-edge updates,
   - revision MUST change on any continuity/graph snapshot change that affects retrieval,
   - if atom-store and continuity-store have different revision domains, cache keys must include both.
+- Cache parity must be testable: cache-on and cache-off runs must preserve verdict distributions on the same corpus.
 
 ## 5. “Steal Later” Upgrades (Optional, Keep Behind Flags)
 
@@ -369,15 +389,24 @@ Key invariants:
 - Evals must be strict about alignment: supported non-routine cases cannot pass with unrelated evidence.
 
 ### 7.2 Must-improve checks (measurable)
-- Retrieval hit-rate / recall@k on paraphrase-heavy prompts improves.
-- Reduction in irrelevant evidence items in top packs.
-- Fewer “ABSTAIN because retrieval missed obvious support” cases.
+- Before Phase 0 starts, freeze a baseline suite and record its metrics.
+- The frozen baseline must record corpus ID, case count, owner, git commit, and timestamp; do not re-freeze after candidate changes and reuse that as the comparison baseline.
+- On the paraphrase-heavy supported subset, `retrieval_hit_rate` must improve by at least 5 percentage points, unless baseline is already at ceiling.
+- `evidence_precision@k` must improve by at least 10 percentage points or `junk_rate@k` must decrease by at least 20% relative, unless baseline is already at ceiling/floor.
+- Supported-case abstains caused by missed obvious support must decrease by at least 25% relative, unless baseline count is already 0.
+- These retrieval-improvement metrics are baseline-relative closure gates. Do not reinterpret them as ad hoc absolute floors when doing carried-forward parity verification in a downstream standalone repo.
+- Formula notes:
+  - `retrieval_hit_rate` = supported non-routine cases where the delivered evidence pack contains at least one aligned supporting atom, divided by supported non-routine cases.
+  - `abstain_precision` = abstain/clarify outcomes that truly lack sufficient support, divided by all abstain/clarify outcomes.
+  - `supported-case abstains caused by missed obvious support` = supported non-routine cases ending in `ABSTAIN` or `CLARIFY` where aligned support exists in the corpus but was not delivered in the evidence pack.
 
 ### 7.2.1 New integrity metrics (recommended)
 - `evidence_precision@k`: fraction of evidence items that are actually relevant to the query.
 - `junk_rate@k`: fraction of top-k evidence items that are unrelated/noisy (inverse of precision).
-- `conflict_coverage`: when contradictions exist for the topic, both sides appear in pack or verdict fails closed.
-- Anti-gaming coverage: enforce a floor on “memory-claim coverage” only on eval cases where support is known to exist. This metric is an eval-only guardrail and MUST NOT be used to justify relaxing verifier thresholds.
+- `conflict_coverage`: when contradictions exist for the topic, both sides appear in pack or verdict fails closed. This metric must be measured on an eval subset that is explicitly labeled as containing conflict edges; do not allow vacuous pass rates from cases with no conflicts.
+- Anti-gaming coverage: enforce a floor on “memory-claim coverage” only on eval cases where support is known to exist. This metric is mandatory and MUST NOT be used to justify relaxing verifier thresholds.
+- Anti-gaming minimum: on the known-support subset, memory-claim coverage must not drop below baseline - 0.03 while safety metrics remain green.
+- New artifact/readout surfacing for these metrics is runtime/tooling work if it touches `tools/*` or `engine/runtime/*`. Phase 0 may validate them in unit/eval tests without changing runtime payloads.
 
 ### 7.3 New tests to add (conceptual)
 - Router classification unit tests (per profile).
@@ -390,6 +419,8 @@ Key invariants:
 - Conflict-coverage gold tests (if a selected item has conflict edges, include both sides or fail closed).
 - Router fallback tests (misclassification must not produce `PASS` without evidence).
 - Cache parity tests (caches off vs on should not change verdict distributions; no stale evidence reuse).
+- Dedicated conflict-edge eval subset (non-empty denominator for `conflict_coverage`).
+- Multi-timeframe query tests (“then vs now”) to ensure temporal decay does not erase relevant older evidence.
 
 ## 8. Rollout Strategy (Don’t Break Production)
 
@@ -401,8 +432,14 @@ Phase approach (recommended):
 5. Runtime/tooling: optional cross-encoder reranker.
 
 Each phase ships behind flags and is gated by the existing acceptance harness and human-quality readouts.
+- Phase 0 must use an existing flag or rollout gate if one already exists. If no existing revertable mechanism exists, Phase 0 ships default-off in production until a revertable rollout plan is approved. Do not add new config keys in Phase 0 just to create a flag.
 - Never declare “green” unless both `safety_verdict` and `human_quality_verdict` pass.
 - P0 run summaries must follow `docs/MNO_P0_RUN_SUMMARY_CONTRACT.md` before any done/green language.
+- Phase 0 backout must be explicit per slice:
+  - revert the commit set,
+  - clear in-process/persistent retrieval caches using the retrieval-version salt,
+  - rebuild any droppable BM25 index from the current store contents,
+  - rerun the frozen baseline gate to confirm recovery.
 
 ### 8.1 Rollout stop conditions (examples)
 - Any increase in unsupported memory claims (safety regression).
@@ -445,6 +482,7 @@ Allowed zones are defined in 0.2.2. The intent is: retrieval improvements are im
 4.2 BM25 Keyword Channel
 - Primary: `engine/retrieval/engine.py`
 - Secondary: `engine/memory/sqlite_store.py`, `engine/memory/store.py`
+- Note: touching `engine/memory/sqlite_store.py` here does not authorize schema migration in Phase 0; any persistent index must be derivable from existing data and safely rebuildable.
 - Related tests: `tests/unit/test_retrieval_engine.py`
 
 4.3 RRF Fusion

@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -186,6 +187,58 @@ def test_run_truthset_eval_script_auto_chunking_when_threshold_is_forced(tmp_pat
     assert summary["cases"] == 6
 
 
+def test_run_truthset_eval_disables_mismatched_default_episode_cards(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "atoms.sqlite3"
+    _build_store(sqlite_path)
+    out_dir = tmp_path / "eval_mismatch_cards"
+    episodes_dir = REPO_ROOT / "runtime" / "episodes"
+    episodes_dir.mkdir(parents=True, exist_ok=True)
+    mismatch = episodes_dir / f"episode_cards_test_mismatch_{int(time.time() * 1000)}.json"
+    mismatch.write_text(
+        json.dumps(
+            {
+                "schema": "numquamoblita.episode_cards.v1",
+                "source_store": str(tmp_path / "other.sqlite3"),
+                "memories_path": str(tmp_path / "other.sqlite3"),
+                "cards": [],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    future = time.time() + 60.0
+    os.utime(mismatch, (future, future))
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "tools/run_truthset_eval.py",
+                "--memories",
+                str(sqlite_path),
+                "--requested-cases",
+                "6",
+                "--scan-budget",
+                "20000",
+                "--batch-size",
+                "2",
+                "--batch-pause-ms",
+                "0",
+                "--out-dir",
+                str(out_dir),
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        mismatch.unlink(missing_ok=True)
+
+    assert "warning=episode_cards store mismatch, disabling episodes:" in result.stdout
+    assert "episode_cards_enabled=False" in result.stdout
+
+
 def test_run_runtime_load_script(tmp_path: Path) -> None:
     sqlite_path = tmp_path / "atoms.sqlite3"
     _build_store(sqlite_path)
@@ -339,6 +392,8 @@ def test_run_phase7_signoff_script(tmp_path: Path) -> None:
             "20000",
             "--profile",
             "safe",
+            "--max-weak-question-cases",
+            "3",
             "--out-dir",
             str(out_dir),
             "--fail-on-gate",
@@ -349,12 +404,19 @@ def test_run_phase7_signoff_script(tmp_path: Path) -> None:
         text=True,
     )
     assert "decision=PASS" in result.stdout
+    assert "safety_verdict=PASS" in result.stdout
+    assert "human_quality_verdict=PASS" in result.stdout
     manifest = json.loads((out_dir / "signoff_manifest.json").read_text(encoding="utf-8"))
     assert manifest["decision"] == "PASS"
+    assert manifest["safety_verdict"] == "PASS"
+    assert manifest["human_quality_verdict"] == "PASS"
     assert "brief" in manifest
     assert Path(manifest["brief"]["markdown"]).exists()
     assert Path(manifest["brief"]["text"]).exists()
     assert (out_dir / "eval" / "summary.json").exists()
+    assert Path(manifest["judged_eval"]["acceptance_gate_json"]).exists()
+    assert Path(manifest["judged_eval"]["human_readout_md"]).exists()
+    assert Path(manifest["judged_eval"]["question_quality_summary_json"]).exists()
     assert (out_dir / "load" / "load_summary.json").exists()
     continuity_summary_path = out_dir / "continuity" / "continuity_summary.json"
     assert continuity_summary_path.exists()
@@ -406,6 +468,12 @@ def test_run_phase7_signoff_honors_truthset_length(tmp_path: Path) -> None:
             "1",
             "--min-unsupported-cases",
             "0",
+            "--min-retrieval-hit-rate",
+            "0",
+            "--min-abstain-precision",
+            "0",
+            "--max-weak-question-cases",
+            "1",
             "--out-dir",
             str(out_dir),
         ],
@@ -440,6 +508,8 @@ def test_run_phase7_signoff_can_skip_continuity_harness(tmp_path: Path) -> None:
             "--profile",
             "safe",
             "--skip-continuity-harness",
+            "--max-weak-question-cases",
+            "3",
             "--out-dir",
             str(out_dir),
         ],

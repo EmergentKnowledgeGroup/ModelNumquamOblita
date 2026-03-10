@@ -192,6 +192,23 @@ def test_run_oneclick_eval_script_skip_import(tmp_path: Path) -> None:
     assert int((gate_payload.get("quality") or {}).get("blocking_defect_cases") or 0) == 0
 
 
+def test_run_oneclick_eval_help_smoke() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/run_oneclick_eval.py",
+            "--help",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert "--max-non-led-regression-pct" in result.stdout
+
+
 def test_run_oneclick_eval_script_acceptance_gate_fail(tmp_path: Path) -> None:
     sqlite_path = tmp_path / "atoms.sqlite3"
     _build_store(sqlite_path)

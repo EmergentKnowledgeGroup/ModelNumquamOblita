@@ -250,3 +250,71 @@ def test_signoff_reasons_skip_episode_floor_without_episode_cases() -> None:
         limits={**_safe_limits(module), "min_episode_hit_rate": 0.95},
     )
     assert "episode_hit_rate_below_floor" not in reasons
+
+
+def test_signoff_reasons_prefer_acceptance_gate_metrics_when_present() -> None:
+    module = _load_module()
+    reasons = module._signoff_reasons(  # type: ignore[attr-defined]
+        eval_summary={
+            "false_memory_rate": 0.0,
+            "episode_false_recall_rate": 0.0,
+            "episode_hit_rate": 0.0,
+            "episode_supported_cases": 0,
+            "citation_hit_rate": 0.20,
+            "decision_accuracy": 1.0,
+            "retrieval_hit_rate": 0.20,
+            "abstain_precision": 1.0,
+            "routine_over_recall_rate": 0.0,
+            "p95_latency_ms": 1000.0,
+            "cases": 24,
+            "supported_cases": 17,
+            "unsupported_cases": 7,
+        },
+        load_summary={"latency_p95_ms": 1000.0, "turns": 12, "failed_turns": 0, "atoms": 414},
+        limits=_safe_limits(module),
+        acceptance_gate={
+            "decision": "PASS",
+            "safety_verdict": "PASS",
+            "human_quality_verdict": "PASS",
+            "metrics": {
+                "citation_hit_rate": 1.0,
+                "decision_accuracy": 1.0,
+                "retrieval_hit_rate": 1.0,
+                "abstain_precision": 1.0,
+                "false_memory_rate": 0.0,
+                "routine_over_recall_rate": 0.0,
+                "latency_p95_ms": 30.0,
+            },
+        },
+    )
+    assert "citation_hit_rate_below_floor" not in reasons
+    assert "retrieval_hit_rate_below_floor" not in reasons
+    assert "decision_accuracy_below_floor" not in reasons
+    assert reasons == []
+
+
+def test_acceptance_gate_reasons_fail_closed_on_missing_fields(tmp_path: Path) -> None:
+    module = _load_module()
+    reasons = module._acceptance_gate_reasons(  # type: ignore[attr-defined]
+        {"decision": "PASS", "safety_verdict": "PASS"},
+        readout_path=tmp_path / "missing.md",
+    )
+    assert reasons == ["acceptance_gate_missing_fields:human_quality_verdict"]
+
+
+def test_acceptance_gate_reasons_surface_verdict_failures(tmp_path: Path) -> None:
+    module = _load_module()
+    readout = tmp_path / "human_readout.md"
+    readout.write_text("# Human Readout\n", encoding="utf-8")
+    reasons = module._acceptance_gate_reasons(  # type: ignore[attr-defined]
+        {
+            "decision": "FAIL",
+            "safety_verdict": "PASS",
+            "human_quality_verdict": "FAIL",
+            "failures": ["blocking_defect_cases_exceeded"],
+            "quality": {"defect_case_count": 2, "top_failure_examples": []},
+        },
+        readout_path=readout,
+    )
+    assert "human_quality_verdict_not_pass" in reasons
+    assert "acceptance_gate_failure:blocking_defect_cases_exceeded" in reasons

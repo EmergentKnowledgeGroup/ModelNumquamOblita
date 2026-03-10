@@ -432,6 +432,12 @@ def main() -> int:
         default=None,
         help="Optional override for signoff load p95 latency gate (ms).",
     )
+    parser.add_argument(
+        "--max-weak-question-cases",
+        type=int,
+        default=0,
+        help="Maximum allowed weak judged-eval truthset questions before signoff fails.",
+    )
     parser.add_argument("--allow-empty", action="store_true", help="Allow zero-case eval exits")
     parser.add_argument("--fail-on-gate", action="store_true", help="Fail signoff command when gate decision is FAIL")
     args = parser.parse_args()
@@ -584,6 +590,7 @@ def main() -> int:
         signoff_cmd.extend(["--max-eval-p95-latency-ms", str(float(args.max_eval_p95_latency_ms))])
     if args.max_load_p95_latency_ms is not None:
         signoff_cmd.extend(["--max-load-p95-latency-ms", str(float(args.max_load_p95_latency_ms))])
+    signoff_cmd.extend(["--max-weak-question-cases", str(max(0, int(args.max_weak_question_cases)))])
     steps.append(_run_step("phase7_signoff", signoff_cmd, logs_dir / "04_signoff.log"))
 
     trust_regression: dict[str, Any] = {

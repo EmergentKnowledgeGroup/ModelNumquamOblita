@@ -162,6 +162,12 @@ def main() -> int:
         default=None,
         help="Optional override for signoff load p95 latency gate (ms).",
     )
+    parser.add_argument(
+        "--max-weak-question-cases",
+        type=int,
+        default=0,
+        help="Maximum allowed weak judged-eval truthset questions before signoff fails.",
+    )
     parser.add_argument("--allow-empty", action="store_true")
     parser.add_argument("--fail-on-gate", action="store_true")
     args = parser.parse_args()
@@ -259,6 +265,7 @@ def main() -> int:
         pilot_cmd.extend(["--max-eval-p95-latency-ms", str(float(args.max_eval_p95_latency_ms))])
     if args.max_load_p95_latency_ms is not None:
         pilot_cmd.extend(["--max-load-p95-latency-ms", str(float(args.max_load_p95_latency_ms))])
+    pilot_cmd.extend(["--max-weak-question-cases", str(max(0, int(args.max_weak_question_cases)))])
     if args.allow_empty:
         pilot_cmd.append("--allow-empty")
     if args.fail_on_gate:

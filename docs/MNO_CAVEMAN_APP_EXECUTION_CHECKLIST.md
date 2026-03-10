@@ -9,8 +9,8 @@ Status: Ready for implementation
 - Keep one implementation slice per PR.
 - Frontend tasks must explicitly include `use $frontend-design skill`.
 - Do not cross into:
-  - `engine/research/*`
-  - ANO/JX specs/boards
+  - removed document-research/add-on surfaces
+  - dedicated disconnect/spec governance docs
   - retrieval algorithm redesign unrelated to app-flow guardrails
 - Update checkpoints at:
   - phase start

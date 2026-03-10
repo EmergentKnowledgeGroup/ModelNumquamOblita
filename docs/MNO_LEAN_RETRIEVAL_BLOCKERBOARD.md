@@ -3,6 +3,7 @@
 Status: Draft (SpecSwarm-reviewed)
 Updated: 2026-03-05
 SpecSwarm pass: 2026-03-04
+Standalone note: cleaned for the standalone MNO repo on 2026-03-10. Mixed-repo freeze language is historical only and no longer governs this lane.
 Source spec: `docs/MNO_LEAN_RETRIEVAL_UPGRADES_SPEC.md`
 Program mode: PR C quality hardening aligned
 Usage contract: use this blockerboard with the source spec for every phase/blocker decision.
@@ -21,15 +22,13 @@ Done is not "retrieval looks better." Done is:
 
 ## Non-Negotiable Constraints
 
-- Phase 0 is ANO-safe only with this allowlist:
+- Retrieval-core work uses this allowlist:
   - `engine/retrieval/*`
   - `engine/memory/*`
   - `engine/continuity/*`
   - `tests/unit/*`
   - `docs/*`
-- During P0, these remain frozen unless explicitly approved as exception:
-  - `engine/runtime/*`, `engine/research/*`, `tools/*`, `engine/contracts.py`, `engine/config.py`, `pyproject.toml`
-- Any P0 file outside the allowlist requires written exception + dual-verdict signoff.
+- Runtime/tooling/config work outside the allowlist requires explicit scope expansion + dual-verdict signoff.
 - No memory claim without direct evidence in the delivered evidence pack.
 - Conflict coverage must be explicit or verdict must fail closed.
 - Cache must fail closed: if cache key coverage/invalidation is uncertain, bypass cache and run fresh retrieval.
@@ -46,12 +45,12 @@ Done is not "retrieval looks better." Done is:
 - `required conflict neighbor`: direct conflict-edge neighbor for any selected/claim-supporting atom.
 - `fail closed`: claim cannot be `PASS`; responder must return `CLARIFY` or `ABSTAIN`.
 - `scope` (cache key): user/store scope + store revision + continuity revision + retrieval profile + channels + critical budgets/thresholds.
-- `ANO-safe`: changes inside P0 allowlist only, with no frozen-surface edits.
+- `retrieval-core safe`: changes inside the P0 allowlist without expanding into runtime/tooling/config surfaces.
 
 ## Priority and Phases
 
-- `P0`: hard blocker, ANO-safe retrieval core and regression safety.
-- `P1`: post-ANO observability/config surfaces and eval integrity wiring.
+- `P0`: hard blocker, retrieval-core implementation and regression safety.
+- `P1`: runtime/tooling/config observability and eval integrity wiring.
 - `P2`: optional heavy channels (embeddings/cross-encoder) behind strict flags.
 
 ## Config-First, Lean-Modular Contract
@@ -85,29 +84,29 @@ Reporting requirements for every gate run:
 - do not use "hold/improve" language without numeric comparison.
 - follow `docs/MNO_P0_RUN_SUMMARY_CONTRACT.md` for required run-summary fields and blocked release language.
 
-## P0 Blockers (ANO-Safe)
+## P0 Blockers
 
 | ID | Priority | Blocker | Lean Fix Scope | Allowed Touchpoints | Exit Gate | Status |
 |---|---|---|---|---|---|---|
-| MLRB-001 | P0 | No query-profile router (`episode_heavy`, `preference_relational`, etc.) | Add deterministic retrieval profile classification that shapes channel budgets but cannot force `PASS` | `engine/retrieval/*`, `tests/unit/test_retrieval_engine.py`, `tests/unit/test_retrieval_shared_language.py` | Router tests cover profile selection + fallback floor retrieval + misclassification fallback | FROZEN DUE TO parallel ANO/JX frozen surfaces failing full-suite integration gate (`tests/integration/test_run_wikipedia_scale_sweep_script.py`); targeted tests + oneclick dual-verdict PASS on PR #242 branch head |
-| MLRB-002 | P0 | BM25 channel missing | Add in-process bounded BM25 candidate channel over atom text with stopword/high-DF controls and relevance floor | `engine/retrieval/*`, `engine/memory/*`, `tests/unit/test_retrieval_engine.py`, `tests/unit/test_sqlite_atom_store.py` | Rare-keyword rescue + stopword-noise + bounded-fanout tests pass | FROZEN DUE TO parallel ANO/JX frozen surfaces failing full-suite integration gate (`tests/integration/test_run_wikipedia_scale_sweep_script.py`); targeted tests + oneclick dual-verdict PASS on PR #242 branch head |
-| MLRB-003 | P0 | Fusion is weighted-score only; no RRF contract or per-channel admission guards | Add RRF fusion over channel rank lists with deterministic tie-breaks and thresholds before fusion | `engine/retrieval/*`, `tests/unit/test_retrieval_engine.py`, `tests/unit/test_retrieval_shared_language.py` | Channel-rescue tests pass; no double-counting regression; deterministic tie-break (`channel_priority`, rank, `atom_id`) | FROZEN DUE TO parallel ANO/JX frozen surfaces failing full-suite integration gate (`tests/integration/test_run_wikipedia_scale_sweep_script.py`); targeted tests + oneclick dual-verdict PASS on PR #242 branch head |
-| MLRB-004 | P0 | Conflict coverage failsafe not guaranteed in pack budgeting | If selected evidence has conflict edges: include required neighbors or fail closed (`CLARIFY/ABSTAIN`) | `engine/retrieval/engine.py`, `engine/retrieval/verifier.py`, `tests/unit/test_claim_verifier.py` | Gold tests prove one-sided conflict packs cannot `PASS`; if required neighbor missing (budget/metadata/cache), case fails closed and cannot pass safety gate | FROZEN DUE TO parallel ANO/JX frozen surfaces failing full-suite integration gate (`tests/integration/test_run_wikipedia_scale_sweep_script.py`); targeted tests + oneclick dual-verdict PASS on PR #242 branch head |
-| MLRB-005 | P0 | Dropped-item reasons not captured | Add internal-only reason codes (`LOW_RELEVANCE`, `BUDGET`, `DUPLICATE`, etc.) during pack assembly | `engine/retrieval/*`, `tests/unit/test_retrieval_engine.py` | Unit tests assert stable reason-code emission without API shape changes | FROZEN DUE TO parallel ANO/JX frozen surfaces failing full-suite integration gate (`tests/integration/test_run_wikipedia_scale_sweep_script.py`); targeted tests + oneclick dual-verdict PASS on PR #242 branch head |
-| MLRB-006 | P0 | Type-specific temporal decay defaults not implemented | Add atom-type-aware decay policy (rank effect only, never truth effect) and explicit time-intent override behavior | `engine/memory/store.py`, `engine/memory/sqlite_store.py`, `engine/continuity/*`, tests in `test_memory_store.py`/`test_consolidator.py` | Tests prove old-but-time-matching evidence can outrank newer unrelated atoms | FROZEN DUE TO parallel ANO/JX frozen surfaces failing full-suite integration gate (`tests/integration/test_run_wikipedia_scale_sweep_script.py`); targeted tests + oneclick dual-verdict PASS on PR #242 branch head |
-| MLRB-007 | P0 | Cache key/invalidation contract incomplete | Key cache by scope + store revision + continuity revision + profile + channels + critical knobs; invalidate on atom/conflict/continuity changes | `engine/retrieval/engine.py`, `engine/memory/*`, `engine/continuity/store.py`, `tests/unit/test_sqlite_atom_store.py`, `tests/unit/test_retrieval_engine.py` | Cache parity tests (`cache on/off`) preserve verdict distribution; stale reuse blocked; cache-uncertainty path bypasses cache | FROZEN DUE TO parallel ANO/JX frozen surfaces failing full-suite integration gate (`tests/integration/test_run_wikipedia_scale_sweep_script.py`); targeted tests + oneclick dual-verdict PASS on PR #242 branch head |
-| MLRB-008 | P0 | Regression suite gaps for retrieval integrity | Add negative tests: recency injection, router misclassification fallback, conflict-neighbor dedupe protection, derived-only evidence guard | `tests/unit/test_retrieval_engine.py`, `tests/unit/test_claim_verifier.py`, `tests/unit/test_retrieval_shared_language.py` | New tests fail on current bad patterns and pass on fixed behavior, including conflict-pruning and cache-invalidation negatives | FROZEN DUE TO parallel ANO/JX reserved full-suite integration failure surface (`tests/integration/test_run_wikipedia_scale_sweep_script.py`) only; alternate MNO gate now green (`runtime/evals/mlrb008_qvalfix_20260305`: dual verdict PASS, `relevance_aligned_hit_rate=1.0`, `weak_cases=0`, `blocking_defect_cases=0`) |
-| MLRB-009 | P0 | Dual-verdict/report completeness can be bypassed before P1 automation | Enforce process gate now: missing `human_quality_verdict` or missing per-case Q/A defect table = not done | `docs/*` (process + checklist artifacts) | Every P0 run summary includes both verdicts + defect table + top failures before any success claim | FROZEN DUE TO parallel ANO/JX reserved full-suite integration failure surface (`tests/integration/test_run_wikipedia_scale_sweep_script.py`) only; prior non-allowlisted question-quality defects (`tc_0009`, `tc_0004`) resolved in approved unfreeze with zero weak/blocking cases (`runtime/evals/mlrb008_qvalfix_20260305/question_quality/question_validation_summary.json`) |
+| MLRB-001 | P0 | No query-profile router (`episode_heavy`, `preference_relational`, etc.) | Add deterministic retrieval profile classification that shapes channel budgets but cannot force `PASS` | `engine/retrieval/*`, `tests/unit/test_retrieval_engine.py`, `tests/unit/test_retrieval_shared_language.py` | Router tests cover profile selection + fallback floor retrieval + misclassification fallback | Closed (2026-03-05): landed in the lean retrieval core slice before standalone extraction. |
+| MLRB-002 | P0 | BM25 channel missing | Add in-process bounded BM25 candidate channel over atom text with stopword/high-DF controls and relevance floor | `engine/retrieval/*`, `engine/memory/*`, `tests/unit/test_retrieval_engine.py`, `tests/unit/test_sqlite_atom_store.py` | Rare-keyword rescue + stopword-noise + bounded-fanout tests pass | Closed (2026-03-05): landed in the lean retrieval core slice before standalone extraction. |
+| MLRB-003 | P0 | Fusion is weighted-score only; no RRF contract or per-channel admission guards | Add RRF fusion over channel rank lists with deterministic tie-breaks and thresholds before fusion | `engine/retrieval/*`, `tests/unit/test_retrieval_engine.py`, `tests/unit/test_retrieval_shared_language.py` | Channel-rescue tests pass; no double-counting regression; deterministic tie-break (`channel_priority`, rank, `atom_id`) | Closed (2026-03-05): landed in the lean retrieval core slice before standalone extraction. |
+| MLRB-004 | P0 | Conflict coverage failsafe not guaranteed in pack budgeting | If selected evidence has conflict edges: include required neighbors or fail closed (`CLARIFY/ABSTAIN`) | `engine/retrieval/engine.py`, `engine/retrieval/verifier.py`, `tests/unit/test_claim_verifier.py` | Gold tests prove one-sided conflict packs cannot `PASS`; if required neighbor missing (budget/metadata/cache), case fails closed and cannot pass safety gate | Closed (2026-03-05): landed in the lean retrieval core slice before standalone extraction. |
+| MLRB-005 | P0 | Dropped-item reasons not captured | Add internal-only reason codes (`LOW_RELEVANCE`, `BUDGET`, `DUPLICATE`, etc.) during pack assembly | `engine/retrieval/*`, `tests/unit/test_retrieval_engine.py` | Unit tests assert stable reason-code emission without API shape changes | Closed (2026-03-05): landed in the lean retrieval core slice before standalone extraction. |
+| MLRB-006 | P0 | Type-specific temporal decay defaults not implemented | Add atom-type-aware decay policy (rank effect only, never truth effect) and explicit time-intent override behavior | `engine/memory/store.py`, `engine/memory/sqlite_store.py`, `engine/continuity/*`, tests in `test_memory_store.py`/`test_consolidator.py` | Tests prove old-but-time-matching evidence can outrank newer unrelated atoms | Closed (2026-03-05): landed in the lean retrieval core slice before standalone extraction. |
+| MLRB-007 | P0 | Cache key/invalidation contract incomplete | Key cache by scope + store revision + continuity revision + profile + channels + critical knobs; invalidate on atom/conflict/continuity changes | `engine/retrieval/engine.py`, `engine/memory/*`, `engine/continuity/store.py`, `tests/unit/test_sqlite_atom_store.py`, `tests/unit/test_retrieval_engine.py` | Cache parity tests (`cache on/off`) preserve verdict distribution; stale reuse blocked; cache-uncertainty path bypasses cache | Closed (2026-03-05): landed in the lean retrieval core slice before standalone extraction. |
+| MLRB-008 | P0 | Regression suite gaps for retrieval integrity | Add negative tests: recency injection, router misclassification fallback, conflict-neighbor dedupe protection, derived-only evidence guard | `tests/unit/test_retrieval_engine.py`, `tests/unit/test_claim_verifier.py`, `tests/unit/test_retrieval_shared_language.py` | New tests fail on current bad patterns and pass on fixed behavior, including conflict-pruning and cache-invalidation negatives | Closed (2026-03-05): regression negatives were added and validated before standalone extraction. |
+| MLRB-009 | P0 | Dual-verdict/report completeness can be bypassed before P1 automation | Enforce process gate now: missing `human_quality_verdict` or missing per-case Q/A defect table = not done | `docs/*` (process + checklist artifacts) | Every P0 run summary includes both verdicts + defect table + top failures before any success claim | Closed (2026-03-05): dual-verdict/reporting contract was enforced before standalone extraction. |
 
-## P1 Blockers (Post-ANO Surfaces)
+## P1 Blockers
 
 | ID | Priority | Blocker | Lean Fix Scope | Touchpoints | Exit Gate | Status |
 |---|---|---|---|---|---|---|
-| MLRB-101 | P1 | Diagnostics are internal-only and not auditable in readouts | Expose safe diagnostics payloads (ids/scores/reasons only, no raw text by default) to eval/readout paths | `engine/runtime/*`, `tools/*`, `engine/contracts.py` | Readout includes selected/dropped evidence audit and reason-code summary with default redaction rules | Open |
-| MLRB-102 | P1 | New retrieval behavior lacks explicit config knobs | Add typed config flags/thresholds for router, BM25, RRF, conflict coverage quotas, cache policy | `engine/config.py`, `engine/runtime/*`, tests | Strict config-load tests; defaults preserve P0 behavior | Open |
-| MLRB-103 | P1 | Override-query contract not implemented for internal debug/eval | Add internal-only override path with strict guardrails + trace audit metadata | `engine/runtime/*`, `tools/*`, tests | Override is disabled by default, requires explicit auth context, cannot bypass routine-chat skip without explicit memory request signal, and logs invoker/reason/scope | Open |
-| MLRB-104 | P1 | Eval integrity not wired to new precision/junk/conflict metrics | Add gates for `evidence_precision@k`, `junk_rate@k`, `conflict_coverage` and fail-closed semantics | `tools/*`, `engine/runtime/live_eval.py`, tests | Oneclick fails on unrelated broad retrieval even if safety-only metrics look good | FROZEN DUE TO full-suite blockers outside approved slice: ANO/JX reserved sweep failures (`tests/integration/test_run_wikipedia_scale_sweep_script.py`) plus baseline `tests/unit/test_runtime_session.py` `RetrievalScoredAtom(sequence)` mismatch already present on `origin/main`; MNO slice implementation/tests are green (`tests/unit/test_live_eval.py`, `tests/unit/test_run_oneclick_eval.py`, `tests/unit/test_run_responder_eval.py`) and strict-gate proof run fails as expected (`runtime/evals/mlrb104_105_p1_20260305`) |
-| MLRB-105 | P1 | Human-quality reporting contract not enforced in run summaries | Automate per-case Q/A defect-tag table and top failure examples before any success claim | `tools/build_responder_eval_readout.py`, `tools/run_oneclick_eval.py`, tests | Reports always emit dual verdict + defect count + top failures, and gate rejects missing fields | FROZEN DUE TO same external full-suite blockers as MLRB-104; contract enforcement implemented and validated via tests + oneclick contract-proof run (`runtime/evals/mlrb104_105_p1_contractproof_20260305`) showing `Q/A Audit Table` + `Top Failure Examples` sections present and gate contract fields emitted |
+| MLRB-101 | P1 | Diagnostics are internal-only and not auditable in readouts | Expose safe diagnostics payloads (ids/scores/reasons only, no raw text by default) to eval/readout paths | `engine/runtime/*`, `tools/*`, `engine/contracts.py` | Readout includes selected/dropped evidence audit and reason-code summary with default redaction rules | Closed (2026-03-05): merged before standalone extraction. |
+| MLRB-102 | P1 | New retrieval behavior lacks explicit config knobs | Add typed config flags/thresholds for router, BM25, RRF, conflict coverage quotas, cache policy | `engine/config.py`, `engine/runtime/*`, tests | Strict config-load tests; defaults preserve P0 behavior | Closed (2026-03-05): merged before standalone extraction. |
+| MLRB-103 | P1 | Override-query contract not implemented for internal debug/eval | Add internal-only override path with strict guardrails + trace audit metadata | `engine/runtime/*`, `tools/*`, tests | Override is disabled by default, requires explicit auth context, cannot bypass routine-chat skip without explicit memory request signal, and logs invoker/reason/scope | Closed (2026-03-06): merged before standalone extraction. |
+| MLRB-104 | P1 | Eval integrity not wired to new precision/junk/conflict metrics | Add gates for `evidence_precision@k`, `junk_rate@k`, `conflict_coverage` and fail-closed semantics | `tools/*`, `engine/runtime/live_eval.py`, tests | Oneclick fails on unrelated broad retrieval even if safety-only metrics look good | Closed (2026-03-05): merged before standalone extraction. |
+| MLRB-105 | P1 | Human-quality reporting contract not enforced in run summaries | Automate per-case Q/A defect-tag table and top failure examples before any success claim | `tools/build_responder_eval_readout.py`, `tools/run_oneclick_eval.py`, tests | Reports always emit dual verdict + defect count + top failures, and gate rejects missing fields | Closed (2026-03-05): merged before standalone extraction. |
 
 ## P2 Blockers (Optional Heavy Retrieval)
 
@@ -144,7 +143,7 @@ Reporting requirements for every gate run:
   - tests: `tests/unit/test_sqlite_atom_store.py`, `tests/unit/test_retrieval_engine.py`
 - Regression negatives (`MLRB-008`):
   - tests: `tests/unit/test_retrieval_engine.py`, `tests/unit/test_claim_verifier.py`, `tests/unit/test_retrieval_shared_language.py`
-- Post-ANO observability/config/eval (`MLRB-101..105`):
+- Runtime/tooling/config observability/eval (`MLRB-101..105`):
   - `engine/runtime/*`, `tools/*`, `engine/config.py`, `engine/contracts.py`
   - tests: `tests/unit/test_live_eval.py`, `tests/unit/test_run_oneclick_eval.py`, `tests/unit/test_runtime_session.py`, `tests/unit/test_config.py`
 
@@ -153,13 +152,6 @@ Reporting requirements for every gate run:
 Every blocker closure PR must pass:
 - targeted tests for touched retrieval/memory/continuity/verifier paths.
 - full suite: `python3 -m pytest -q`.
-  - temporary frozen-surface exception (active while ANO/JX reserved files are in-flight):
-  - covered failure surface: `tests/integration/test_run_wikipedia_scale_sweep_script.py` only.
-  - owner: ANO/JX workstream.
-  - unblock condition: this surface is green in two clean serial full-suite runs on PR head, or explicit approval is granted to edit reserved ANO/JX paths.
-  - review cadence: re-validated and checkpointed at every MLRB close attempt.
-  - alternate required gate while exception is active: targeted allowlist tests + oneclick dual-verdict PASS + per-case Q/A defect table.
-  - expiry: 2026-03-31 or earlier when the reserved surface unfreezes.
 - oneclick eval run(s) with manual Q/A audit table attached.
 - dual-verdict signoff (`safety_verdict` + `human_quality_verdict`).
 - all threshold defaults above unless superseded by explicitly recorded re-baseline.

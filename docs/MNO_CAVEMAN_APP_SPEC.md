@@ -118,10 +118,10 @@ Every blocking issue found in those passes must be folded into the main body of 
 
 ### Out of scope
 
-- ANO research features
-- ANO connector/governance/indexing flows
+- removed document-research/add-on features
+- connector/governance/indexing flows that are outside standalone MNO
 - retrieval-quality redesign unrelated to app flow
-- large backend architecture split between ANO/MNO
+- large backend architecture split work that belongs in the dedicated disconnect program
 - new model/provider work unrelated to app UX
 
 ## No-Touch / Boundary Rules
@@ -139,9 +139,9 @@ Every blocking issue found in those passes must be folded into the main body of 
 
 ### No-touch surfaces
 
-- `engine/research/*`
-- ANO/JX specs/boards unless explicitly coordinated
-- ANO enterprise/scale harnesses
+- removed document-research/add-on surfaces
+- dedicated disconnect/spec-governance docs unless explicitly coordinated
+- enterprise/scale harnesses outside standalone MNO
 - retrieval algorithm changes unless the app spec calls for a minimal validation guard
 
 ## Existing Assets To Reuse
@@ -871,7 +871,7 @@ Must support all of these:
 
 - tied the spec to `engine/runtime/ui/*`, `engine/runtime/server.py`, `engine/runtime/session.py`, `tools/run_mcp_connector_gui.py`, `tools/mcp_connector_common.py`, and packaging surfaces
 - added explicit regression tests and integration test lanes
-- reinforced no-touch boundaries on ANO/JX and retrieval algorithm redesign
+- reinforced standalone-boundary limits and retrieval algorithm redesign constraints
 
 ### Pass 3: Final QA review folded in
 

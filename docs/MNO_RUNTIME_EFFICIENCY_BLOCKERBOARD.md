@@ -2,6 +2,7 @@
 
 Status: Draft (SpecSwarm-reviewed)
 Updated: 2026-03-05
+Standalone note: cleaned for the standalone MNO repo on 2026-03-10. Mixed-repo freeze language is historical only and no longer governs this lane.
 Source spec: `docs/MNO_RUNTIME_EFFICIENCY_SPEC.md`
 Related quality tracker: `docs/MNO_LEAN_RETRIEVAL_BLOCKERBOARD.md`
 Usage contract: every phase/task decision must reference both this blockerboard and the source spec.
@@ -27,24 +28,17 @@ Done is not “faster once.” Done is:
 - Token/latency gains cannot be claimed from unstable runs (variance > 10% is fail).
 - Missing/non-finite required metrics are automatic fail.
 - Token budget breach is automatic stop-ship.
-- Frozen-surface exceptions must be logged as `FROZEN DUE TO [REASON]` with blocker link + waiver note.
+- Any future standalone-boundary waiver must be logged explicitly with blocker link + waiver note.
 
 ## Status Semantics
 
-- `FROZEN DUE TO ...` means required surfaces are locked/reserved and cannot be edited without explicit unfreeze approval.
+- `FROZEN DUE TO ...` means a surface is intentionally outside the standalone MNO lane and requires a separate scope decision.
 - `BLOCKED DUE TO ...` means work is not complete because a gate/dependency is failing, but surfaces are still editable.
 - `Closed (...)` means implementation + required gate workflow are complete.
 
-## Frozen and Allowlisted Surfaces
+## Standalone Boundary and Allowlisted Surfaces
 
-Default frozen (no-touch unless explicit unfreeze):
-- `engine/research/*`
-- `tools/run_wikipedia_dump_connector_eval.py`
-- `tools/run_wikipedia_scale_sweep.py`
-- `tools/run_with_scale_supervisor.py`
-- `tools/scale_safety_artifact_gate.py`
-- `tests/integration/test_run_wikipedia_scale_sweep_script.py`
-- related ANO/JX heavy-path integration surfaces
+Removed document-research/add-on surfaces are excluded from this standalone repo by construction.
 
 Default allowlist:
 - `engine/retrieval/*`
@@ -125,7 +119,7 @@ Required artifacts:
 - dual-verdict evaluation run.
 - required readout sections present.
 - full-suite status reported.
-- if only frozen ANO/JX failures exist, classify as `FROZEN DUE TO [REASON]` and continue.
+- any full-suite failure in the standalone repo is a blocker.
 - CodeRabbit workflow complete with gate result `actionable=0`.
 
 ## Baseline Artifact Link

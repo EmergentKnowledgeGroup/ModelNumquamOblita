@@ -6,7 +6,7 @@ Replace the current browser-hosted MCP connector control panel with a real self-
 ## Why This Needs A Spec
 The current connector solved install/config plumbing, but it missed the user-facing requirement. Opening a localhost website is not a desktop GUI. It also forces manual path typing, exposes jargon without help text, and does not feel like a finished tool.
 
-This spec defines a narrow MNO-only redesign for the connector UX. It does not change ANO research surfaces, retrieval behavior, or MCP runtime semantics.
+This spec defines a narrow MNO-only redesign for the connector UX. It does not change removed document-research/add-on surfaces, retrieval behavior, or MCP runtime semantics.
 
 ## Root Cause
 The current implementation is a pure-Python stdlib browser panel because the WSL Python runtime used for development does not have a native GUI toolkit available. That led to a web page wrapper around valid installer logic.
@@ -31,7 +31,7 @@ The finished tool must satisfy all of these:
 ## Non-Goals
 - No browser-hosted control panel as the primary GUI.
 - No Electron/Tauri/PySide packaging phase in P0.
-- No changes to retrieval quality, runtime memory behavior, or ANO research code.
+- No changes to retrieval quality, runtime memory behavior, or removed document-research/add-on code.
 - No auto-install of Python/tooling outside the repo.
 - No silent mutation enablement.
 
@@ -67,8 +67,8 @@ Keep business logic in shared MNO-only modules so GUI code is mostly presentatio
 - matching unit tests under `tests/unit/`
 
 ### No touch
-- `engine/research/*`
-- ANO/JX blockerboard/spec docs
+- removed document-research/add-on surfaces
+- dedicated disconnect/spec-governance docs
 - retrieval/session semantics unrelated to connector install/export UX
 - MCP server behavior outside additive config/launcher wiring
 
@@ -320,9 +320,9 @@ If the native GUI path introduces instability:
 - `docs/guides/MCP_CONNECTOR_GUI.md`
 - `docs/guides/CLAUDE_MCP_QUICKSTART.md`
 
-### Forbidden / POST_ANO
-- `engine/research/*`
-- ANO/JX blockerboards/specs
+### Forbidden / Later Scope
+- removed document-research/add-on surfaces
+- dedicated disconnect/spec-governance docs
 - unrelated runtime/retrieval/session code
 
 ## Open Questions To Resolve In Spec Review

@@ -2,6 +2,7 @@
 
 Version: 2026-03-04 (design-only)
 Status: Draft
+Standalone note: imported into the standalone MNO repo on 2026-03-10. Historical mixed-repo freeze language is superseded by the standalone boundary rule below.
 Execution companion: `docs/MNO_LEAN_RETRIEVAL_BLOCKERBOARD.md` (phase/blocker tracker)
 
 ## 0. What This Is
@@ -27,29 +28,13 @@ These terms are used in a strict way in this spec:
 - Explicit memory request signal: a user turn that clearly asks for “remember/recall/previously/last time/what did we decide”.
 - Store revision token: a value that changes whenever the store state changes in a way that affects retrieval.
 
-## 0.2 ANO Protection Rule (No Cross-Plumbing Changes)
+## 0.2 Standalone Boundary Rule (No Cross-Plumbing Reintroduction)
 
-There is active, major top-level work in progress on **ANO**. During that development cycle, edits to shared runtime/API/tooling “cross-plumbing” can cause merge conflicts and disrupt the ANO workstream.
+This standalone repo already excludes the removed document-research/add-on lane. Lean retrieval work should stay inside the MNO retrieval/memory/continuity/runtime surfaces that remain in this repo.
 
-This spec must therefore be implementable in an **ANO-safe Phase 0** with a hard no-touch boundary. Any PR based on this spec MUST either:
-- be **Phase 0 (ANO-safe)** and only touch the allowed file zones below, or
-- be explicitly approved as **post-ANO** work that is allowed to touch cross-plumbing.
+### 0.2.1 Retrieval-Core Safe File Zones
 
-### 0.2.1 Frozen (No-Touch) File Zones During ANO Cycle
-
-Do not modify these files/directories in any Phase 0 work:
-- `engine/runtime/*` (all runtime surfaces, including server/adapters/ui/session/ANO incremental)
-- `engine/research/*` (all ANO research stack)
-- `tools/*` (all tooling; ANO gates and build scripts live here)
-- `engine/contracts.py` (shared contract surface)
-- `engine/config.py` (shared config surface)
-- `pyproject.toml` (dependencies)
-
-If a proposed change would require touching any frozen zone, it is deferred to a later phase.
-
-### 0.2.2 Allowed File Zones (Phase 0 / ANO-safe)
-
-Phase 0 work is allowed to modify only:
+Retrieval-core work is allowed to modify only:
 - `engine/retrieval/*`
 - `engine/memory/*`
 - `engine/continuity/*`
@@ -57,14 +42,14 @@ Phase 0 work is allowed to modify only:
 - `tests/unit/*` (MNO-focused unit tests only)
 - `docs/*` (this spec + related docs)
 
-### 0.2.3 Phase 0 Constraints (How To Stay ANO-safe)
+### 0.2.2 Standalone Boundary Constraints
 
-To stay inside the Phase 0 boundary:
+To keep the standalone lane clean:
 - Do not add new dependencies or optional deps (no `pyproject.toml` edits).
 - Do not add new API fields or response shapes (no adapters/server edits).
 - Do not add new top-level config knobs (no `engine/config.py` edits).
 - Do not change shared dataclass contracts used across runtime boundaries (no `engine/contracts.py` edits).
-- Keep diagnostics internal-only until post-ANO phases.
+- Keep diagnostics internal-only until the runtime/tooling phase explicitly needs them.
 
 ## 1. Background (Why Upgrade)
 
@@ -93,7 +78,7 @@ We want the **benefits**, without importing HippocampAI’s large platform footp
 - Service verdict remains authoritative and **fail-closed**.
 - Conflicts remain preserved (no “newest wins” deletion by default).
 - Changes must not create a path where unrelated retrieval can pass the gates.
-- During the active ANO development cycle, Phase 0 implementations must respect the **No Cross-Plumbing Changes** boundary (see 0.2).
+- Phase 0 implementations must respect the standalone boundary rule in section 0.2.
 
 ### Soft goals (strongly preferred)
 - Better recall under paraphrase and noisy queries.
@@ -133,7 +118,7 @@ We want the **benefits**, without importing HippocampAI’s large platform footp
   - which retrieval channels to run (see 4.2–4.3),
   - channel budgets (top-Ks),
   - Phase 0: only shapes retrieval once LTM retrieval is already invoked (no runtime gating changes),
-  - Post-ANO: may influence “do we even query LTM” decisions (still respecting routine-chat skip rules).
+  - Runtime/tooling: may influence “do we even query LTM” decisions (still respecting routine-chat skip rules).
 
 **Safety constraints**
 - Router can only reduce/shape search; it cannot force `PASS`.
@@ -141,7 +126,7 @@ We want the **benefits**, without importing HippocampAI’s large platform footp
   - it means “still run a minimal relevance-gated baseline retrieval (lexical/BM25),”
   - it does not mean “inject something so the pack is non-empty,”
   - the minimal baseline retrieval may return empty, and that is acceptable.
-- Retrieval override query semantics (post-ANO; optional) must be strict:
+- Retrieval override query semantics (runtime/tooling; optional) must be strict:
   - override query MUST NOT be user-provided text,
   - override query is accepted only via internal debug/eval interfaces behind a flag,
   - override query MUST NOT change routine-chat skip behavior unless an explicit memory request signal is present,
@@ -152,9 +137,9 @@ We want the **benefits**, without importing HippocampAI’s large platform footp
 - Less irrelevant retrieval = fewer chances to accidentally support the wrong thing.
 - Lower cost/latency by avoiding unnecessary channels.
 
-**Phase 0 (ANO-safe) note**
+**Phase 0 (retrieval-core safe) note**
 - Do not modify `engine/runtime/*`. Implement routing as an internal retrieval profile inside `engine/retrieval/*`.
-- Any routing behavior that requires runtime/server/adapters/tooling support is post-ANO.
+- Any routing behavior that requires runtime/server/adapters/tooling support is runtime/tooling.
 
 ### 4.1.1 Conflict Coverage Failsafe (Do Not Hide Contradictions)
 
@@ -181,9 +166,9 @@ This rule exists to prevent “one-sided evidence packs” from producing confid
 - Must be in-process and bounded.
 - Must have a clean invalidation story when the store changes.
 
-**Phase 0 (ANO-safe) note**
+**Phase 0 (retrieval-core safe) note**
 - Do not introduce new config keys for BM25 during Phase 0 (no `engine/config.py` edits).
-- Use existing retrieval budgets for initial constraints (top-k + rerank limits) and tune later post-ANO.
+- Use existing retrieval budgets for initial constraints (top-k + rerank limits) and tune later runtime/tooling.
 
 **Quality guardrails**
 - Tokenization must downweight or ignore very common terms (stopwords / high document-frequency tokens).
@@ -243,10 +228,10 @@ This rule exists to prevent “one-sided evidence packs” from producing confid
   - “Why this answer?” payload,
   - eval artifacts.
 
-**Phase 0 (ANO-safe) note**
+**Phase 0 (retrieval-core safe) note**
 - Do not add new API payload fields or “Why this answer?” endpoints during Phase 0 (no server/adapters edits).
 - Do not update readout tooling during Phase 0 (no `tools/*` edits).
-- Diagnostics may exist only as internal debug data (e.g., in-memory for unit tests) until post-ANO.
+- Diagnostics may exist only as internal debug data (e.g., in-memory for unit tests) until runtime/tooling.
 
 **Safety constraints**
 - This is observability only. No new path to “PASS”.
@@ -298,7 +283,7 @@ This rule exists to prevent “one-sided evidence packs” from producing confid
   - recent retrieval results per (query, store_revision, profile).
 - Cache must invalidate safely when store contents change.
 
-**Phase 0 (ANO-safe) note**
+**Phase 0 (retrieval-core safe) note**
 - Keep caches fully in-process and MNO-only.
 - Avoid introducing new config keys for cache sizing/TTL during Phase 0; use conservative internal defaults and validate with unit tests.
 
@@ -339,8 +324,8 @@ These can improve recall but add dependencies and complexity. Only do them after
 - Prefer local/in-process storage for MVP (avoid introducing a mandatory vector DB).
 - Must define a re-embed / migration plan when the embedding model changes, otherwise eval integrity becomes unstable.
 
-**Phase 0 (ANO-safe) note**
-- This section is explicitly post-ANO because it requires dependency work (`pyproject.toml`) and likely new config knobs.
+**Phase 0 (retrieval-core safe) note**
+- This section is explicitly runtime/tooling because it requires dependency work (`pyproject.toml`) and likely new config knobs.
 
 **Safety constraints**
 - Embeddings only help candidate discovery; evidence requirements unchanged.
@@ -358,8 +343,8 @@ These can improve recall but add dependencies and complexity. Only do them after
 - Must not increase retrieval fanout. It reorders, it does not expand.
 - Must pin model versions in config and document how changes are validated (to avoid silent ranking drift).
 
-**Phase 0 (ANO-safe) note**
-- This section is explicitly post-ANO because it typically requires dependency/config work and introduces ranking drift risk if not tightly pinned and evaluated.
+**Phase 0 (retrieval-core safe) note**
+- This section is explicitly runtime/tooling because it typically requires dependency/config work and introduces ranking drift risk if not tightly pinned and evaluated.
 
 **Safety constraints**
 - Reranker does not count as evidence; it is ranking only.
@@ -409,11 +394,11 @@ Key invariants:
 ## 8. Rollout Strategy (Don’t Break Production)
 
 Phase approach (recommended):
-1. Phase 0 (ANO-safe): retrieval-only changes inside allowed zones (0.2.2).
-2. Post-ANO: surface observability (diagnostics payloads + readouts + stable “why” output) if desired.
-3. Post-ANO: add new config knobs if needed (budgets/thresholds/feature flags).
-4. Post-ANO: optional embeddings channel.
-5. Post-ANO: optional cross-encoder reranker.
+1. Phase 0 (retrieval-core safe): retrieval-only changes inside allowed zones (0.2.2).
+2. Runtime/tooling: surface observability (diagnostics payloads + readouts + stable “why” output) if desired.
+3. Runtime/tooling: add new config knobs if needed (budgets/thresholds/feature flags).
+4. Runtime/tooling: optional embeddings channel.
+5. Runtime/tooling: optional cross-encoder reranker.
 
 Each phase ships behind flags and is gated by the existing acceptance harness and human-quality readouts.
 - Never declare “green” unless both `safety_verdict` and `human_quality_verdict` pass.
@@ -444,7 +429,7 @@ Risk: Dependency bloat (BM25/embeddings/rerank).
 
 This appendix is a “where it likely plugs in” map to speed implementation later. It is not a design requirement and does not prescribe exact code structure.
 
-### Appendix A.1 Phase 0 (ANO-safe) Touchpoints (Allowed)
+### Appendix A.1 Phase 0 (retrieval-core safe) Touchpoints (Allowed)
 
 Allowed zones are defined in 0.2.2. The intent is: retrieval improvements are implemented without touching runtime server/adapters, tooling, shared contracts/config, or dependencies.
 
@@ -484,11 +469,11 @@ Allowed zones are defined in 0.2.2. The intent is: retrieval improvements are im
 - Primary: `engine/retrieval/verifier.py`, `engine/retrieval/engine.py`
 - Related tests: `tests/unit/test_claim_verifier.py`
 
-### Appendix A.2 Post-ANO Touchpoints (Frozen in Phase 0)
+### Appendix A.2 Runtime/tooling Touchpoints (Frozen in Phase 0)
 
-These files are valid touchpoints for later phases, but are explicitly frozen during the ANO cycle (0.2.1):
-- `engine/runtime/*` (API payloads, adapters, UI, runtime session, ANO incremental pipeline)
-- `engine/research/*` (ANO research stack)
+These files are valid touchpoints for later phases, but are explicitly frozen during the standalone lane (0.2.1):
+- `engine/runtime/*` (API payloads, adapters, UI, runtime session, prior mixed-repo incremental surface)
+- removed document-research/add-on surfaces
 - `tools/*` (readouts, gates, runners)
 - `engine/contracts.py` (shared contracts)
 - `engine/config.py` (shared config knobs)

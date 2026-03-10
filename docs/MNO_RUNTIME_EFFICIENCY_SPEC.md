@@ -2,6 +2,7 @@
 
 Version: 2026-03-04 (specswarm fully integrated)
 Status: Draft (execution-ready)
+Standalone note: imported into the standalone MNO repo on 2026-03-10. Historical mixed-repo freeze language is superseded by the standalone boundary rules below.
 Execution companion: `docs/MNO_RUNTIME_EFFICIENCY_BLOCKERBOARD.md` (generated from this spec)
 Related quality spec: `docs/MNO_LEAN_RETRIEVAL_UPGRADES_SPEC.md`
 Related quality tracker: `docs/MNO_LEAN_RETRIEVAL_BLOCKERBOARD.md`
@@ -29,7 +30,7 @@ This is separate from retrieval-quality hardening. Efficiency never overrides tr
 ## 0.2 Non-Goals
 
 - No weakening of verifier/evidence requirements for speed.
-- No ANO/JX heavy-path edits unless explicitly approved.
+- No reintroduction of removed document-research/add-on lane surfaces in this program.
 - No dependency-heavy retrieval channels in this program.
 
 ## 0.3 Definitions (Normative)
@@ -48,34 +49,19 @@ This is separate from retrieval-quality hardening. Efficiency never overrides tr
 - Every phase update must reference both docs.
 - Material spec changes require same-PR blockerboard sync.
 
-## 0.5 Unfreeze and Waiver Protocol (Required)
+## 0.5 Standalone Boundary Rule (Required)
 
-For any file outside current allowlist:
-1. propose exact file list,
-2. provide reason/scope/test plan,
-3. get explicit written approve/deny,
-4. record approval constraints in blockerboard.
+This standalone repo excludes the removed document-research/add-on lane by construction.
 
-Frozen-surface exceptions in test reporting require:
-- `FROZEN DUE TO [REASON]` classification,
-- linked blockerboard entry,
-- explicit run-summary waiver note,
-- confirmation that safety and human-quality gates are still green.
+If a future change would reintroduce any removed surface:
+1. propose the exact file list,
+2. explain why standalone MNO still needs it,
+3. provide the regression plan,
+4. record the scope explicitly in the blockerboard before implementation.
 
-## 1. Constraints and Frozen Boundaries
+## 1. Constraints and Primary Surfaces
 
-### 1.1 ANO/JX Frozen Surfaces (Default No-Touch)
-
-Do not edit unless explicitly approved:
-- `engine/research/*`
-- `tools/run_wikipedia_dump_connector_eval.py`
-- `tools/run_wikipedia_scale_sweep.py`
-- `tools/run_with_scale_supervisor.py`
-- `tools/scale_safety_artifact_gate.py`
-- `tests/integration/test_run_wikipedia_scale_sweep_script.py`
-- related ANO/JX heavy-path integration surfaces
-
-### 1.2 Default MNO Allowlist
+The standalone repo no longer ships the removed document-research lane. The active surfaces for this program are:
 
 Primary implementation zones:
 - `engine/retrieval/*`
@@ -84,14 +70,14 @@ Primary implementation zones:
 - `tests/unit/*`
 - `docs/*`
 
-Conditionally approved runtime/eval zones (P1/P2 only, and only when unfrozen):
+Conditionally approved runtime/eval zones (P1/P2 only):
 - `engine/runtime/live_eval.py`
 - `tools/run_responder_eval.py`
 - `tools/run_oneclick_eval.py`
 - `tools/build_responder_eval_readout.py`
 - matching unit tests only
 
-### 1.3 Safety-First Contract
+### 1.1 Safety-First Contract
 
 - Never claim PASS/green unless both verdicts pass.
 - Never relax evidence alignment checks for performance.
@@ -206,7 +192,7 @@ Candidate work:
 
 P0 constraints:
 - no `engine/config.py` or `engine/contracts.py` edits,
-- no ANO/JX frozen-surface edits,
+- no reintroduction of removed document-research/add-on surfaces,
 - no unfreeze overrides outside section 1.2 primary allowlist,
 - no external output shape changes,
 - no verdict semantic changes,
@@ -269,7 +255,7 @@ Candidate work:
 P1 constraints:
 - touch only explicitly approved files,
 - no retrieval-loop/session behavior changes unless explicitly approved,
-- no ANO/JX heavy-path edits,
+- no reintroduction of removed document-research/add-on surfaces,
 - unfreeze approval must be logged in blockerboard with file-level constraints.
 
 Required readout sections for PASS eligibility:
@@ -320,11 +306,10 @@ Mandatory gate validity checks for all phases:
 - gate fails closed on missing data.
 - all phase-gate decisions are based on median-of-3 runs from section 2.2.
 
-Full-suite exception policy:
-- continue only when failures are exclusively known frozen ANO/JX surfaces,
-- annotate as `FROZEN DUE TO [REASON]` with linked blockerboard item,
-- include waiver note in run summary,
-- exceptions never apply to safety/human-quality/integrity failures.
+Full-suite policy:
+- any full-suite failure in the standalone repo is a blocker,
+- report failures explicitly in run artifacts,
+- do not use mixed-repo frozen-surface waiver language in this standalone lane.
 
 ## 5. Implementation Touchpoints Map (By Spec Section)
 
@@ -385,7 +370,7 @@ Artifact retention (required):
 - keep baseline/candidate run IDs,
 - keep per-case Q/A audit output,
 - keep top failure examples,
-- keep waiver notes for frozen-surface exceptions.
+- keep explicit boundary-waiver notes only if a future change intentionally broadens standalone scope.
 - keep CodeRabbit gate artifacts and `tools/pr_feedback_gate.py` result showing `actionable=0`.
 
 ## 7. Open Risks and Mitigations
@@ -400,7 +385,7 @@ Risk: cache misuse causes stale/wrong reuse.
 Risk: token cuts reduce answer quality.
 - Mitigation: dual-verdict + per-case audit required before any success claim.
 
-Risk: ambiguous ownership of unfreeze/config changes.
+Risk: ambiguous ownership of standalone-boundary/config changes.
 - Mitigation: explicit approval protocol in section 0.5 and blockerboard logging.
 
 ## 8. Current Pre-Execution Gaps (Must Be Tracked as Blockers)
@@ -415,7 +400,7 @@ Round-1 findings incorporated:
 - added measurement protocol, repeated-run stability, and baseline declaration contract,
 - fixed P0 gate contradiction by defining Path A vs Path B,
 - clarified additive behavior scope and strict invalidation requirements,
-- added explicit frozen-surface waiver protocol,
+- added explicit standalone-boundary waiver protocol,
 - added required readout sections and missing/non-finite metric fail rules,
 - added clear touchpoint ownership map and pre-execution blocker requirements.
 

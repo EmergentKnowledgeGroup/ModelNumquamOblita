@@ -18,6 +18,7 @@ Tag legend:
 - `[Core]` `docs/MNO_ANO_FULL_DISCONNECTION_SPEC.md` — standalone extraction contract and phased separation plan.
 - `[Ops]` `docs/MNO_ANO_FULL_DISCONNECTION_EXECUTION_CHECKLIST.md` — implementation checklist for the standalone split.
 - `[Ops]` `docs/MNO_ANO_FULL_DISCONNECTION_BLOCKERBOARD.md` — blocker tracker for disconnect execution.
+- `[Core]` `docs/MNO_ANO_OWNERSHIP_INVENTORY.md` — canonical owner map for the standalone MNO lane vs external ANO work.
 - `[Core]` `docs/PIPELINE_REFINEMENT_EXECUTION_PLAN.md` — single execution spec (phases 0–7).
 - `[Core]` `docs/EVIDENCE_MEMORY_EPISODE_GLOSSARY.md` — plain-language contract: evidence vs atoms vs episodes.
 - `[Core]` `docs/IA_NO_INTEGRATION_PLAN.md` — IA archive → NumquamOblita integration contract and constraints.
@@ -72,6 +73,7 @@ Tag legend:
 ## Standalone boundary docs
 
 - `[Core]` `docs/MNO_ANO_COMPATIBILITY_MATRIX.md` — compatibility/deprecation matrix during the staged split.
+- `[Guide]` `docs/guides/MONOREPO_TO_STANDALONE_MIGRATION.md` — cutover guide for existing MNO operators moving off the mixed monorepo.
 - `[Core]` `docs/MNO_MCP_DESKTOP_GUI_SPEC.md` — native GUI MCP connector spec for the standalone MNO distribution.
 
 ## Execution history and planning lineage

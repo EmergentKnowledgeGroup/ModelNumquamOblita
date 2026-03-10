@@ -2,7 +2,15 @@
 
 Derived from: `docs/MNO_ANO_FULL_DISCONNECTION_SPEC.md`  
 Top-level goal: **full disconnection**  
-Status: Ready for implementation
+Status: Active
+
+## Current Execution State
+
+- `P0`: complete in the standalone MNO repo
+- `P1`: complete in the standalone MNO repo
+- `P2`: MNO-side complete; ANO-root extraction remains external
+- `P3`: MNO-side complete; ANO standalone lane items remain external blockers
+- `P4`: MNO-side boundary enforcement complete; cross-lane compatibility enforcement remains external until ANO has its own release lane
 
 ## Global Execution Rules
 
@@ -38,6 +46,8 @@ The separation is not done unless all of these are true:
 - `Expired shims = 0`
 
 ## P0: Boundary Lock and Inventory
+
+Status: Closed in standalone MNO. Inventory is anchored in `docs/MNO_ANO_OWNERSHIP_INVENTORY.md`, definitions remain locked in the spec, and the compatibility matrix is now canonicalized in `docs/MNO_ANO_COMPATIBILITY_MATRIX.md`.
 
 ### P0.1 Inventory ownership
 
@@ -85,6 +95,8 @@ Done when:
 P0 closes only when all checks above are green.
 
 ## P1: MNO Startup / Runtime Detox In Current Tree
+
+Status: Closed in standalone MNO. Public exports, runtime server/UI, docs, and packaging no longer carry ANO-owned mandatory surfaces.
 
 ### P1.1 Top-level export detox
 
@@ -149,6 +161,8 @@ P1 closes only when all checks above are green.
 
 ## P2: Folder / Package Extraction
 
+Status: MNO-side complete. Remaining ANO-root extraction work is external to this repo.
+
 ### P2.1 Explicit product roots
 
 - [ ] create explicit MNO-owned package/folder roots
@@ -188,6 +202,8 @@ P2 closes only when all checks above are green.
 
 ## P3: Repo / Package Split
 
+Status: partially complete. Standalone MNO lane exists; ANO standalone lane and cross-lane contract enforcement remain external blockers.
+
 ### P3.1 Standalone repo creation
 
 - [ ] create standalone MNO repo/package lane
@@ -223,6 +239,8 @@ P2 closes only when all checks above are green.
 P3 closes only when all checks above are green.
 
 ## P4: Post-Split Hardening
+
+Status: MNO-side complete. Boundary audit is now automated in `tools/audit_standalone_boundary.py`; cross-lane compatibility enforcement remains blocked until ANO has a standalone release lane.
 
 ### P4.1 Boundary enforcement
 

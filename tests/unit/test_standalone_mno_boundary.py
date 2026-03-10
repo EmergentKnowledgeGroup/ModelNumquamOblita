@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -49,3 +51,19 @@ def test_runtime_server_and_ui_expose_no_ano_controls() -> None:
         assert token not in server_text
         assert token not in ui_html
         assert token not in ui_js
+
+
+def test_public_imports_succeed_with_ano_absent() -> None:
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import importlib.util; import engine; import engine.runtime.server; assert importlib.util.find_spec('engine.research') is None",
+        ],
+        cwd=REPO_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    stdout, stderr = proc.communicate(timeout=60)
+    assert proc.returncode == 0, stdout + "\n" + stderr

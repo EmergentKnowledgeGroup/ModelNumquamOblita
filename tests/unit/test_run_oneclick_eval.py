@@ -337,7 +337,7 @@ def test_efficiency_regression_blocks_non_led_regression(oneclick_module) -> Non
 def test_parse_frozen_waivers_contract(oneclick_module) -> None:
     module = oneclick_module
     waivers, failures = module._parse_frozen_waivers(
-        ["ANO reserved connector edits|docs/MNO_RUNTIME_EFFICIENCY_BLOCKERBOARD.md#MREB-104|engine/research/*"]
+        ["external reserved connector edits|docs/MNO_RUNTIME_EFFICIENCY_BLOCKERBOARD.md#MREB-104|external/research/*"]
     )
     assert not failures
     assert len(waivers) == 1

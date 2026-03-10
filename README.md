@@ -45,6 +45,8 @@ Every recalled memory must be backed by source-linked memory atoms with confiden
 - `CLAUDE_PERSPECTIVE.md`: experiential perspective that motivates V3 continuity structures.
 - `STM_LTM_POLICY_SPEC.md`: short-term vs long-term runtime retrieval policy and regression plan.
 - `docs/SYSTEM_MASTER_OVERVIEW.md`: compact end-to-end system map + feature timeline for fast handoff.
+- `docs/MNO_ANO_OWNERSHIP_INVENTORY.md`: authoritative owner map for the standalone MNO lane.
+- `docs/guides/MONOREPO_TO_STANDALONE_MIGRATION.md`: migration/cutover guide for existing MNO operators.
 - `docs/FORWARD_PATH_MEMORY_ORCHESTRATION.md`: forward path for memory-orchestration upgrades + OpenClaw comparison takeaways.
 - `docs/V5_EXECUTION_AND_FREEZE_PLAN.md`: finite five-block execution plan with post-V5 feature freeze criteria.
 - `docs/EVENT_MEMORY_EVENT_CUE_SPEC.md`: event/cue-first recall hardening plan (entity/event prompts, card quality gates, compact context packets).

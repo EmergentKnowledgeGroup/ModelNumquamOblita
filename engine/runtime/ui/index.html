@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NumquamOblita Runtime</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="masthead">
+        <div class="brand">
+          <div class="brand-orb" aria-hidden="true"></div>
+          <div>
+            <h1>NumquamOblita Runtime</h1>
+            <p id="modelName">memory-backed stateless chat</p>
+          </div>
+        </div>
+        <div class="ui-mode-bar" role="group" aria-label="Interface mode">
+          <button id="btnSimpleMode" class="btn ghost ui-mode-btn" type="button">Simple mode</button>
+          <button id="btnAdvancedMode" class="btn ghost ui-mode-btn" type="button">Advanced mode</button>
+          <span id="modeHint" class="ui-mode-hint">Simple mode keeps essentials visible and hides advanced controls.</span>
+        </div>
+        <div class="metrics">
+          <article class="metric">
+            <span>Turns</span>
+            <strong id="metricTurns">0</strong>
+          </article>
+          <article class="metric">
+            <span>Tokens</span>
+            <strong id="metricTokens">0</strong>
+          </article>
+          <article class="metric">
+            <span>Cost</span>
+            <strong id="metricCost">$0.0000</strong>
+          </article>
+          <article class="metric">
+            <span>P95 Latency</span>
+            <strong id="metricP95">0 ms</strong>
+          </article>
+          <article class="metric">
+            <span>Recognition</span>
+            <strong id="metricRecognition">0% / 0</strong>
+          </article>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="chat-column">
+          <section class="wizard-shell" id="wizardShell">
+            <div class="wizard-head">
+              <h2>Pipeline Wizard</h2>
+              <div class="wizard-head-actions">
+                <button id="btnWizardResume" class="btn ghost" type="button">Resume</button>
+                <button id="btnWizardStartNew" class="btn ghost" type="button">Start New</button>
+                <button id="btnWizardRestore" class="btn ghost" type="button">Restore Last Published</button>
+                <button id="btnWizardArtifacts" class="btn ghost" type="button">Open Output Folder</button>
+              </div>
+            </div>
+            <div id="wizardRunMeta" class="wizard-run-meta">No wizard run loaded.</div>
+            <div id="wizardStageRail" class="wizard-stage-rail"></div>
+            <div class="wizard-grid">
+              <article class="wizard-card">
+                <div class="wizard-card-head">
+                  <h3>Import</h3>
+                  <span class="wizard-step">Step 1</span>
+                </div>
+                <input id="wizardArchivePath" class="input" type="text" placeholder="Path to IA db.json" aria-label="IA db.json path" />
+                <div class="wizard-inline-actions">
+                  <button id="btnWizardValidate" class="btn ghost" type="button">Validate</button>
+                  <button id="btnWizardImport" class="btn ghost" type="button">Import</button>
+                </div>
+                <div id="wizardImportResult" class="wizard-card-result">Validation and import output appear here.</div>
+              </article>
+              <article class="wizard-card">
+                <div class="wizard-card-head">
+                  <h3>Build Episodes</h3>
+                  <span class="wizard-step">Step 2</span>
+                </div>
+                <select id="wizardBuildPolicy" class="input" aria-label="Episode build policy">
+                  <option value="strict">strict (recommended)</option>
+                  <option value="balanced">balanced</option>
+                  <option value="assist">memory assist</option>
+                </select>
+                <div class="wizard-inline-actions">
+                  <button id="btnWizardBuild" class="btn ghost" type="button">Build</button>
+                </div>
+                <div id="wizardBuildResult" class="wizard-card-result">Build counts and artifact paths appear here.</div>
+              </article>
+              <article class="wizard-card">
+                <div class="wizard-card-head">
+                  <h3>Builder Curation</h3>
+                  <span class="wizard-step">Step 3</span>
+                </div>
+                <input id="builderProfileName" class="input" type="text" placeholder="Profile name" aria-label="Builder profile name" />
+                <textarea id="builderEntityInclude" class="input" rows="2" placeholder="Entity include (comma-separated)" aria-label="Entity include"></textarea>
+                <textarea id="builderEntityExclude" class="input" rows="2" placeholder="Entity exclude (comma-separated)" aria-label="Entity exclude"></textarea>
+                <textarea id="builderEntityAliases" class="input" rows="2" placeholder="Entity aliases (alias>canonical, comma-separated)" aria-label="Entity aliases"></textarea>
+                <textarea id="builderCueInclude" class="input" rows="2" placeholder="Cue include (comma-separated)" aria-label="Cue include"></textarea>
+                <textarea id="builderCueExclude" class="input" rows="2" placeholder="Cue exclude (comma-separated)" aria-label="Cue exclude"></textarea>
+                <textarea id="builderDomainInclude" class="input" rows="2" placeholder="Domain include patterns (comma-separated)" aria-label="Domain include patterns"></textarea>
+                <textarea id="builderDomainExclude" class="input" rows="2" placeholder="Domain exclude patterns (comma-separated)" aria-label="Domain exclude patterns"></textarea>
+                <div class="wizard-inline-actions">
+                  <button id="btnBuilderSave" class="btn ghost" type="button" aria-label="Save builder profile">Save Profile</button>
+                  <button id="btnBuilderRebuild" class="btn ghost" type="button" aria-label="Rebuild episodes with builder profile">Rebuild Episodes</button>
+                </div>
+                <div id="wizardBuilderResult" class="wizard-card-result">Saved profile and rebuild status appear here.</div>
+              </article>
+              <article class="wizard-card">
+                <div class="wizard-card-head">
+                  <h3>Review</h3>
+                  <span class="wizard-step">Step 4</span>
+                </div>
+                <div class="wizard-review-controls">
+                  <input id="wizardReviewSearch" class="input" type="search" placeholder="Search draft cards" aria-label="Search draft cards" />
+                  <select id="wizardReviewStatus" class="input" aria-label="Filter review decision status">
+                    <option value="all">all decisions</option>
+                    <option value="pending">pending</option>
+                    <option value="approved">approved</option>
+                    <option value="edited">edited</option>
+                    <option value="rejected">rejected</option>
+                  </select>
+                  <button id="btnWizardReviewRefresh" class="btn ghost" type="button">Reload</button>
+                </div>
+                <div id="wizardReviewList" class="wizard-review-list"></div>
+                <div class="wizard-inline-actions">
+                  <button id="btnWizardCompileReview" class="btn ghost" type="button">Compile Reviewed Set</button>
+                </div>
+                <div id="wizardReviewResult" class="wizard-card-result">Review compile output appears here.</div>
+              </article>
+              <article class="wizard-card">
+                <div class="wizard-card-head">
+                  <h3>Verify</h3>
+                  <span class="wizard-step">Step 5</span>
+                </div>
+                <div class="wizard-inline-actions">
+                  <button id="btnWizardVerify" class="btn ghost" type="button">Run Local Verification</button>
+                </div>
+                <div id="wizardVerifyResult" class="wizard-card-result">Verification summary appears here.</div>
+                <div id="wizardVerifyLinks" class="wizard-card-result">Actionable links to reviewed cards/evidence appear here.</div>
+              </article>
+              <article class="wizard-card">
+                <div class="wizard-card-head">
+                  <h3>Go Live</h3>
+                  <span class="wizard-step">Step 6</span>
+                </div>
+                <div class="wizard-inline-actions">
+                  <button id="btnWizardGoLive" class="btn ghost" type="button">Activate Runtime</button>
+                </div>
+                <div id="wizardGoLiveResult" class="wizard-card-result">Runtime endpoint and provider info appear here.</div>
+                <div id="wizardGoLiveConfig" class="wizard-card-result">Provider/model config visibility appears here.</div>
+              </article>
+            </div>
+          </section>
+
+          <div class="session-shell">
+            <div class="session-head">
+              <h2>Threads</h2>
+              <button id="btnSessionRefresh" class="btn ghost" type="button">Reload</button>
+            </div>
+            <div class="session-controls">
+              <select id="sessionSelect" class="input" aria-label="Select thread"></select>
+              <input id="sessionLabel" class="input" type="text" maxlength="72" placeholder="New thread label" aria-label="New thread label" />
+              <button id="btnSessionStart" class="btn" type="button">Start Thread</button>
+            </div>
+            <div id="sessionMeta" class="session-meta">No active thread.</div>
+            <div class="route-legend" id="routeLegend">
+              <span class="route-chip route-none">no memory</span>
+              <span class="route-chip route-stm_only">stm only</span>
+              <span class="route-chip route-ltm_light">ltm light</span>
+              <span class="route-chip route-ltm_deep">ltm deep</span>
+            </div>
+            <details class="settings-panel">
+              <summary>Local settings</summary>
+              <div class="settings-grid">
+                <label>
+                  <span>Default high-risk</span>
+                  <input id="settingHighRiskDefault" type="checkbox" />
+                </label>
+                <label>
+                  <span>Retrieval override</span>
+                  <input id="settingRetrievalQuery" class="input" type="text" placeholder="Optional retrieval query" />
+                </label>
+                <label>
+                  <span>Memory preference</span>
+                  <select id="settingMemoryPreference" class="input">
+                    <option value="auto" selected>balanced (recommended)</option>
+                    <option value="chat_first">chat first (less recall)</option>
+                    <option value="memory_assist">memory assist (more recall)</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Auto refresh</span>
+                  <select id="settingAutoRefresh" class="input">
+                    <option value="0">off</option>
+                    <option value="5000">5s</option>
+                    <option value="15000">15s</option>
+                    <option value="30000">30s</option>
+                  </select>
+                </label>
+              </div>
+            </details>
+          </div>
+
+          <div class="chat-head">
+            <h2>Conversation</h2>
+            <button id="btnRefresh" class="btn ghost" type="button">Refresh</button>
+          </div>
+          <div id="chatLog" class="chat-log"></div>
+          <form id="chatForm" class="composer">
+            <textarea
+              id="chatInput"
+              class="input"
+              placeholder="Send a turn in the active thread"
+              rows="3"
+            ></textarea>
+            <div class="composer-actions">
+              <label class="toggle">
+                <input id="highRisk" type="checkbox" />
+                <span>High-risk mode</span>
+              </label>
+              <div class="composer-buttons">
+                <button id="btnRoutePreview" class="btn ghost" type="button">Preview Route</button>
+                <button id="btnContextPreview" class="btn ghost" type="button">Preview Context</button>
+                <button class="btn" type="submit">Send</button>
+              </div>
+            </div>
+            <div id="routePreview" class="route-preview empty" aria-live="polite">
+              Route preview is available before sending a turn.
+            </div>
+          </form>
+        </section>
+
+        <aside class="trace-column">
+          <div class="trace-head">
+            <h2>Evidence Trace</h2>
+            <span id="traceHint">Select a turn</span>
+          </div>
+          <div id="tracePanel" class="trace-panel empty" aria-live="polite">
+            Run a chat turn to inspect claims, citations, and writeback status.
+          </div>
+          <section class="why-shell">
+            <div class="why-head">
+              <h3>Why This Answer?</h3>
+              <div class="why-actions">
+                <label class="toggle why-citations-toggle">
+                  <input id="whyShowCitations" type="checkbox" />
+                  <span>Show citations</span>
+                </label>
+                <button id="btnWhyRefresh" class="btn ghost" type="button">Refresh</button>
+              </div>
+            </div>
+            <div id="whyPanel" class="why-panel empty" aria-live="polite">
+              Select a turn, then load a plain-language explanation with evidence time window and top support.
+            </div>
+          </section>
+          <section class="archive-shell">
+            <div class="archive-head">
+              <h3>Citation Viewer</h3>
+              <button id="btnArchiveClear" class="btn ghost" type="button">Clear</button>
+            </div>
+            <div id="archiveViewer" class="archive-viewer empty" aria-live="polite">
+              Click a citation token in the Why panel to inspect matched source messages.
+            </div>
+          </section>
+          <section class="ledger-shell">
+            <div class="ledger-head">
+              <h3>Runtime Ledger</h3>
+              <button id="btnLedgerRefresh" class="btn ghost" type="button">Reload</button>
+            </div>
+            <div id="ledgerMeta" class="ledger-meta" aria-live="polite">No turn telemetry yet.</div>
+            <div id="ledgerList" class="ledger-list empty" aria-live="polite">Ledger entries appear after turns run.</div>
+          </section>
+          <section class="context-shell">
+            <div class="context-head">
+              <h3>Model Context</h3>
+              <button id="btnContextPreviewSide" class="btn ghost" type="button">Preview</button>
+            </div>
+            <div id="contextPanel" class="context-viewer empty" aria-live="polite">
+              Type a draft message and preview to see the exact package sent to the model.
+            </div>
+            <details class="context-raw">
+              <summary>Raw context package</summary>
+              <pre id="contextRaw"></pre>
+            </details>
+          </section>
+          <section class="memory-panel">
+            <div class="memory-head">
+              <h3>Memory Cards</h3>
+              <button id="btnMemoryRefresh" class="btn ghost" type="button">Reload</button>
+            </div>
+            <div class="memory-scope-tabs" role="tablist" aria-label="Memory view scope">
+              <button id="btnMemoryScopeAtoms" class="btn ghost memory-scope-btn active" type="button" role="tab" aria-selected="true" aria-controls="atomsScopePane">Atoms</button>
+              <button id="btnMemoryScopeEpisodes" class="btn ghost memory-scope-btn" type="button" role="tab" aria-selected="false" aria-controls="episodesScopePane">Episodes</button>
+            </div>
+            <div class="memory-controls">
+              <input id="memorySearch" class="input" type="search" placeholder="Search card summaries, citations, entities" aria-label="Search memory cards" />
+              <select id="memoryKind" class="input" aria-label="Filter memory cards by kind">
+                <option value="all">all card kinds</option>
+                <option value="fact_card">fact card</option>
+                <option value="event_card">event card</option>
+                <option value="relationship_card">relationship card</option>
+              </select>
+              <select id="memoryStatus" class="input" aria-label="Filter memory cards by status">
+                <option value="all">all statuses</option>
+                <option value="active">active</option>
+                <option value="superseded">superseded</option>
+                <option value="conflicted">conflicted</option>
+                <option value="archived">archived</option>
+                <option value="tombstoned">tombstoned</option>
+              </select>
+              <select id="memoryContradiction" class="input" aria-label="Filter memory cards by contradiction">
+                <option value="all">all contradiction states</option>
+                <option value="true">with contradiction</option>
+                <option value="false">without contradiction</option>
+              </select>
+            </div>
+            <div id="atomsScopePane" class="memory-scope-pane active" role="tabpanel" aria-hidden="false">
+              <div class="memory-list-wrap">
+                <div id="memoryList" class="memory-list"></div>
+              </div>
+              <div id="memoryDetail" class="memory-detail empty">Select a memory card to inspect evidence, provenance, and graph links.</div>
+            </div>
+            <div id="episodesScopePane" class="memory-scope-pane" role="tabpanel" aria-hidden="true">
+              <div class="episode-controls">
+                <input id="episodeSearch" class="input" type="search" placeholder="Search episode title, summary, actors, tags" aria-label="Search episodes" />
+                <select id="episodeStatus" class="input" aria-label="Filter episodes by status">
+                  <option value="all">all statuses</option>
+                  <option value="approved">approved</option>
+                  <option value="promoted">promoted</option>
+                  <option value="candidate">candidate</option>
+                  <option value="rejected">rejected</option>
+                  <option value="disabled">disabled</option>
+                </select>
+                <button id="btnEpisodeRefresh" class="btn ghost" type="button">Reload</button>
+                <button id="btnEpisodeUndo" class="btn ghost" type="button">Undo Last Change</button>
+              </div>
+              <div class="memory-list-wrap">
+                <div id="episodeList" class="memory-list"></div>
+              </div>
+              <div id="episodeDetail" class="memory-detail empty">Select an episode card to edit title/summary, actors, topic tags, and status.</div>
+            </div>
+            <section class="memory-graph-panel">
+              <div class="memory-graph-head">
+                <h4>Memory map</h4>
+                <div class="memory-graph-actions">
+                  <button id="btnMemoryGraphFocus" class="btn ghost" type="button">Focus selected</button>
+                  <button id="btnMemoryGraphRefresh" class="btn ghost" type="button">Reload map</button>
+                </div>
+              </div>
+              <div id="memoryGraphMeta" class="memory-graph-meta">Map loads from current card filters.</div>
+              <div class="memory-graph-wrap">
+                <svg id="memoryGraphSvg" class="memory-graph-canvas" viewBox="0 0 1000 540" role="img" aria-label="Memory graph visualization"></svg>
+              </div>
+              <div id="memoryGraphDetail" class="memory-graph-detail empty">Select a map node to inspect quick graph details.</div>
+            </section>
+            <div class="proposal-head">
+              <h3>Proposal Inbox</h3>
+              <button id="btnProposalRefresh" class="btn ghost" type="button">Reload</button>
+            </div>
+            <div class="proposal-create">
+              <input id="proposalAtomId" class="input" type="text" placeholder="Atom id for proposal" aria-label="Atom id for proposal" />
+              <textarea id="proposalEditText" class="input" rows="2" placeholder="Optional edited canonical text (for edit proposal)"></textarea>
+              <div class="proposal-create-actions">
+                <button id="btnProposalCreateDelete" class="btn ghost" type="button">Propose Disable</button>
+                <button id="btnProposalCreateEdit" class="btn ghost" type="button">Propose Edit</button>
+              </div>
+            </div>
+            <div id="proposalList" class="proposal-list"></div>
+          </section>
+          <section class="ops-shell">
+            <div class="ops-head">
+              <h3>Ops Safety Deck</h3>
+              <button id="btnOpsRefresh" class="btn ghost" type="button">Reload</button>
+            </div>
+            <div class="ops-grid">
+              <article class="ops-card">
+                <h4>Methodology Guardrail Ops</h4>
+                <input id="methodologyId" class="input" type="text" placeholder="Methodology ID (for review/canary/activate/rollback)" aria-label="Methodology ID" />
+                <input id="methodologyActor" class="input" type="text" placeholder="Actor (default: operator)" aria-label="Methodology actor" />
+                <textarea id="methodologyTriggerCondition" class="input" rows="2" placeholder="Trigger condition (create draft)" aria-label="Methodology trigger condition"></textarea>
+                <textarea id="methodologyAction" class="input" rows="2" placeholder="Action (create draft)" aria-label="Methodology action"></textarea>
+                <textarea id="methodologyRationale" class="input" rows="2" placeholder="Rationale (create draft)" aria-label="Methodology rationale"></textarea>
+                <textarea id="methodologyCorrection" class="input" rows="2" placeholder="Correction text (record correction cluster)" aria-label="Methodology correction text"></textarea>
+                <textarea id="methodologyNote" class="input" rows="2" placeholder="Optional note/reason (review or rollback)" aria-label="Methodology note or rollback reason"></textarea>
+                <div class="wizard-inline-actions">
+                  <button id="btnMethodologyCreate" class="btn ghost" type="button">Create Draft</button>
+                  <button id="btnMethodologyApprove" class="btn ghost" type="button">Approve</button>
+                  <button id="btnMethodologyReject" class="btn ghost" type="button">Reject</button>
+                  <button id="btnMethodologyCanaryStart" class="btn ghost" type="button">Start Canary</button>
+                  <button id="btnMethodologyCanaryEval" class="btn ghost" type="button">Eval Canary</button>
+                  <button id="btnMethodologyActivate" class="btn ghost" type="button">Activate</button>
+                  <button id="btnMethodologyRollback" class="btn ghost" type="button">Rollback</button>
+                  <button id="btnMethodologyRecordCorrection" class="btn ghost" type="button">Record Correction</button>
+                  <button id="btnMethodologyMaintenanceEval" class="btn ghost" type="button">Eval Maintenance</button>
+                  <button id="btnMethodologyRefresh" class="btn ghost" type="button">Refresh</button>
+                </div>
+                <div id="methodologyReadoutMeta" class="ops-meta">Methodology readout appears here.</div>
+                <div id="methodologyActionMeta" class="ops-meta">Methodology action results appear here.</div>
+              </article>
+              <article class="ops-card">
+                <h4>Writeback Policy</h4>
+                <label class="toggle">
+                  <input id="writebackEnabled" type="checkbox" />
+                  <span>Enable proposal writeback</span>
+                </label>
+                <div class="wizard-inline-actions">
+                  <button id="btnWritebackSave" class="btn ghost" type="button">Save Policy</button>
+                </div>
+                <div id="writebackPolicyMeta" class="ops-meta">Writeback policy status appears here.</div>
+              </article>
+              <article class="ops-card">
+                <h4>Health Check</h4>
+                <div class="wizard-inline-actions">
+                  <button id="btnHealthRun" class="btn ghost" type="button">Run Health</button>
+                  <button id="btnHealthExport" class="btn ghost" type="button">Export Diagnostics</button>
+                </div>
+                <div id="healthPanel" class="ops-meta">Health check summary appears here.</div>
+              </article>
+              <article class="ops-card">
+                <h4>Packaging Hints</h4>
+                <div class="wizard-inline-actions">
+                  <button id="btnPackagingLoad" class="btn ghost" type="button">Load Packaging Steps</button>
+                </div>
+                <div id="packagingPanel" class="ops-meta">One-click setup and runtime launch commands appear here.</div>
+              </article>
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <template id="turnTemplate">
+      <article class="turn-card">
+        <button type="button" class="turn-button">
+          <div class="turn-topline">
+            <span class="turn-meta"></span>
+            <span class="turn-badges">
+              <span class="badge route-badge"></span>
+              <span class="badge decision-badge"></span>
+            </span>
+          </div>
+          <div class="turn-text"></div>
+        </button>
+      </article>
+    </template>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

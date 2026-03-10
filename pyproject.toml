@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "modelnumquamoblita"
+version = "0.1.0"
+description = "Standalone MNO personal memory runtime"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["defusedxml>=0.7.1"]
+
+[tool.pytest.ini_options]
+minversion = "7.4"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"

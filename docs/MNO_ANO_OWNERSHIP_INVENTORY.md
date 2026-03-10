@@ -18,7 +18,7 @@ Use it to answer three practical questions:
 
 | Root | Role | Current authority |
 | --- | --- | --- |
-| `/mnt/z/openaidata/modelNumquamOblita` | Standalone MNO repo root | Authoritative for MNO runtime, tooling, packaging, and docs in the separated lane |
+| `/mnt/z/modelNumquamOblita` | Standalone MNO repo root | Authoritative for MNO runtime, tooling, packaging, and docs in the separated lane |
 | `/mnt/z/openaidata/numquamoblita` | Legacy mixed monorepo root | Historical source for prior mixed work; current ANO execution still lives here until ANO is extracted |
 | `/mnt/z/openaidata/numquamoblita_mno_desktop_gui` | Historical MNO staging tree | Historical only; not authoritative after standalone cutover |
 

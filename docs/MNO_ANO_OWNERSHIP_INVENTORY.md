@@ -48,7 +48,7 @@ Use it to answer three practical questions:
 - ANO operator UI/server surfaces
 - ANO distribution/release docs, blockerboards, and eval harnesses
 
-Current practical location: the legacy monorepo remains the only live ANO workspace until ANO gets its own standalone repo.
+Current practical location: the legacy monorepo remains the only authoritative live ANO workspace recognized by standalone MNO closeout until ANO gets its own standalone repo.
 
 ### Shared surfaces
 
@@ -87,8 +87,8 @@ Any future shim must declare:
 
 These are real remaining disconnect blockers, but they are not finishable from the standalone MNO repo alone:
 
-- ANO standalone repo/root does not exist yet as a clean extracted lane
-- ANO cannot yet prove it consumes only public MNO contracts because ANO is still operating from the legacy mixed repo
+- no authoritative ANO standalone repo/root is yet recognized by standalone MNO closeout
+- ANO cannot yet prove it consumes only public MNO contracts because ANO is still operating from the legacy mixed repo from the MNO repo's point of view
 - cross-lane compatibility gate enforcement cannot be marked complete until ANO has a release/test lane that consumes the canonical matrix
 
 ## Practical Rule

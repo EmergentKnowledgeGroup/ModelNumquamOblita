@@ -94,7 +94,7 @@ Status language:
 ## Current State
 
 - Standalone MNO is complete inside `ModelNumquamOblita`.
-- Remaining required disconnect work is external ANO-lane extraction:
+- Remaining required disconnect work is external to the standalone MNO repo and depends on ANO-side extraction plus cross-lane contract enforcement:
   - `MAD-201`
   - `MAD-302`
   - `MAD-303`

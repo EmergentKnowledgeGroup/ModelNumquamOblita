@@ -2,7 +2,7 @@
 
 Status: Locked after 4-pass QA  
 Owner: MNO product/runtime  
-Planning base: `Z:\\openAIdata\\numquamoblita_mno_desktop_gui\\`  
+Planning base: standalone MNO repo at `/mnt/z/modelNumquamOblita` (spec originally drafted from the historical MNO staging tree)  
 Last updated: 2026-03-10
 
 Derived docs:

@@ -51,14 +51,14 @@ Status: Closed in standalone MNO. Inventory is anchored in `docs/MNO_ANO_OWNERSH
 
 ### P0.1 Inventory ownership
 
-- [ ] classify current files as:
+- [x] classify current files as:
   - MNO-owned
   - ANO-owned
   - shared
   - mixed
-- [ ] identify every mandatory MNO startup/import path that still touches ANO
-- [ ] identify every mixed UI/server/export/test/doc/package surface
-- [ ] record canonical owner for each mixed surface before implementation starts
+- [x] identify every mandatory MNO startup/import path that still touches ANO
+- [x] identify every mixed UI/server/export/test/doc/package surface
+- [x] record canonical owner for each mixed surface before implementation starts
 
 Done when:
 
@@ -66,11 +66,11 @@ Done when:
 
 ### P0.2 Lock the separation definitions
 
-- [ ] lock the meaning of `ANO absent`
-- [ ] lock the meaning of `public MNO contract`
-- [ ] lock shared-lane hard rules
-- [ ] lock compatibility shim policy
-- [ ] lock duplicate-first reconciliation rule
+- [x] lock the meaning of `ANO absent`
+- [x] lock the meaning of `public MNO contract`
+- [x] lock shared-lane hard rules
+- [x] lock compatibility shim policy
+- [x] lock duplicate-first reconciliation rule
 
 Done when:
 
@@ -78,9 +78,9 @@ Done when:
 
 ### P0.3 Compatibility matrix anchor
 
-- [ ] establish `docs/MNO_ANO_COMPATIBILITY_MATRIX.md` as canonical matrix source
-- [ ] define owner, update policy, support window, and deprecation policy
-- [ ] define stop-ship rules for unsupported pairs
+- [x] establish `docs/MNO_ANO_COMPATIBILITY_MATRIX.md` as canonical matrix source
+- [x] define owner, update policy, support window, and deprecation policy
+- [x] define stop-ship rules for unsupported pairs
 
 Done when:
 
@@ -88,9 +88,9 @@ Done when:
 
 ### P0.4 P0 regression gate
 
-- [ ] architecture review signoff
-- [ ] no unresolved ownership ambiguity
-- [ ] no unresolved definition ambiguity for `ANO absent`, shim ownership, or matrix scope
+- [x] architecture review signoff
+- [x] no unresolved ownership ambiguity
+- [x] no unresolved definition ambiguity for `ANO absent`, shim ownership, or matrix scope
 
 P0 closes only when all checks above are green.
 
@@ -100,9 +100,9 @@ Status: Closed in standalone MNO. Public exports, runtime server/UI, docs, and p
 
 ### P1.1 Top-level export detox
 
-- [ ] remove ANO research exports from top-level MNO package surface
-- [ ] stop `engine/__init__.py` from exporting ANO research symbols
-- [ ] prove dependency tracing shows no transitive ANO import through MNO public imports
+- [x] remove ANO research exports from top-level MNO package surface
+- [x] stop `engine/__init__.py` from exporting ANO research symbols
+- [x] prove dependency tracing shows no transitive ANO import through MNO public imports
 
 Done when:
 
@@ -110,10 +110,10 @@ Done when:
 
 ### P1.2 Runtime server detox
 
-- [ ] remove `AnoIncrementalManager` from mandatory MNO startup path
-- [ ] move ANO endpoints behind ANO-owned lane or explicit optional boundary
-- [ ] keep any plugin/add-on path default-off and explicit-enable only
-- [ ] forbid auto-load-if-present behavior
+- [x] remove `AnoIncrementalManager` from mandatory MNO startup path
+- [x] move ANO endpoints behind ANO-owned lane or explicit optional boundary
+- [x] keep any plugin/add-on path default-off and explicit-enable only
+- [x] forbid auto-load-if-present behavior
 
 Done when:
 
@@ -121,9 +121,9 @@ Done when:
 
 ### P1.3 Runtime UI detox
 
-- [ ] remove ANO incremental/operator panels from MNO runtime UI
-- [ ] move ANO controls into ANO-owned UI surfaces
-- [ ] remove combined MNO+ANO operator screen assumptions
+- [x] remove ANO incremental/operator panels from MNO runtime UI
+- [x] move ANO controls into ANO-owned UI surfaces
+- [x] remove combined MNO+ANO operator screen assumptions
 
 Done when:
 
@@ -131,10 +131,10 @@ Done when:
 
 ### P1.4 Test-lane detox
 
-- [ ] split or move mixed runtime tests
-- [ ] move cross-product tests into explicit compatibility lane
-- [ ] ensure shared fixtures do not leak ANO into MNO standalone CI
-- [ ] make MNO standalone CI fail on ANO import, direct or transitive
+- [x] split or move mixed runtime tests
+- [x] move cross-product tests into explicit compatibility lane
+- [x] ensure shared fixtures do not leak ANO into MNO standalone CI
+- [x] make MNO standalone CI fail on ANO import, direct or transitive
 
 Done when:
 
@@ -142,9 +142,9 @@ Done when:
 
 ### P1.5 Packaging/docs detox
 
-- [ ] stop MNO packaging/build scripts from targeting mixed paths
-- [ ] strip ANO from baseline MNO package/install lane
-- [ ] strip ANO setup language from normal MNO operator docs
+- [x] stop MNO packaging/build scripts from targeting mixed paths
+- [x] strip ANO from baseline MNO package/install lane
+- [x] strip ANO setup language from normal MNO operator docs
 
 Done when:
 
@@ -152,10 +152,10 @@ Done when:
 
 ### P1.6 P1 regression gate
 
-- [ ] MNO runtime launches with ANO modules unavailable
-- [ ] MNO standalone CI is green
-- [ ] dependency trace shows no ANO through MNO public imports
-- [ ] MNO package excludes ANO modules
+- [x] MNO runtime launches with ANO modules unavailable
+- [x] MNO standalone CI is green
+- [x] dependency trace shows no ANO through MNO public imports
+- [x] MNO package excludes ANO modules
 
 P1 closes only when all checks above are green.
 
@@ -165,38 +165,38 @@ Status: MNO-side complete. Remaining ANO-root extraction work is external to thi
 
 ### P2.1 Explicit product roots
 
-- [ ] create explicit MNO-owned package/folder roots
+- [x] create explicit MNO-owned package/folder roots
 - [ ] create explicit ANO-owned package/folder roots
-- [ ] move or duplicate mixed surfaces into owned roots
+- [x] move or duplicate mixed surfaces into owned roots
 
 ### P2.2 Mixed-surface surgery
 
-- [ ] split:
+- [x] split:
   - `engine/runtime/server.py`
   - `engine/runtime/ui/index.html`
   - `engine/runtime/ui/app.js`
   - other declared mixed surfaces
-- [ ] reduce mixed files to zero or thin shims only
-- [ ] declare canonical owner for every duplicated surface
+- [x] reduce mixed files to zero or thin shims only
+- [x] declare canonical owner for every duplicated surface
 
 ### P2.3 Duplicate/shim discipline
 
-- [ ] add parity tests for duplicated surfaces
-- [ ] or document intentional divergence rationale
-- [ ] assign owner + removal trigger to every shim
-- [ ] block indefinite “temporary” bridges
+- [x] add parity tests for duplicated surfaces
+- [x] or document intentional divergence rationale
+- [x] assign owner + removal trigger to every shim
+- [x] block indefinite “temporary” bridges
 
 ### P2.4 Packaging/doc path re-home
 
-- [ ] re-home docs, fixtures, and packaging scripts to owned paths
-- [ ] remove references to deleted mixed paths
+- [x] re-home docs, fixtures, and packaging scripts to owned paths
+- [x] remove references to deleted mixed paths
 
 ### P2.5 P2 regression gate
 
-- [ ] no mixed implementation files remain on mandatory paths
-- [ ] ownership map matches code locations
-- [ ] duplicated surfaces have parity or declared divergence
-- [ ] packaging/docs no longer point to removed mixed paths
+- [x] no mixed implementation files remain on mandatory paths
+- [x] ownership map matches code locations
+- [x] duplicated surfaces have parity or declared divergence
+- [x] packaging/docs no longer point to removed mixed paths
 
 P2 closes only when all checks above are green.
 
@@ -206,9 +206,9 @@ Status: partially complete. Standalone MNO lane exists; ANO standalone lane and 
 
 ### P3.1 Standalone repo creation
 
-- [ ] create standalone MNO repo/package lane
+- [x] create standalone MNO repo/package lane
 - [ ] create standalone ANO repo/package lane
-- [ ] move tests/docs/release config accordingly
+- [x] move tests/docs/release config accordingly
 
 ### P3.2 Contracted integration
 
@@ -218,23 +218,23 @@ Status: partially complete. Standalone MNO lane exists; ANO standalone lane and 
 
 ### P3.3 Operator continuity
 
-- [ ] provide migration path for existing MNO operators
+- [x] provide migration path for existing MNO operators
 - [ ] provide migration path for existing ANO operators
-- [ ] preserve existing data paths without forced re-import due solely to repo split
+- [x] preserve existing data paths without forced re-import due solely to repo split
 
 ### P3.4 Repo authority and fallback
 
-- [ ] define which lane/repo remains authoritative if cutover partially fails
-- [ ] keep monorepo lane authoritative until standalone gates are green
+- [x] define which lane/repo remains authoritative if cutover partially fails
+- [x] keep monorepo lane authoritative until standalone gates are green
 
 ### P3.5 P3 regression gate
 
-- [ ] independent install/build/test succeeds for MNO
+- [x] independent install/build/test succeeds for MNO
 - [ ] independent install/build/test succeeds for ANO
-- [ ] MNO works standalone
+- [x] MNO works standalone
 - [ ] ANO works against stable MNO/shared contracts
 - [ ] claimed supported version pairs are matrix-covered
-- [ ] existing operator data paths stay valid
+- [x] existing operator data paths stay valid
 
 P3 closes only when all checks above are green.
 
@@ -244,20 +244,20 @@ Status: MNO-side complete. Boundary audit is now automated in `tools/audit_stand
 
 ### P4.1 Boundary enforcement
 
-- [ ] add hidden-import and transitive-dependency audits
-- [ ] add periodic boundary audit
+- [x] add hidden-import and transitive-dependency audits
+- [x] add periodic boundary audit
 - [ ] add release gate enforcement for compatibility matrix
 
 ### P4.2 Shim retirement
 
-- [ ] remove expired shims
-- [ ] fail releases on expired shim carryover
-- [ ] keep no shim past the first release after both standalone lanes are green unless explicitly renewed
+- [x] remove expired shims
+- [x] fail releases on expired shim carryover
+- [x] keep no shim past the first release after both standalone lanes are green unless explicitly renewed
 
 ### P4.3 Shared-lane discipline
 
-- [ ] reject shared-lane bloat
-- [ ] revert oversized shared logic back to product-owned copies if needed
+- [x] reject shared-lane bloat
+- [x] revert oversized shared logic back to product-owned copies if needed
 
 ### P4.4 P4 regression gate
 

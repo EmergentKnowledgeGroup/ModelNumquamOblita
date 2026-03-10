@@ -25,7 +25,7 @@ No other file may overrule this matrix.
 ## Current Extraction State
 
 - standalone MNO exists now in `ModelNumquamOblita`
-- ANO does not yet exist as a standalone repo/package lane
+- no authoritative standalone ANO lane is yet recognized for compatibility claims from the standalone MNO repo
 - therefore, current supported claims are intentionally narrow
 
 ## Supported Pairs
@@ -40,7 +40,7 @@ No other file may overrule this matrix.
 
 | MNO version | ANO version | Shared-contract version | Status | Release lane owner | Required contract tests | Deprecation |
 | --- | --- | --- | --- | --- | --- | --- |
-| `0.1.x` standalone | not yet extracted | none | Unsupported to claim compatibility until ANO standalone lane exists | Separation program | n/a | n/a |
+| `0.1.x` standalone | no authoritative standalone lane recognized yet | none | Unsupported to claim compatibility until ANO standalone release and contract gates exist | Separation program | n/a | n/a |
 
 ### Legacy Monorepo -> Standalone MNO
 
@@ -53,7 +53,7 @@ No other file may overrule this matrix.
 Do not ship a compatibility claim if any of the following is true:
 
 - a claimed pair is missing from this matrix
-- ANO claims support against standalone MNO before ANO standalone extraction exists
+- ANO claims support against standalone MNO before ANO has an authoritative standalone release/test lane
 - a lane consumes private/internal APIs instead of declared public contracts
 - required contract tests for a claimed pair are missing or failing
 - deprecation has passed without explicit renewal
@@ -61,6 +61,6 @@ Do not ship a compatibility claim if any of the following is true:
 ## Update Rules
 
 - update this file in the same PR that changes a claimed compatibility contract
-- both future lanes must gate releases against this file once ANO standalone exists
-- if no ANO standalone lane exists yet, MNO may ship standalone-only releases without inventing a fake ANO compatibility row
+- both future lanes must gate releases against this file once ANO has an authoritative standalone release lane
+- if no authoritative ANO standalone lane exists yet, MNO may ship standalone-only releases without inventing a fake ANO compatibility row
 - deprecation dates must be concrete before a pair is marked `deprecated`

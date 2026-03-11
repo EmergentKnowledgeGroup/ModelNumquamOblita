@@ -486,6 +486,15 @@ def test_run_phase7_signoff_honors_truthset_length(tmp_path: Path) -> None:
     summary = json.loads((out_dir / "eval" / "summary.json").read_text(encoding="utf-8"))
     assert summary["requested_cases"] == 1
     assert summary["cases"] == 1
+    manifest = json.loads((out_dir / "signoff_manifest.json").read_text(encoding="utf-8"))
+    generated_truthset = Path(manifest["eval"]["truthset_jsonl"])
+    assert generated_truthset.exists()
+    source_rows = [json.loads(line) for line in truthset.read_text(encoding="utf-8").splitlines() if line.strip()]
+    generated_rows = [json.loads(line) for line in generated_truthset.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(generated_rows) == len(source_rows)
+    for source_row, generated_row in zip(source_rows, generated_rows, strict=True):
+        for key, value in source_row.items():
+            assert generated_row.get(key) == value
 
 
 def test_run_phase7_signoff_can_skip_continuity_harness(tmp_path: Path) -> None:

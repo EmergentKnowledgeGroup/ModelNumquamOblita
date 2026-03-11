@@ -201,6 +201,11 @@ def test_run_pilot_acceptance_script_with_reviewed_truthset(tmp_path: Path) -> N
     assert Path(manifest["truthset"]["path"]) == truthset_path
     assert int(manifest["truthset"]["case_count"]) == 6
     assert manifest["truthset"]["quality"]["decision"] == "PASS"
+    step_commands = {str(step["name"]): [str(part) for part in list(step["command"])] for step in manifest["steps"]}
+    for step_name in ("plan_only", "truthset_eval", "phase7_signoff"):
+        command = step_commands[step_name]
+        assert "--truthset" in command
+        assert str(truthset_path) in command
 
     report_payload = json.loads((out_dir / "pilot_report.json").read_text(encoding="utf-8"))
     assert report_payload["truthset_mode"] == "explicit"

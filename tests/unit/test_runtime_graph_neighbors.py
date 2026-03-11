@@ -206,6 +206,29 @@ def test_graph_neighbors_payload_does_not_admit_unlinked_neighbors_when_link_lim
     assert truncation.get("dropped_shared_language") is True
 
 
+def test_graph_neighbors_payload_dedupes_symmetric_edges_by_canonical_pair() -> None:
+    runtime, atom_ids = _graph_runtime()
+    runtime.retriever.store.mark_conflict(atom_ids["conflict"], atom_ids["constellation"], reason="symmetric_pair")
+
+    payload = _build_graph_neighbors_payload(
+        runtime,
+        atom_id=atom_ids["root"],
+        depth=2,
+        node_limit=10,
+        link_limit=10,
+        include_shared_language=True,
+    )
+
+    conflict_pair_links = [
+        row
+        for row in list(payload.get("links") or [])
+        if {str(row.get("source") or ""), str(row.get("target") or "")}
+        == {atom_ids["conflict"], atom_ids["constellation"]}
+        and str(row.get("kind") or "") == "conflict"
+    ]
+    assert len(conflict_pair_links) == 1
+
+
 def test_graph_neighbors_payload_honors_root_detail_omission() -> None:
     runtime, atom_ids = _graph_runtime()
 

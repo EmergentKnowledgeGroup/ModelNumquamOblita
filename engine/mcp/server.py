@@ -66,6 +66,11 @@ def _sha256_short(value: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:20]
 
 
+def _canonical_graph_link_key(source: str, target: str, kind: str) -> tuple[str, str, str]:
+    left, right = sorted((str(source), str(target)))
+    return left, right, str(kind)
+
+
 def _ensure_role(value: str) -> str:
     role = str(value or "").strip().lower()
     if role not in ROLE_ORDER:
@@ -2790,7 +2795,7 @@ class MCPServer:
                             # the concrete atom neighbors returned by the native endpoint.
                             dropped_shared_language = True
                         continue
-                    link_key = (source, target, kind)
+                    link_key = _canonical_graph_link_key(source, target, kind)
                     is_new_link = link_key not in seen_links
                     if is_new_link and len(links) >= self.config.max_graph_links:
                         link_limit_hit = True

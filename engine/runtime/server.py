@@ -73,6 +73,12 @@ GRAPH_NEIGHBOR_REQUEST_BUDGET = 12
 GRAPH_NEIGHBOR_EXPANDABLE_EDGE_ORDER = ("conflict", "constellation", "narrative_arc")
 GRAPH_NEIGHBOR_RECORD_ONLY_EDGE_ORDER = ("shared_language",)
 
+
+def _canonical_graph_link_key(source: str, target: str, kind: str) -> tuple[str, str, str]:
+    left, right = sorted((str(source), str(target)))
+    return left, right, str(kind)
+
+
 ROUTE_REASON_DESCRIPTIONS: dict[str, str] = {
     "smalltalk_routine": "Routine small talk, memory lookup skipped.",
     "casual_prompt_no_recall": "Casual prompt with no memory signal, memory lookup skipped.",
@@ -2873,7 +2879,7 @@ def _build_graph_neighbors_payload(
                     continue
                 if target_id == atom_id:
                     continue
-                link_key = (current, target_id, edge_kind)
+                link_key = _canonical_graph_link_key(current, target_id, edge_kind)
                 is_new_link = link_key not in seen_links
                 if is_new_link and len(links) >= link_limit:
                     link_limit_hit = True

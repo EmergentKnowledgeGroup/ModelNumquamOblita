@@ -229,6 +229,36 @@ def test_generate_truthset_expands_expected_alignment_for_duplicate_atoms() -> N
     assert set(target.expected_citations) == {"conv_a#c1_msg", "conv_b#c2_msg"}
 
 
+def test_generate_truthset_emits_one_supported_case_per_duplicate_signature() -> None:
+    store = AtomStore()
+    primary = _candidate(
+        "c1",
+        'Dex said "48 lines, clean, tight, nothing wasted, what\'s next" while we were reviewing the plan.',
+        "conv_a",
+    )
+    primary.entities = ["Dex", "user", "assistant"]
+    primary.topics = ["planning"]
+    duplicate = _candidate(
+        "c2",
+        '*Dex said* "48 lines, clean, tight, nothing wasted, what\'s next" while we were reviewing the plan.',
+        "conv_b",
+    )
+    duplicate.entities = ["Dex", "user", "assistant"]
+    duplicate.topics = ["planning"]
+    other = _candidate("c3", "Xander wants the memory system to stay fail-closed.", "conv_c")
+    other.entities = ["Xander", "user", "assistant"]
+    other.topics = ["memory"]
+    for candidate in (primary, duplicate, other):
+        store.add_candidate(candidate)
+
+    cases = generate_truthset(store, total_cases=2, supported_ratio=1.0, fixture_mode="basic")
+    duplicate_signature_cases = [
+        case for case in cases if "48 lines" in case.query.lower() or "48 lines" in str(case.retrieval_query or "").lower()
+    ]
+
+    assert len(duplicate_signature_cases) == 1
+
+
 def test_truthset_case_from_dict_backfills_fixture_family() -> None:
     payload = {
         "case_id": "tc_0001",

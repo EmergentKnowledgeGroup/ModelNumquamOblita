@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -218,6 +219,58 @@ def test_human_quality_gate_blocks_latency_budget_exceedances(oneclick_module) -
     assert metrics["total_ms_p95"] == pytest.approx(31.0)
 
 
+def test_human_quality_gate_fails_closed_when_question_validator_fails(oneclick_module) -> None:
+    module = oneclick_module
+    args = SimpleNamespace(
+        min_relevance_aligned_hit_rate=0.90,
+        max_avg_retrieved_atoms=24.0,
+        max_p95_retrieved_atoms=24.0,
+        min_evidence_precision_at_k=0.0,
+        max_junk_rate_at_k=1.0,
+        min_conflict_coverage=0.0,
+        max_blocking_defect_cases=0,
+        max_memory_p95_ms=2000.0,
+        max_model_p95_ms=15000.0,
+        max_total_p95_ms=18000.0,
+    )
+    records = [
+        {
+            "case": {"case_id": "tc_0001", "case_type": "supported_recall", "expected_decision": "PASS", "query": "Q"},
+            "reply_text": "A",
+            "defect_tags": [],
+            "blocking_defect_tags": [],
+        }
+    ]
+    summary = {
+        "retrieval": {
+            "supported_non_routine_cases": 1,
+            "supported_non_routine_with_expected_alignment": 1,
+            "supported_non_routine_alignment_missing_cases": 0,
+            "supported_non_routine_relevance_aligned_hit_rate": 1.0,
+            "supported_non_routine_avg_retrieved_atoms": 1.0,
+            "supported_non_routine_p95_retrieved_atoms": 1.0,
+            "evidence_precision_at_k": 1.0,
+            "junk_rate_at_k": 0.0,
+            "conflict_labeled_supported_cases": 0,
+            "conflict_covered_supported_cases": 0,
+            "conflict_coverage": 1.0,
+        },
+        "latency_ms": {"memory_p95": 1.0, "model_p95": 1.0, "total_p95": 1.0},
+    }
+    question_summary = {
+        "decision": "FAIL",
+        "weak_cases": 1,
+        "blocking_defect_cases": 0,
+        "event_grade_question_rate": 1.0,
+        "fragment_question_rate": 0.0,
+    }
+
+    verdict, failures, _metrics, _quality = module._human_quality_gate(summary, records, question_summary, args)
+
+    assert verdict == "FAIL"
+    assert "question_quality_validator_failed" in failures
+
+
 def test_validate_gate_report_contract_detects_missing_fields(oneclick_module) -> None:
     module = oneclick_module
     missing = module._validate_gate_report_contract(
@@ -368,3 +421,171 @@ def test_required_efficiency_metrics_rejects_present_non_numeric(oneclick_module
         }
     )
     assert "latency_p50_ms_not_numeric" in failures
+
+
+def test_main_forwards_explicit_truthset_to_responder_eval(oneclick_module, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    module = oneclick_module
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True, exist_ok=True)
+    module.REPO_ROOT = repo_root
+
+    store_path = repo_root / "atoms.sqlite3"
+    store_path.write_text("", encoding="utf-8")
+    truthset_path = repo_root / "truthset.reviewed.jsonl"
+    truthset_path.write_text('{"case_id":"tc_0001"}\n', encoding="utf-8")
+    run_dir = repo_root / "runtime" / "evals" / "oneclick_test"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    commands: list[tuple[str, list[str]]] = []
+
+    def _step(name: str, command: list[str], log_file: Path):
+        commands.append((name, list(command)))
+        started_at = module._now_iso()
+        finished_at = module._now_iso()
+        if name == "run_responder_eval":
+            eval_dir = run_dir / "eval"
+            eval_dir.mkdir(parents=True, exist_ok=True)
+            summary_path = eval_dir / "summary.json"
+            records_path = eval_dir / "records.json"
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "decision_accuracy": 1.0,
+                        "citation_hit_rate": 1.0,
+                        "retrieval_hit_rate": 1.0,
+                        "abstain_precision": 1.0,
+                        "false_memory_rate": 0.0,
+                        "routine_over_recall_rate": 0.0,
+                        "latency_p50_ms": 1.0,
+                        "latency_p95_ms": 1.0,
+                        "tokens_prompt_avg": 0.0,
+                        "tokens_completion_avg": 0.0,
+                        "tokens_total_avg": 0.0,
+                        "retrieval_fanout_avg": 1.0,
+                        "retrieval_fanout_p95": 1.0,
+                        "latency_ms": {"memory_p95": 1.0, "model_p95": 1.0, "total_p95": 1.0},
+                        "retrieval": {
+                            "supported_non_routine_cases": 1,
+                            "supported_non_routine_with_expected_alignment": 1,
+                            "supported_non_routine_alignment_missing_cases": 0,
+                            "supported_non_routine_relevance_aligned_hit_rate": 1.0,
+                            "supported_non_routine_avg_retrieved_atoms": 1.0,
+                            "supported_non_routine_p95_retrieved_atoms": 1.0,
+                            "evidence_precision_at_k": 1.0,
+                            "junk_rate_at_k": 0.0,
+                            "conflict_labeled_supported_cases": 0,
+                            "conflict_covered_supported_cases": 0,
+                            "conflict_coverage": 1.0,
+                        },
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            records_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "case": {
+                                "case_id": "tc_0001",
+                                "case_type": "supported_recall",
+                                "expected_decision": "PASS",
+                                "query": "Q",
+                            },
+                            "reply_text": "A",
+                            "defect_tags": [],
+                            "blocking_defect_tags": [],
+                            "retrieval": {"retrieved_atom_ids": ["a1"]},
+                            "verification": {},
+                        }
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return module.StepResult(
+                name=name,
+                status="PASS",
+                returncode=0,
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_s=0.0,
+                command=command,
+                log_file=str(log_file),
+                outputs={
+                    "summary_json": str(summary_path),
+                    "records_json": str(records_path),
+                    "truthset_generated_jsonl": str(truthset_path),
+                },
+            )
+        if name == "validate_truthset_questions":
+            quality_dir = run_dir / "question_quality"
+            quality_dir.mkdir(parents=True, exist_ok=True)
+            (quality_dir / "question_validation_summary.json").write_text(
+                json.dumps(
+                    {
+                        "decision": "PASS",
+                        "weak_cases": 0,
+                        "blocking_defect_cases": 0,
+                        "event_grade_question_rate": 1.0,
+                        "fragment_question_rate": 0.0,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (quality_dir / "question_validation_cases.json").write_text("[]\n", encoding="utf-8")
+            return module.StepResult(
+                name=name,
+                status="PASS",
+                returncode=0,
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_s=0.0,
+                command=command,
+                log_file=str(log_file),
+                outputs={},
+            )
+        if name == "build_responder_eval_readout":
+            readout_path = run_dir / "human_readout.md"
+            readout_path.write_text(
+                "# Readout\n\n## Summary\n\n## Q/A Audit Table\n\n## Top Failure Examples\n",
+                encoding="utf-8",
+            )
+            return module.StepResult(
+                name=name,
+                status="PASS",
+                returncode=0,
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_s=0.0,
+                command=command,
+                log_file=str(log_file),
+                outputs={},
+            )
+        raise AssertionError(f"unexpected step: {name}")
+
+    monkeypatch.setattr(module, "_run_step", _step)
+    monkeypatch.setattr(module, "_stamp", lambda: "oneclick_test")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_oneclick_eval.py",
+            "--skip-import",
+            "--disable-episodes",
+            "--store",
+            str(store_path),
+            "--truthset",
+            str(truthset_path),
+            "--run-dir",
+            str(run_dir),
+        ],
+    )
+
+    rc = module.main()
+
+    assert rc == 0
+    responder_cmd = next(command for name, command in commands if name == "run_responder_eval")
+    assert "--truthset" in responder_cmd
+    assert str(truthset_path.resolve()) in responder_cmd

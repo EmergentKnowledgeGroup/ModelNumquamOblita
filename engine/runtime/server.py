@@ -5771,10 +5771,11 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             except KeyError:
                 return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "atom not found"})
             except Exception as exc:
+                LOGGER.exception("graph neighbors lookup failed", exc_info=exc)
                 return _json_response(
                     self,
                     HTTPStatus.INTERNAL_SERVER_ERROR,
-                    {"error": f"graph neighbors lookup failed: {exc}"},
+                    {"error": "graph neighbors lookup failed"},
                 )
             return _json_response(self, HTTPStatus.OK, payload)
         if path == "/api/memory/graph":

@@ -2754,6 +2754,7 @@ class MCPServer:
         links: list[dict[str, Any]] = []
         seen_links: set[tuple[str, str, str]] = set()
         root_atom: Mapping[str, Any] | None = None
+        node_limit_hit = False
 
         for _layer in range(depth):
             if not pending:
@@ -2776,7 +2777,10 @@ class MCPServer:
                     neighbor_id = target if source == current else source
                     if not source or not target or not kind or neighbor_id == node_id or neighbor_id.startswith("slk:"):
                         continue
-                    if neighbor_id not in neighbors and len(neighbors) < node_limit:
+                    if neighbor_id not in neighbors:
+                        if len(neighbors) >= node_limit:
+                            node_limit_hit = True
+                            continue
                         neighbors[neighbor_id] = {"atom_id": neighbor_id, "node_id": neighbor_id, "via_edge_kind": kind}
                     if neighbor_id not in neighbors:
                         continue
@@ -2809,12 +2813,12 @@ class MCPServer:
             "link_limit": link_limit,
             "requests_used": requests_used,
             "truncated": (
-                len(neighbors) > len(neighbor_rows)
+                node_limit_hit
                 or len(filtered_links) > link_limit
                 or requests_used >= self.config.max_neighbor_expansion_requests
             ),
             "truncation": {
-                "node_limit_hit": len(neighbors) > len(neighbor_rows),
+                "node_limit_hit": node_limit_hit,
                 "link_limit_hit": len(filtered_links) > link_limit,
                 "request_budget_hit": requests_used >= self.config.max_neighbor_expansion_requests,
                 "dropped_shared_language": False,

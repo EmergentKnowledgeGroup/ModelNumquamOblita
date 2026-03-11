@@ -651,6 +651,7 @@ class _FakeApiClient:
             node_limit = int(query_obj.get("node_limit") or query_obj.get("limit") or 60)
             link_limit = int(query_obj.get("link_limit") or 120)
             include_shared_language = str(query_obj.get("include_shared_language") or "false").strip().lower() == "true"
+            include_root_detail = str(query_obj.get("include_root_detail") or "true").strip().lower() == "true"
             if atom_id == "atom_1":
                 neighbors = [
                     {"atom_id": "atom_2", "kind": "event_card", "distance": 1, "via_edge_kind": "conflict"},
@@ -665,17 +666,40 @@ class _FakeApiClient:
                         {"atom_id": "atom_4", "kind": "event_card", "distance": 1, "via_edge_kind": "shared_language"}
                     )
                     links.append({"source": "atom_1", "target": "atom_4", "kind": "shared_language"})
+                node_payload: dict[str, object] = {"atom_id": "atom_1", "kind": "event_card"}
+                if include_root_detail:
+                    node_payload.update(
+                        {
+                            "card_id": "card_atom_1",
+                            "status": "active",
+                            "summary": "Tea memory node",
+                        }
+                    )
+                kept_neighbors = neighbors[:node_limit]
+                kept_links = links[:link_limit]
+                dropped_shared_language = False
+                if include_shared_language:
+                    all_shared_neighbor_ids = {
+                        str(row.get("atom_id") or "")
+                        for row in neighbors
+                        if str(row.get("via_edge_kind") or "") == "shared_language"
+                    }
+                    kept_shared_neighbor_ids = {
+                        str(row.get("atom_id") or "")
+                        for row in kept_neighbors
+                        if str(row.get("via_edge_kind") or "") == "shared_language"
+                    }
+                    all_shared_links = [row for row in links if str(row.get("kind") or "") == "shared_language"]
+                    kept_shared_links = [row for row in kept_links if str(row.get("kind") or "") == "shared_language"]
+                    dropped_shared_language = (
+                        all_shared_neighbor_ids != kept_shared_neighbor_ids
+                        or len(all_shared_links) != len(kept_shared_links)
+                    )
                 return 200, {
                     "ok": True,
-                    "node": {
-                        "atom_id": "atom_1",
-                        "kind": "event_card",
-                        "card_id": "card_atom_1",
-                        "status": "active",
-                        "summary": "Tea memory node",
-                    },
-                    "neighbors": neighbors[:node_limit],
-                    "links": links[:link_limit],
+                    "node": node_payload,
+                    "neighbors": kept_neighbors,
+                    "links": kept_links,
                     "depth": depth,
                     "node_limit": node_limit,
                     "link_limit": link_limit,
@@ -685,7 +709,7 @@ class _FakeApiClient:
                         "node_limit_hit": len(neighbors) > node_limit,
                         "link_limit_hit": len(links) > link_limit,
                         "request_budget_hit": False,
-                        "dropped_shared_language": False,
+                        "dropped_shared_language": dropped_shared_language,
                     },
                 }
             return 404, {"error": "atom not found"}
@@ -1663,6 +1687,28 @@ def test_mcp_memory_graph_neighbors_native_includes_shared_language_when_within_
     rows = list(payload.get("neighbors") or [])
     assert any(str(dict(row).get("atom_id") or "") == "atom_4" for row in rows)
     assert any(str(dict(link).get("kind") or "") == "shared_language" for link in list(payload.get("links") or []))
+
+
+def test_mcp_memory_graph_neighbors_native_can_omit_root_detail() -> None:
+    client = _FakeApiClient()
+    server = MCPServer(
+        config=ServerConfig(runtime_base_url="http://127.0.0.1:7340", auth=AuthConfig(default_role="viewer")),
+        api_client=client,
+    )
+
+    _call(server, 1, "initialize", {})
+    neighbors = _call(
+        server,
+        2,
+        "tools/call",
+        {"name": "memory.graph_neighbors", "arguments": {"node_id": "atom_1", "include_root_detail": False}},
+    )
+    payload = dict(dict(neighbors["result"]).get("structuredContent") or {})
+    node = dict(payload.get("node") or {})
+    assert node.get("atom_id") == "atom_1"
+    assert node.get("kind") == "event_card"
+    assert "card_id" not in node
+    assert "summary" not in node
 
 
 def test_mcp_memory_graph_neighbors_falls_back_when_native_endpoint_is_unavailable() -> None:

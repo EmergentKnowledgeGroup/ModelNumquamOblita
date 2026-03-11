@@ -8,7 +8,7 @@ from pathlib import Path
 
 from engine.contracts import AtomType, CandidateAtom, SourceRef
 from engine.memory import SqliteAtomStore
-from engine.runtime import generate_truthset, write_truthset_jsonl
+from tests.integration.helpers.truthset import build_truthset
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -44,22 +44,12 @@ def _build_store(path: Path) -> None:
     finally:
         store.close()
 
-
-def _build_truthset(store_path: Path, truthset_path: Path, *, total_cases: int = 6) -> None:
-    store = SqliteAtomStore(store_path)
-    try:
-        cases = generate_truthset(store, total_cases=total_cases, supported_ratio=0.5)
-    finally:
-        store.close()
-    write_truthset_jsonl(cases, truthset_path)
-
-
 def test_run_full_export_pilot_script_skip_import(tmp_path: Path) -> None:
     sqlite_path = tmp_path / "atoms.sqlite3"
     out_dir = tmp_path / "live"
     _build_store(sqlite_path)
 
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - trusted fixed args in test harness
         [
             sys.executable,
             "tools/run_full_export_pilot.py",
@@ -170,7 +160,7 @@ def test_run_full_export_pilot_forwards_reviewed_truthset_controls(tmp_path: Pat
     truthset_path = tmp_path / "truthset.reviewed.jsonl"
     out_dir = tmp_path / "live_reviewed_truthset"
     _build_store(sqlite_path)
-    _build_truthset(sqlite_path, truthset_path, total_cases=6)
+    build_truthset(sqlite_path, truthset_path, total_cases=6)
 
     result = subprocess.run(
         [

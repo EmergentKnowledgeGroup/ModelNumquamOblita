@@ -8,7 +8,7 @@ from pathlib import Path
 
 from engine.contracts import AtomType, CandidateAtom, SourceRef
 from engine.memory import SqliteAtomStore
-from engine.runtime import generate_truthset, write_truthset_jsonl
+from tests.integration.helpers.truthset import build_truthset
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -43,16 +43,6 @@ def _build_store(path: Path) -> None:
         store.add_candidate(_seed_candidate("c3", "We prioritize evidence over guesses.", "conv_3"))
     finally:
         store.close()
-
-
-def _build_truthset(store_path: Path, truthset_path: Path, *, total_cases: int = 6) -> None:
-    store = SqliteAtomStore(store_path)
-    try:
-        cases = generate_truthset(store, total_cases=total_cases, supported_ratio=0.5)
-    finally:
-        store.close()
-    write_truthset_jsonl(cases, truthset_path)
-
 
 def test_run_pilot_acceptance_script(tmp_path: Path) -> None:
     sqlite_path = tmp_path / "atoms.sqlite3"
@@ -162,7 +152,7 @@ def test_run_pilot_acceptance_script_with_reviewed_truthset(tmp_path: Path) -> N
     truthset_path = tmp_path / "truthset.reviewed.jsonl"
     out_dir = tmp_path / "pilot"
     _build_store(sqlite_path)
-    _build_truthset(sqlite_path, truthset_path, total_cases=6)
+    build_truthset(sqlite_path, truthset_path, total_cases=6)
 
     result = subprocess.run(
         [
@@ -219,7 +209,7 @@ def test_run_pilot_acceptance_truthset_quality_gate_fails(tmp_path: Path) -> Non
     truthset_path = tmp_path / "truthset.reviewed.jsonl"
     out_dir = tmp_path / "pilot"
     _build_store(sqlite_path)
-    _build_truthset(sqlite_path, truthset_path, total_cases=4)
+    build_truthset(sqlite_path, truthset_path, total_cases=4)
 
     result = subprocess.run(
         [

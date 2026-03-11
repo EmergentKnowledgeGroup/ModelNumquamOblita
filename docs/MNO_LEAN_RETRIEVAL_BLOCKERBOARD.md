@@ -1,7 +1,7 @@
 # MNO Lean Retrieval Upgrade Blockerboard
 
 Status: Locked after second SpecSwarm + author QA  
-Updated: 2026-03-10  
+Updated: 2026-03-11  
 Spec source: `docs/MNO_LEAN_RETRIEVAL_UPGRADES_SPEC.md`  
 Execution source: `docs/MNO_LEAN_RETRIEVAL_EXECUTION_CHECKLIST.md`
 
@@ -27,6 +27,7 @@ Done is not “retrieval looks better.” Done is:
 - `Phase 7` signoff re-verification now passes on both reference corpora:
   - `runtime/evals/claude_no_phase7_signoff_20260310_standalone_reverify`
   - `runtime/evals/no_lyra_phase7_signoff_20260310_standalone_reverify`
+- LR-adjacent wrapper coverage was hardened on 2026-03-11 to fail closed on reviewed-truthset path drops across `phase7_signoff`, `pilot_acceptance`, and `full_export_pilot`.
 - `MLRB-201..203`: optional and still open
 
 If standalone verification disproves any carried-forward closed item, reopen it immediately.

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from engine.contracts import AtomType, CandidateAtom, SourceRef
 from engine.memory import SqliteAtomStore
+from tests.integration.helpers.truthset import build_truthset
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -43,13 +44,12 @@ def _build_store(path: Path) -> None:
     finally:
         store.close()
 
-
 def test_run_full_export_pilot_script_skip_import(tmp_path: Path) -> None:
     sqlite_path = tmp_path / "atoms.sqlite3"
     out_dir = tmp_path / "live"
     _build_store(sqlite_path)
 
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - trusted fixed args in test harness
         [
             sys.executable,
             "tools/run_full_export_pilot.py",
@@ -153,6 +153,62 @@ def test_run_full_export_pilot_forwards_latency_overrides_to_pilot_step(tmp_path
     assert "--max-load-p95-latency-ms" in pilot_cmd
     assert "25000.0" in pilot_cmd
     assert "26000.0" in pilot_cmd
+
+
+def test_run_full_export_pilot_forwards_reviewed_truthset_controls(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "atoms.sqlite3"
+    truthset_path = tmp_path / "truthset.reviewed.jsonl"
+    out_dir = tmp_path / "live_reviewed_truthset"
+    _build_store(sqlite_path)
+    build_truthset(sqlite_path, truthset_path, total_cases=6)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/run_full_export_pilot.py",
+            "--skip-import",
+            "--store",
+            str(sqlite_path),
+            "--run-dir",
+            str(out_dir),
+            "--truthset",
+            str(truthset_path),
+            "--require-reviewed-truthset",
+            "--skip-truthset-quality-gate",
+            "--requested-cases",
+            "6",
+            "--load-turns",
+            "4",
+            "--scan-budget",
+            "20000",
+            "--batch-size",
+            "2",
+            "--batch-pause-ms",
+            "0",
+            "--max-weak-question-cases",
+            "6",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    manifest = json.loads((out_dir / "live_manifest.json").read_text(encoding="utf-8"))
+    pilot_step = next(item for item in manifest["steps"] if item["name"] == "pilot_acceptance")
+    pilot_cmd = [str(part) for part in pilot_step["command"]]
+    assert "--truthset" in pilot_cmd
+    assert str(truthset_path) in pilot_cmd
+    assert "--require-reviewed-truthset" in pilot_cmd
+    assert "--skip-truthset-quality-gate" in pilot_cmd
+    assert "--max-weak-question-cases" in pilot_cmd
+    assert "6" in pilot_cmd
+
+    pilot_manifest = json.loads((out_dir / "pilot" / "pilot_manifest.json").read_text(encoding="utf-8"))
+    assert pilot_manifest["truthset"]["mode"] == "explicit"
+    assert Path(pilot_manifest["truthset"]["path"]) == truthset_path
+    assert pilot_manifest["truthset"]["quality"]["decision"] == "SKIP"
 
 
 def test_run_full_export_pilot_script_requires_input_when_import_enabled(tmp_path: Path) -> None:

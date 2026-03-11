@@ -13,6 +13,7 @@ Status: Active
 - Standalone `Phase 7` signoff now passes again on both reference corpora:
   - `runtime/evals/claude_no_phase7_signoff_20260310_standalone_reverify`
   - `runtime/evals/no_lyra_phase7_signoff_20260310_standalone_reverify`
+- LR-adjacent wrapper coverage was hardened on 2026-03-11 so reviewed-truthset propagation is now explicitly tested across `phase7_signoff`, `pilot_acceptance`, and `full_export_pilot` instead of relying on indirect happy-path coverage.
 - `evidence_precision@k` / `junk_rate@k` remain baseline-relative improvement metrics for closure work. Do not reinterpret them as ad hoc absolute floors when doing carried-forward parity verification.
 - `P2`: optional and deferred until a measured gap justifies extra dependencies or latency cost.
 

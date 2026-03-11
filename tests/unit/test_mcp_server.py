@@ -1745,6 +1745,8 @@ def test_mcp_memory_graph_neighbors_falls_back_when_native_endpoint_is_unavailab
         str(dict(row).get("atom_id") or "") == "atom_3" and int(dict(row).get("distance") or 0) == 2
         for row in rows
     )
+    native_query = next(query for path, query in client.calls if path == "/api/memory/graph/neighbors")
+    assert native_query.get("limit") == 5
     assert int(payload.get("requests_used") or 0) >= 2
     assert any(path == "/api/memory/graph/neighbors" for path, _query in client.calls)
     assert any(path == "/api/memory/graph" for path, _query in client.calls)
@@ -1838,6 +1840,35 @@ def test_mcp_memory_graph_neighbors_fallback_honors_root_detail_and_truthfully_m
     assert node == {"atom_id": "atom_1"}
     truncation = dict(payload.get("truncation") or {})
     assert truncation.get("dropped_shared_language") is True
+
+
+def test_mcp_memory_graph_neighbors_fallback_marks_internal_link_buffer_truncation() -> None:
+    client = _FakeApiClient()
+    client.native_graph_neighbors_available = False
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            max_graph_nodes=5,
+            max_graph_links=1,
+            max_neighbor_expansion_requests=4,
+        ),
+        api_client=client,
+    )
+
+    _call(server, 1, "initialize", {})
+    neighbors = _call(
+        server,
+        2,
+        "tools/call",
+        {"name": "memory.graph_neighbors", "arguments": {"node_id": "atom_1", "depth": 2, "limit": 5}},
+    )
+    payload = dict(dict(neighbors["result"]).get("structuredContent") or {})
+    rows = list(payload.get("neighbors") or [])
+    assert [str(dict(row).get("atom_id") or "") for row in rows] == ["atom_2"]
+    assert list(payload.get("links") or []) == [{"source": "atom_1", "target": "atom_2", "kind": "conflict"}]
+    truncation = dict(payload.get("truncation") or {})
+    assert truncation.get("link_limit_hit") is True
 
 
 def test_fake_api_client_graph_neighbors_missing_atom_requires_allow_error_status() -> None:

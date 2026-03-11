@@ -159,7 +159,7 @@ def test_graph_neighbors_payload_truncation_is_truthful_and_links_reference_kept
         atom_id=atom_ids["root"],
         depth=2,
         node_limit=1,
-        link_limit=1,
+        link_limit=10,
         include_shared_language=True,
     )
 

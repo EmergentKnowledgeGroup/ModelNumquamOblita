@@ -2873,6 +2873,13 @@ def _build_graph_neighbors_payload(
                     continue
                 if target_id == atom_id:
                     continue
+                link_key = (current, target_id, edge_kind)
+                is_new_link = link_key not in seen_links
+                if is_new_link and len(links) >= link_limit:
+                    link_limit_hit = True
+                    if edge_kind == "shared_language":
+                        dropped_shared_language = True
+                    continue
                 target_payload: dict[str, Any] | None = None
                 is_new_node = target_id not in nodes_by_id
                 if is_new_node:
@@ -2888,16 +2895,9 @@ def _build_graph_neighbors_payload(
                     target_payload = _graph_node_payload(target_atom, include_detail=True)
                     target_payload["distance"] = next_distance
                     target_payload["via_edge_kind"] = edge_kind
-                link_key = (current, target_id, edge_kind)
-                if link_key not in seen_links:
-                    if len(links) >= link_limit:
-                        link_limit_hit = True
-                        if edge_kind == "shared_language":
-                            dropped_shared_language = True
-                        continue
-                    else:
-                        seen_links.add(link_key)
-                        links.append({"source": current, "target": target_id, "kind": edge_kind})
+                if is_new_link:
+                    seen_links.add(link_key)
+                    links.append({"source": current, "target": target_id, "kind": edge_kind})
                 if is_new_node and target_payload is not None:
                     nodes_by_id[target_id] = target_payload
                     ordered_neighbors.append(target_id)

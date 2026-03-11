@@ -228,7 +228,7 @@ def test_memory_graph_neighbors_endpoint_is_bounded_and_truthful() -> None:
         assert "summary" not in compact_root["node"]
 
         truncated = _json_get(
-            f"{base}/api/memory/graph/neighbors?atom_id={quote(root.atom_id)}&depth=2&node_limit=1&link_limit=1&include_shared_language=true"
+            f"{base}/api/memory/graph/neighbors?atom_id={quote(root.atom_id)}&depth=2&node_limit=1&link_limit=10&include_shared_language=true"
         )
         assert truncated["truncated"] is True
         assert truncated["truncation"]["node_limit_hit"] is True

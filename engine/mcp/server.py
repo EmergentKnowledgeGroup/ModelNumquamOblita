@@ -2757,6 +2757,7 @@ class MCPServer:
         seen_links: set[tuple[str, str, str]] = set()
         root_atom: Mapping[str, Any] | None = None
         node_limit_hit = False
+        link_limit_hit = False
         request_budget_hit = False
         dropped_shared_language = False
 
@@ -2789,6 +2790,11 @@ class MCPServer:
                             # the concrete atom neighbors returned by the native endpoint.
                             dropped_shared_language = True
                         continue
+                    link_key = (source, target, kind)
+                    is_new_link = link_key not in seen_links
+                    if is_new_link and len(links) >= self.config.max_graph_links:
+                        link_limit_hit = True
+                        continue
                     if neighbor_id not in neighbors:
                         if len(neighbors) >= node_limit:
                             node_limit_hit = True
@@ -2801,9 +2807,8 @@ class MCPServer:
                         }
                     if neighbor_id not in neighbors:
                         continue
-                    key = (source, target, kind)
-                    if key not in seen_links and len(links) < self.config.max_graph_links:
-                        seen_links.add(key)
+                    if is_new_link:
+                        seen_links.add(link_key)
                         links.append({"source": source, "target": target, "kind": kind})
                     if neighbor_id not in visited_atoms:
                         visited_atoms.add(neighbor_id)
@@ -2833,12 +2838,13 @@ class MCPServer:
             "requests_used": requests_used,
             "truncated": (
                 node_limit_hit
+                or link_limit_hit
                 or len(filtered_links) > link_limit
                 or request_budget_hit
             ),
             "truncation": {
                 "node_limit_hit": node_limit_hit,
-                "link_limit_hit": len(filtered_links) > link_limit,
+                "link_limit_hit": link_limit_hit or len(filtered_links) > link_limit,
                 "request_budget_hit": request_budget_hit,
                 "dropped_shared_language": dropped_shared_language,
             },
@@ -2873,6 +2879,7 @@ class MCPServer:
                     query={
                         "atom_id": node_id,
                         "depth": depth,
+                        "limit": node_limit,
                         "node_limit": node_limit,
                         "link_limit": link_limit,
                         "include_shared_language": str(include_shared_language).lower(),

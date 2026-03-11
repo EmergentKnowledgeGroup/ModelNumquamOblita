@@ -2760,7 +2760,7 @@ class MCPServer:
         request_budget_hit = False
         dropped_shared_language = False
 
-        for _layer in range(depth):
+        for layer_index in range(depth):
             if not pending:
                 break
             next_pending: list[str] = []
@@ -2793,7 +2793,12 @@ class MCPServer:
                         if len(neighbors) >= node_limit:
                             node_limit_hit = True
                             continue
-                        neighbors[neighbor_id] = {"atom_id": neighbor_id, "node_id": neighbor_id, "via_edge_kind": kind}
+                        neighbors[neighbor_id] = {
+                            "atom_id": neighbor_id,
+                            "node_id": neighbor_id,
+                            "distance": layer_index + 1,
+                            "via_edge_kind": kind,
+                        }
                     if neighbor_id not in neighbors:
                         continue
                     key = (source, target, kind)
@@ -2808,8 +2813,6 @@ class MCPServer:
                 break
             if requests_used >= self.config.max_neighbor_expansion_requests and pending:
                 request_budget_hit = True
-                break
-            if len(neighbors) >= node_limit:
                 break
 
         neighbor_rows = list(neighbors.values())[:node_limit]

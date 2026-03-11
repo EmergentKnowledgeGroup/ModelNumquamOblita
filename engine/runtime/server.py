@@ -2901,6 +2901,8 @@ def _build_graph_neighbors_payload(
                 if is_new_node and target_payload is not None:
                     nodes_by_id[target_id] = target_payload
                     ordered_neighbors.append(target_id)
+                # Record-only edges are still allowed to surface returned neighbor nodes/links;
+                # they are only forbidden from driving further BFS expansion.
                 if edge_kind in GRAPH_NEIGHBOR_RECORD_ONLY_EDGE_ORDER:
                     continue
                 if next_distance >= depth:

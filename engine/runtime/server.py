@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 import base64
 import json
 import logging
@@ -62,6 +63,21 @@ WINDOWS_PACKAGING_SCRIPT_PS1 = REPO_ROOT / "tools" / "build_windows_single_exe.p
 WINDOWS_PACKAGING_SCRIPT_BAT = REPO_ROOT / "tools" / "build_windows_single_exe.bat"
 LOGGER = logging.getLogger(__name__)
 WIZARD_RUN_ID_PATTERN = re.compile(r"^wizard_[A-Za-z0-9_-]+$")
+GRAPH_NEIGHBOR_DEFAULT_DEPTH = 1
+GRAPH_NEIGHBOR_MAX_DEPTH = 2
+GRAPH_NEIGHBOR_DEFAULT_NODE_LIMIT = 60
+GRAPH_NEIGHBOR_MAX_NODE_LIMIT = 120
+GRAPH_NEIGHBOR_DEFAULT_LINK_LIMIT = 120
+GRAPH_NEIGHBOR_MAX_LINK_LIMIT = 240
+GRAPH_NEIGHBOR_REQUEST_BUDGET = 12
+GRAPH_NEIGHBOR_EXPANDABLE_EDGE_ORDER = ("conflict", "constellation", "narrative_arc")
+GRAPH_NEIGHBOR_RECORD_ONLY_EDGE_ORDER = ("shared_language",)
+
+
+def _canonical_graph_link_key(source: str, target: str, kind: str) -> tuple[str, str, str]:
+    left, right = sorted((str(source), str(target)))
+    return left, right, str(kind)
+
 
 ROUTE_REASON_DESCRIPTIONS: dict[str, str] = {
     "smalltalk_routine": "Routine small talk, memory lookup skipped.",
@@ -2743,6 +2759,194 @@ def _iter_snapshot_neighbors(snapshot: Any, atom_id: str) -> tuple[set[str], set
     constellation_ids.discard(atom_id)
     arc_ids.discard(atom_id)
     return constellation_ids, arc_ids, shared
+
+
+def _parse_bounded_query_int(
+    raw_value: str | None,
+    *,
+    name: str,
+    default: int,
+    min_value: int,
+    max_value: int,
+) -> int:
+    text = str(raw_value if raw_value is not None else default).strip()
+    if not text:
+        return int(default)
+    try:
+        parsed = int(text)
+    except Exception as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if parsed < min_value or parsed > max_value:
+        raise ValueError(f"{name} must be between {min_value} and {max_value}")
+    return parsed
+
+
+def _graph_node_summary(atom: Any) -> str:
+    return _compact_text(str(getattr(atom, "canonical_text", "")), max_chars=220)
+
+
+def _graph_node_payload(atom: Any, *, include_detail: bool) -> dict[str, Any]:
+    atom_id = str(getattr(atom, "atom_id", "")).strip()
+    payload = {
+        "atom_id": atom_id,
+        "kind": _card_kind_for_atom(atom),
+    }
+    if include_detail:
+        payload.update(
+            {
+                "card_id": f"card_{atom_id}",
+                "status": str(getattr(getattr(atom, "status", None), "value", getattr(atom, "status", ""))),
+                "summary": _graph_node_summary(atom),
+            }
+        )
+    return payload
+
+
+def _graph_relation_targets(
+    store: Any,
+    snapshot: Any,
+    atom_id: str,
+    *,
+    include_shared_language: bool,
+) -> dict[str, list[str]]:
+    conflicts = sorted(str(item) for item in set(store.conflict_neighbors(atom_id)))
+    constellation_ids, arc_ids, shared = _iter_snapshot_neighbors(snapshot, atom_id)
+    payload: dict[str, list[str]] = {
+        "conflict": conflicts,
+        "constellation": sorted(str(item) for item in constellation_ids),
+        "narrative_arc": sorted(str(item) for item in arc_ids),
+    }
+    if include_shared_language:
+        shared_targets: set[str] = set()
+        for row in shared:
+            for candidate in list(row.get("atom_ids") or []):
+                candidate_id = str(candidate).strip()
+                if candidate_id and candidate_id != atom_id:
+                    shared_targets.add(candidate_id)
+        payload["shared_language"] = sorted(shared_targets)
+    return payload
+
+
+def _build_graph_neighbors_payload(
+    runtime: RuntimeSession,
+    *,
+    atom_id: str,
+    depth: int = GRAPH_NEIGHBOR_DEFAULT_DEPTH,
+    node_limit: int = GRAPH_NEIGHBOR_DEFAULT_NODE_LIMIT,
+    link_limit: int = GRAPH_NEIGHBOR_DEFAULT_LINK_LIMIT,
+    include_shared_language: bool = False,
+    include_root_detail: bool = True,
+) -> dict[str, Any]:
+    root_atom = runtime.retriever.store.get_atom(atom_id)
+    _revision, snapshot = runtime.continuity_store.snapshot_view()
+
+    root_payload = _graph_node_payload(root_atom, include_detail=include_root_detail)
+    queue: deque[tuple[str, int]] = deque([(atom_id, 0)])
+    expanded: set[str] = {atom_id}
+    nodes_by_id: dict[str, dict[str, Any]] = {}
+    ordered_neighbors: list[str] = []
+    links: list[dict[str, Any]] = []
+    seen_links: set[tuple[str, str, str]] = set()
+    requests_used = 0
+    node_limit_hit = False
+    link_limit_hit = False
+    request_budget_hit = False
+    dropped_shared_language = False
+
+    while queue:
+        current, current_distance = queue.popleft()
+        if current_distance >= depth:
+            continue
+        if requests_used >= GRAPH_NEIGHBOR_REQUEST_BUDGET:
+            request_budget_hit = True
+            break
+        requests_used += 1
+        relation_map = _graph_relation_targets(
+            runtime.retriever.store,
+            snapshot,
+            current,
+            include_shared_language=include_shared_language,
+        )
+        ordered_edge_kinds = [*GRAPH_NEIGHBOR_EXPANDABLE_EDGE_ORDER]
+        if include_shared_language:
+            ordered_edge_kinds.extend(GRAPH_NEIGHBOR_RECORD_ONLY_EDGE_ORDER)
+        next_distance = current_distance + 1
+        for edge_kind in ordered_edge_kinds:
+            targets = relation_map.get(edge_kind) or []
+            for target in targets:
+                target_id = str(target).strip()
+                if not target_id or target_id == current:
+                    continue
+                if target_id == atom_id:
+                    continue
+                link_key = _canonical_graph_link_key(current, target_id, edge_kind)
+                is_new_link = link_key not in seen_links
+                if is_new_link and len(links) >= link_limit:
+                    link_limit_hit = True
+                    if edge_kind == "shared_language":
+                        dropped_shared_language = True
+                    continue
+                target_payload: dict[str, Any] | None = None
+                is_new_node = target_id not in nodes_by_id
+                if is_new_node:
+                    if len(nodes_by_id) >= node_limit:
+                        node_limit_hit = True
+                        if edge_kind == "shared_language":
+                            dropped_shared_language = True
+                        continue
+                    try:
+                        target_atom = runtime.retriever.store.get_atom(target_id)
+                    except KeyError:
+                        continue
+                    target_payload = _graph_node_payload(target_atom, include_detail=True)
+                    target_payload["distance"] = next_distance
+                    target_payload["via_edge_kind"] = edge_kind
+                if is_new_link:
+                    seen_links.add(link_key)
+                    links.append({"source": current, "target": target_id, "kind": edge_kind})
+                if is_new_node and target_payload is not None:
+                    nodes_by_id[target_id] = target_payload
+                    ordered_neighbors.append(target_id)
+                # Record-only edges are still allowed to surface returned neighbor nodes/links;
+                # they are only forbidden from driving further BFS expansion.
+                if edge_kind in GRAPH_NEIGHBOR_RECORD_ONLY_EDGE_ORDER:
+                    continue
+                if next_distance >= depth:
+                    continue
+                if target_id in expanded:
+                    continue
+                expanded.add(target_id)
+                queue.append((target_id, next_distance))
+        if request_budget_hit:
+            break
+
+    kept_neighbor_ids = set(ordered_neighbors)
+    filtered_links = [
+        row
+        for row in links
+        if str(row.get("source") or "") in kept_neighbor_ids.union({atom_id})
+        and str(row.get("target") or "") in kept_neighbor_ids.union({atom_id})
+    ]
+    if len(filtered_links) != len(links):
+        link_limit_hit = True
+    truncation = {
+        "node_limit_hit": bool(node_limit_hit),
+        "link_limit_hit": bool(link_limit_hit),
+        "request_budget_hit": bool(request_budget_hit),
+        "dropped_shared_language": bool(dropped_shared_language),
+    }
+    return {
+        "ok": True,
+        "node": root_payload,
+        "neighbors": [nodes_by_id[item] for item in ordered_neighbors],
+        "links": filtered_links,
+        "depth": depth,
+        "node_limit": node_limit,
+        "link_limit": link_limit,
+        "requests_used": requests_used,
+        "truncated": any(truncation.values()),
+        "truncation": truncation,
+    }
 
 
 def _normalize_anchor_id(value: str) -> str:
@@ -5538,6 +5742,54 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 proposals.append(payload)
             proposals.sort(key=lambda item: item.get("created_at") or "", reverse=True)
             return _json_response(self, HTTPStatus.OK, {"ok": True, "proposals": proposals})
+        if path == "/api/memory/graph/neighbors":
+            q = parse_qs(parsed.query)
+            atom_id = str((q.get("atom_id") or [""])[0]).strip()
+            if not atom_id:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "atom_id is required"})
+            try:
+                depth = _parse_bounded_query_int(
+                    (q.get("depth") or [str(GRAPH_NEIGHBOR_DEFAULT_DEPTH)])[0],
+                    name="depth",
+                    default=GRAPH_NEIGHBOR_DEFAULT_DEPTH,
+                    min_value=1,
+                    max_value=GRAPH_NEIGHBOR_MAX_DEPTH,
+                )
+                node_limit = _parse_bounded_query_int(
+                    (q.get("node_limit") or [str(GRAPH_NEIGHBOR_DEFAULT_NODE_LIMIT)])[0],
+                    name="node_limit",
+                    default=GRAPH_NEIGHBOR_DEFAULT_NODE_LIMIT,
+                    min_value=1,
+                    max_value=GRAPH_NEIGHBOR_MAX_NODE_LIMIT,
+                )
+                link_limit = _parse_bounded_query_int(
+                    (q.get("link_limit") or [str(GRAPH_NEIGHBOR_DEFAULT_LINK_LIMIT)])[0],
+                    name="link_limit",
+                    default=GRAPH_NEIGHBOR_DEFAULT_LINK_LIMIT,
+                    min_value=1,
+                    max_value=GRAPH_NEIGHBOR_MAX_LINK_LIMIT,
+                )
+                payload = _build_graph_neighbors_payload(
+                    self.server.runtime,
+                    atom_id=atom_id,
+                    depth=depth,
+                    node_limit=node_limit,
+                    link_limit=link_limit,
+                    include_shared_language=_to_bool((q.get("include_shared_language") or ["false"])[0], default=False),
+                    include_root_detail=_to_bool((q.get("include_root_detail") or ["true"])[0], default=True),
+                )
+            except ValueError as exc:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            except KeyError:
+                return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "atom not found"})
+            except Exception as exc:
+                LOGGER.exception("graph neighbors lookup failed", exc_info=exc)
+                return _json_response(
+                    self,
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": "graph neighbors lookup failed"},
+                )
+            return _json_response(self, HTTPStatus.OK, payload)
         if path == "/api/memory/graph":
             q = parse_qs(parsed.query)
             atom_id = str((q.get("atom_id") or [""])[0]).strip()

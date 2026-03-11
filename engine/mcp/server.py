@@ -66,6 +66,11 @@ def _sha256_short(value: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:20]
 
 
+def _canonical_graph_link_key(source: str, target: str, kind: str) -> tuple[str, str, str]:
+    left, right = sorted((str(source), str(target)))
+    return left, right, str(kind)
+
+
 def _ensure_role(value: str) -> str:
     role = str(value or "").strip().lower()
     if role not in ROLE_ORDER:
@@ -384,6 +389,19 @@ def _coerce_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, parsed))
 
 
+def _coerce_bool(value: Any, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return bool(default)
+    lowered = str(value).strip().lower()
+    if lowered in {"1", "true", "yes", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
 def _coerce_mode(value: Any, *, default: str = "compact") -> str:
     mode = str(value or "").strip().lower() or default
     if mode not in {"compact", "full"}:
@@ -699,6 +717,10 @@ class MCPServer:
                         "node_id": {"type": "string"},
                         "depth": {"type": "integer"},
                         "limit": {"type": "integer"},
+                        "node_limit": {"type": "integer"},
+                        "link_limit": {"type": "integer"},
+                        "include_shared_language": {"type": "boolean"},
+                        "include_root_detail": {"type": "boolean"},
                     },
                     "required": ["node_id"],
                     "additionalProperties": False,
@@ -2667,13 +2689,71 @@ class MCPServer:
             "link_limit": self.config.max_graph_links,
         }
 
-    def _tool_memory_graph_neighbors(self, args: dict[str, Any]) -> dict[str, Any]:
-        node_id = str(args.get("node_id") or "").strip()
-        if not node_id:
-            raise MCPRequestError(-32602, "node_id is required")
-        depth = _coerce_int(args.get("depth"), default=1, minimum=1, maximum=2)
-        limit = _coerce_int(args.get("limit"), default=60, minimum=1, maximum=self.config.max_graph_nodes)
+    def _normalize_graph_neighbors_payload(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        node_id: str,
+        depth: int,
+        node_limit: int,
+        link_limit: int,
+    ) -> dict[str, Any]:
+        node_raw = payload.get("node")
+        node: dict[str, Any]
+        if isinstance(node_raw, Mapping):
+            node = dict(node_raw)
+        else:
+            node = {"atom_id": node_id}
+        node_atom_id = str(node.get("atom_id") or node_id).strip() or node_id
+        node["atom_id"] = node_atom_id
 
+        neighbors: list[dict[str, Any]] = []
+        for row in list(payload.get("neighbors") or []):
+            if not isinstance(row, Mapping):
+                continue
+            atom_id = str(row.get("atom_id") or row.get("node_id") or "").strip()
+            if not atom_id or atom_id == node_atom_id:
+                continue
+            item = dict(row)
+            item["atom_id"] = atom_id
+            item.setdefault("node_id", atom_id)
+            neighbors.append(item)
+
+        links: list[dict[str, Any]] = []
+        for row in list(payload.get("links") or []):
+            if not isinstance(row, Mapping):
+                continue
+            source = str(row.get("source") or "").strip()
+            target = str(row.get("target") or "").strip()
+            kind = str(row.get("kind") or "").strip()
+            if not source or not target or not kind:
+                continue
+            links.append({"source": source, "target": target, "kind": kind})
+
+        truncation_raw = payload.get("truncation")
+        truncation = dict(truncation_raw) if isinstance(truncation_raw, Mapping) else {}
+        return {
+            "node": node,
+            "neighbors": neighbors,
+            "links": links,
+            "depth": int(payload.get("depth") or depth),
+            "node_limit": int(payload.get("node_limit") or node_limit),
+            "link_limit": int(payload.get("link_limit") or link_limit),
+            "requests_used": int(payload.get("requests_used") or 0),
+            "truncated": bool(payload.get("truncated")),
+            "truncation": truncation,
+        }
+
+    def _legacy_graph_neighbors_payload(
+        self,
+        *,
+        node_id: str,
+        depth: int,
+        node_limit: int,
+        link_limit: int,
+        include_shared_language: bool,
+        include_root_detail: bool,
+    ) -> dict[str, Any]:
         requests_used = 0
         pending = [node_id]
         visited_atoms = {node_id}
@@ -2681,13 +2761,19 @@ class MCPServer:
         links: list[dict[str, Any]] = []
         seen_links: set[tuple[str, str, str]] = set()
         root_atom: Mapping[str, Any] | None = None
+        node_limit_hit = False
+        link_limit_hit = False
+        request_budget_hit = False
+        dropped_shared_language = False
 
-        for _layer in range(depth):
+        for layer_index in range(depth):
             if not pending:
                 break
             next_pending: list[str] = []
-            for current in pending:
+            for index, current in enumerate(pending):
                 if requests_used >= self.config.max_neighbor_expansion_requests:
+                    if index < len(pending):
+                        request_budget_hit = True
                     break
                 payload = self.api_client.get_json("/api/memory/graph", query={"atom_id": current})
                 requests_used += 1
@@ -2700,37 +2786,135 @@ class MCPServer:
                     source = str(row.get("source") or "").strip()
                     target = str(row.get("target") or "").strip()
                     kind = str(row.get("kind") or "").strip()
-                    if not source or not target:
-                        continue
-                    key = (source, target, kind)
-                    if key not in seen_links and len(links) < self.config.max_graph_links:
-                        seen_links.add(key)
-                        links.append({"source": source, "target": target, "kind": kind})
                     neighbor_id = target if source == current else source
-                    if neighbor_id == node_id:
+                    if not source or not target or not kind or neighbor_id == node_id:
                         continue
                     if neighbor_id.startswith("slk:"):
+                        if include_shared_language:
+                            # Legacy graph surfaces expose shared-language key nodes rather than
+                            # the concrete atom neighbors returned by the native endpoint.
+                            dropped_shared_language = True
                         continue
-                    if neighbor_id not in neighbors and len(neighbors) < limit:
-                        neighbors[neighbor_id] = {"node_id": neighbor_id, "kind": kind}
+                    link_key = _canonical_graph_link_key(source, target, kind)
+                    is_new_link = link_key not in seen_links
+                    if is_new_link and len(links) >= self.config.max_graph_links:
+                        link_limit_hit = True
+                        continue
+                    if neighbor_id not in neighbors:
+                        if len(neighbors) >= node_limit:
+                            node_limit_hit = True
+                            continue
+                        neighbors[neighbor_id] = {
+                            "atom_id": neighbor_id,
+                            "node_id": neighbor_id,
+                            "distance": layer_index + 1,
+                            "via_edge_kind": kind,
+                        }
+                    if neighbor_id not in neighbors:
+                        continue
+                    if is_new_link:
+                        seen_links.add(link_key)
+                        links.append({"source": source, "target": target, "kind": kind})
                     if neighbor_id not in visited_atoms:
                         visited_atoms.add(neighbor_id)
                         next_pending.append(neighbor_id)
             pending = next_pending
-            if requests_used >= self.config.max_neighbor_expansion_requests:
+            if request_budget_hit:
                 break
-            if len(neighbors) >= limit:
+            if requests_used >= self.config.max_neighbor_expansion_requests and pending:
+                request_budget_hit = True
                 break
 
-        neighbor_rows = list(neighbors.values())[:limit]
+        neighbor_rows = list(neighbors.values())[:node_limit]
+        allowed_ids = {node_id}.union(str(row.get("atom_id") or "") for row in neighbor_rows)
+        filtered_links = [
+            row
+            for row in links
+            if str(row.get("source") or "") in allowed_ids and str(row.get("target") or "") in allowed_ids
+        ]
+        node_payload = self._sanitize_atom_payload(root_atom or {"atom_id": node_id}) if include_root_detail else {"atom_id": node_id}
         return {
-            "node": self._sanitize_atom_payload(root_atom or {"atom_id": node_id}),
+            "node": node_payload,
             "neighbors": neighbor_rows,
-            "links": links,
+            "links": filtered_links[:link_limit],
             "depth": depth,
+            "node_limit": node_limit,
+            "link_limit": link_limit,
             "requests_used": requests_used,
-            "truncated": len(neighbors) > len(neighbor_rows) or requests_used >= self.config.max_neighbor_expansion_requests,
+            "truncated": (
+                node_limit_hit
+                or link_limit_hit
+                or len(filtered_links) > link_limit
+                or request_budget_hit
+            ),
+            "truncation": {
+                "node_limit_hit": node_limit_hit,
+                "link_limit_hit": link_limit_hit or len(filtered_links) > link_limit,
+                "request_budget_hit": request_budget_hit,
+                "dropped_shared_language": dropped_shared_language,
+            },
         }
+
+    def _tool_memory_graph_neighbors(self, args: dict[str, Any]) -> dict[str, Any]:
+        node_id = str(args.get("node_id") or "").strip()
+        if not node_id:
+            raise MCPRequestError(-32602, "node_id is required")
+        depth = _coerce_int(args.get("depth"), default=1, minimum=1, maximum=2)
+        node_limit = _coerce_int(
+            args.get("node_limit", args.get("limit")),
+            default=60,
+            minimum=1,
+            maximum=self.config.max_graph_nodes,
+        )
+        link_limit = _coerce_int(
+            args.get("link_limit"),
+            default=min(120, self.config.max_graph_links),
+            minimum=1,
+            maximum=self.config.max_graph_links,
+        )
+        include_shared_language = _coerce_bool(args.get("include_shared_language"), default=False)
+        include_root_detail = _coerce_bool(args.get("include_root_detail"), default=True)
+
+        request_json = getattr(self.api_client, "request_json", None)
+        if callable(request_json):
+            try:
+                status_code, payload = request_json(
+                    "GET",
+                    "/api/memory/graph/neighbors",
+                    query={
+                        "atom_id": node_id,
+                        "depth": depth,
+                        "limit": node_limit,
+                        "node_limit": node_limit,
+                        "link_limit": link_limit,
+                        "include_shared_language": str(include_shared_language).lower(),
+                        "include_root_detail": str(include_root_detail).lower(),
+                    },
+                    allow_error_status=True,
+                )
+            except RuntimeApiError as exc:
+                if exc.status_code not in {404, 405, 501}:
+                    raise
+            else:
+                if status_code < 400:
+                    return self._normalize_graph_neighbors_payload(
+                        payload,
+                        node_id=node_id,
+                        depth=depth,
+                        node_limit=node_limit,
+                        link_limit=link_limit,
+                    )
+                if status_code not in {404, 405, 501}:
+                    detail = str(payload.get("error") or "").strip()
+                    raise RuntimeApiError("runtime_api_http_error", status_code=status_code, detail=detail)
+        return self._legacy_graph_neighbors_payload(
+            node_id=node_id,
+            depth=depth,
+            node_limit=node_limit,
+            link_limit=link_limit,
+            include_shared_language=include_shared_language,
+            include_root_detail=include_root_detail,
+        )
 
     def _tool_memory_quicknote_status(self, args: dict[str, Any]) -> dict[str, Any]:
         assistant_id = str(args.get("assistant_id") or "").strip() or None

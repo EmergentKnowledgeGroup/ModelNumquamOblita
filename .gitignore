@@ -11,5 +11,6 @@ __pycache__/
 venv/
 .runtime/
 /runtime/
+/docs/
 coverage.xml
 htmlcov/

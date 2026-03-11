@@ -28,6 +28,7 @@ class _FakeApiClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object]]] = []
         self.post_calls: list[tuple[str, dict[str, object]]] = []
+        self.native_graph_neighbors_available = True
         self._episode_rows = [
             {
                 "episode_id": "ep_1",
@@ -623,6 +624,103 @@ class _FakeApiClient:
                 "total": 1,
             }
         return {"ok": True}
+
+    def request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        query: dict[str, object] | None = None,
+        payload: dict[str, object] | None = None,
+        headers: dict[str, object] | None = None,
+        allow_error_status: bool = False,
+    ) -> tuple[int, dict[str, object]]:
+        del payload, headers
+        method_text = str(method or "").strip().upper()
+        query_obj = dict(query or {})
+        if method_text != "GET":
+            raise RuntimeApiError("runtime_api_missing_fixture", detail=f"{method_text} {path}")
+        if path == "/api/memory/graph/neighbors":
+            self.calls.append((path, query_obj))
+            if not self.native_graph_neighbors_available:
+                if allow_error_status:
+                    return 404, {"error": "not found"}
+                raise RuntimeApiError("runtime_api_http_error", status_code=404, detail="not found")
+            atom_id = str(query_obj.get("atom_id") or "")
+            depth = int(query_obj.get("depth") or 1)
+            node_limit = int(query_obj.get("node_limit") or query_obj.get("limit") or 60)
+            link_limit = int(query_obj.get("link_limit") or 120)
+            include_shared_language = str(query_obj.get("include_shared_language") or "false").strip().lower() == "true"
+            include_root_detail_raw = query_obj.get("include_root_detail")
+            include_root_detail = (
+                True
+                if include_root_detail_raw is None
+                else str(include_root_detail_raw).strip().lower() == "true"
+            )
+            if atom_id == "atom_1":
+                neighbors = [
+                    {"atom_id": "atom_2", "kind": "event_card", "distance": 1, "via_edge_kind": "conflict"},
+                    {"atom_id": "atom_3", "kind": "relationship_card", "distance": 2, "via_edge_kind": "narrative_arc"},
+                ]
+                links = [
+                    {"source": "atom_1", "target": "atom_2", "kind": "conflict"},
+                    {"source": "atom_2", "target": "atom_3", "kind": "narrative_arc"},
+                ]
+                if include_shared_language:
+                    neighbors.append(
+                        {"atom_id": "atom_4", "kind": "event_card", "distance": 1, "via_edge_kind": "shared_language"}
+                    )
+                    links.append({"source": "atom_1", "target": "atom_4", "kind": "shared_language"})
+                node_payload: dict[str, object] = {"atom_id": "atom_1", "kind": "event_card"}
+                if include_root_detail:
+                    node_payload.update(
+                        {
+                            "card_id": "card_atom_1",
+                            "status": "active",
+                            "summary": "Tea memory node",
+                        }
+                    )
+                kept_neighbors = neighbors[:node_limit]
+                kept_links = links[:link_limit]
+                dropped_shared_language = False
+                if include_shared_language:
+                    all_shared_neighbor_ids = {
+                        str(row.get("atom_id") or "")
+                        for row in neighbors
+                        if str(row.get("via_edge_kind") or "") == "shared_language"
+                    }
+                    kept_shared_neighbor_ids = {
+                        str(row.get("atom_id") or "")
+                        for row in kept_neighbors
+                        if str(row.get("via_edge_kind") or "") == "shared_language"
+                    }
+                    all_shared_links = [row for row in links if str(row.get("kind") or "") == "shared_language"]
+                    kept_shared_links = [row for row in kept_links if str(row.get("kind") or "") == "shared_language"]
+                    dropped_shared_language = (
+                        all_shared_neighbor_ids != kept_shared_neighbor_ids
+                        or len(all_shared_links) != len(kept_shared_links)
+                    )
+                return 200, {
+                    "ok": True,
+                    "node": node_payload,
+                    "neighbors": kept_neighbors,
+                    "links": kept_links,
+                    "depth": depth,
+                    "node_limit": node_limit,
+                    "link_limit": link_limit,
+                    "requests_used": 2,
+                    "truncated": len(neighbors) > node_limit or len(links) > link_limit,
+                    "truncation": {
+                        "node_limit_hit": len(neighbors) > node_limit,
+                        "link_limit_hit": len(links) > link_limit,
+                        "request_budget_hit": False,
+                        "dropped_shared_language": dropped_shared_language,
+                    },
+                }
+            if allow_error_status:
+                return 404, {"error": "atom not found"}
+            raise RuntimeApiError("runtime_api_http_error", status_code=404, detail="atom not found")
+        return 200, self.get_json(path, query=query_obj)
 
     def post_json(self, path: str, payload: dict[str, object] | None = None) -> dict[str, object]:
         payload_obj = dict(payload or {})
@@ -1552,13 +1650,251 @@ def test_mcp_memory_atoms_graph_and_neighbors_bounds() -> None:
         server,
         5,
         "tools/call",
-        {"name": "memory.graph_neighbors", "arguments": {"node_id": "atom_1", "depth": 2, "limit": 5}},
+        {
+            "name": "memory.graph_neighbors",
+            "arguments": {
+                "node_id": "atom_1",
+                "depth": 2,
+                "limit": 5,
+                "include_shared_language": True,
+            },
+        },
     )
     neighbor_payload = dict(dict(neighbors["result"]).get("structuredContent") or {})
     neighbor_rows = list(neighbor_payload.get("neighbors") or [])
-    assert any(str(dict(row).get("node_id") or "") == "atom_2" for row in neighbor_rows)
-    assert any(str(dict(row).get("node_id") or "") == "atom_3" for row in neighbor_rows)
-    assert int(neighbor_payload.get("requests_used") or 0) >= 2
+    assert any(str(dict(row).get("atom_id") or "") == "atom_2" for row in neighbor_rows)
+    assert any(str(dict(row).get("atom_id") or "") == "atom_3" for row in neighbor_rows)
+    assert int(neighbor_payload.get("requests_used") or 0) == 2
+    assert int(neighbor_payload.get("node_limit") or 0) == 2
+    assert int(neighbor_payload.get("link_limit") or 0) == 2
+    assert dict(neighbor_payload.get("truncation") or {}).get("request_budget_hit") is False
+
+
+def test_mcp_memory_graph_neighbors_native_includes_shared_language_when_within_bounds() -> None:
+    client = _FakeApiClient()
+    config = ServerConfig(
+        runtime_base_url="http://127.0.0.1:7340",
+        auth=AuthConfig(default_role="viewer"),
+        max_graph_nodes=5,
+        max_graph_links=5,
+    )
+    server = MCPServer(config=config, api_client=client)
+
+    _call(server, 1, "initialize", {})
+    neighbors = _call(
+        server,
+        2,
+        "tools/call",
+        {
+            "name": "memory.graph_neighbors",
+            "arguments": {"node_id": "atom_1", "depth": 2, "limit": 5, "include_shared_language": True},
+        },
+    )
+    payload = dict(dict(neighbors["result"]).get("structuredContent") or {})
+    rows = list(payload.get("neighbors") or [])
+    assert any(str(dict(row).get("atom_id") or "") == "atom_4" for row in rows)
+    assert any(str(dict(link).get("kind") or "") == "shared_language" for link in list(payload.get("links") or []))
+
+
+def test_mcp_memory_graph_neighbors_native_can_omit_root_detail() -> None:
+    client = _FakeApiClient()
+    server = MCPServer(
+        config=ServerConfig(runtime_base_url="http://127.0.0.1:7340", auth=AuthConfig(default_role="viewer")),
+        api_client=client,
+    )
+
+    _call(server, 1, "initialize", {})
+    neighbors = _call(
+        server,
+        2,
+        "tools/call",
+        {"name": "memory.graph_neighbors", "arguments": {"node_id": "atom_1", "include_root_detail": False}},
+    )
+    payload = dict(dict(neighbors["result"]).get("structuredContent") or {})
+    node = dict(payload.get("node") or {})
+    assert node.get("atom_id") == "atom_1"
+    assert node.get("kind") == "event_card"
+    assert "card_id" not in node
+    assert "summary" not in node
+
+
+def test_mcp_memory_graph_neighbors_falls_back_when_native_endpoint_is_unavailable() -> None:
+    client = _FakeApiClient()
+    client.native_graph_neighbors_available = False
+    config = ServerConfig(
+        runtime_base_url="http://127.0.0.1:7340",
+        auth=AuthConfig(default_role="viewer"),
+        max_graph_nodes=5,
+        max_graph_links=5,
+        max_neighbor_expansion_requests=4,
+    )
+    server = MCPServer(config=config, api_client=client)
+
+    _call(server, 1, "initialize", {})
+    neighbors = _call(
+        server,
+        2,
+        "tools/call",
+        {"name": "memory.graph_neighbors", "arguments": {"node_id": "atom_1", "depth": 2, "limit": 5}},
+    )
+    payload = dict(dict(neighbors["result"]).get("structuredContent") or {})
+    rows = list(payload.get("neighbors") or [])
+    assert any(str(dict(row).get("atom_id") or "") == "atom_2" for row in rows)
+    assert any(str(dict(row).get("atom_id") or "") == "atom_3" for row in rows)
+    assert any(
+        str(dict(row).get("atom_id") or "") == "atom_3" and int(dict(row).get("distance") or 0) == 2
+        for row in rows
+    )
+    native_query = next(query for path, query in client.calls if path == "/api/memory/graph/neighbors")
+    assert native_query.get("limit") == 5
+    assert int(payload.get("requests_used") or 0) >= 2
+    assert any(path == "/api/memory/graph/neighbors" for path, _query in client.calls)
+    assert any(path == "/api/memory/graph" for path, _query in client.calls)
+
+
+def test_mcp_memory_graph_neighbors_fallback_continues_expanding_kept_nodes_after_node_cap() -> None:
+    class _LegacyOnlyClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, object]]] = []
+
+        def get_json(self, path: str, query: dict[str, object] | None = None) -> dict[str, object]:
+            query_obj = dict(query or {})
+            self.calls.append((path, query_obj))
+            if path != "/api/memory/graph":
+                raise RuntimeApiError("runtime_api_missing_fixture", detail=path)
+            atom_id = str(query_obj.get("atom_id") or "")
+            mapping = {
+                "atom_1": [
+                    {"source": "atom_1", "target": "atom_2", "kind": "conflict"},
+                    {"source": "atom_1", "target": "atom_3", "kind": "narrative_arc"},
+                ],
+                "atom_2": [{"source": "atom_2", "target": "atom_3", "kind": "narrative_arc"}],
+                "atom_3": [],
+            }
+            return {
+                "ok": True,
+                "atom": {"atom_id": atom_id, "canonical_text": f"{atom_id} canonical", "status": "active"},
+                "links": list(mapping.get(atom_id, [])),
+            }
+
+    client = _LegacyOnlyClient()
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            max_graph_nodes=5,
+            max_graph_links=5,
+            max_neighbor_expansion_requests=4,
+        ),
+        api_client=client,
+    )
+
+    _call(server, 1, "initialize", {})
+    neighbors = _call(
+        server,
+        2,
+        "tools/call",
+        {"name": "memory.graph_neighbors", "arguments": {"node_id": "atom_1", "depth": 2, "limit": 2}},
+    )
+    payload = dict(dict(neighbors["result"]).get("structuredContent") or {})
+    rows = list(payload.get("neighbors") or [])
+    assert [str(dict(row).get("atom_id") or "") for row in rows] == ["atom_2", "atom_3"]
+    links = list(payload.get("links") or [])
+    assert {"source": "atom_1", "target": "atom_2", "kind": "conflict"} in links
+    assert {"source": "atom_1", "target": "atom_3", "kind": "narrative_arc"} in links
+    assert {"source": "atom_2", "target": "atom_3", "kind": "narrative_arc"} in links
+
+
+def test_mcp_memory_graph_neighbors_fallback_honors_root_detail_and_truthfully_marks_shared_language_loss() -> None:
+    client = _FakeApiClient()
+    client.native_graph_neighbors_available = False
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            max_graph_nodes=5,
+            max_graph_links=5,
+            max_neighbor_expansion_requests=4,
+        ),
+        api_client=client,
+    )
+
+    _call(server, 1, "initialize", {})
+    neighbors = _call(
+        server,
+        2,
+        "tools/call",
+        {
+            "name": "memory.graph_neighbors",
+            "arguments": {
+                "node_id": "atom_1",
+                "depth": 2,
+                "limit": 5,
+                "include_root_detail": False,
+                "include_shared_language": True,
+            },
+        },
+    )
+    payload = dict(dict(neighbors["result"]).get("structuredContent") or {})
+    node = dict(payload.get("node") or {})
+    assert node == {"atom_id": "atom_1"}
+    truncation = dict(payload.get("truncation") or {})
+    assert truncation.get("dropped_shared_language") is True
+
+
+def test_mcp_memory_graph_neighbors_fallback_marks_internal_link_buffer_truncation() -> None:
+    client = _FakeApiClient()
+    client.native_graph_neighbors_available = False
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            max_graph_nodes=5,
+            max_graph_links=1,
+            max_neighbor_expansion_requests=4,
+        ),
+        api_client=client,
+    )
+
+    _call(server, 1, "initialize", {})
+    neighbors = _call(
+        server,
+        2,
+        "tools/call",
+        {"name": "memory.graph_neighbors", "arguments": {"node_id": "atom_1", "depth": 2, "limit": 5}},
+    )
+    payload = dict(dict(neighbors["result"]).get("structuredContent") or {})
+    rows = list(payload.get("neighbors") or [])
+    assert [str(dict(row).get("atom_id") or "") for row in rows] == ["atom_2"]
+    assert list(payload.get("links") or []) == [{"source": "atom_1", "target": "atom_2", "kind": "conflict"}]
+    truncation = dict(payload.get("truncation") or {})
+    assert truncation.get("link_limit_hit") is True
+
+
+def test_fake_api_client_graph_neighbors_missing_atom_requires_allow_error_status() -> None:
+    client = _FakeApiClient()
+
+    status_code, payload = client.request_json(
+        "GET",
+        "/api/memory/graph/neighbors",
+        query={"atom_id": "missing"},
+        allow_error_status=True,
+    )
+    assert status_code == 404
+    assert payload == {"error": "atom not found"}
+
+    try:
+        client.request_json(
+            "GET",
+            "/api/memory/graph/neighbors",
+            query={"atom_id": "missing"},
+            allow_error_status=False,
+        )
+    except RuntimeApiError as exc:
+        assert exc.status_code == 404
+        assert exc.detail == "atom not found"
+    else:
+        raise AssertionError("expected RuntimeApiError for missing atom without allow_error_status")
 
 
 def test_mcp_memory_list_atoms_definition_view() -> None:

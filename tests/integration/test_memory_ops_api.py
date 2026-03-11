@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from engine.continuity import ContinuityBuilder, ContinuityStore
+from engine.continuity import Constellation, ContinuityBuilder, ContinuitySnapshot, ContinuityStore, NarrativeArc, SharedLanguageKey
 from engine.contracts import AtomType, CandidateAtom, SourceRef
 from engine.memory import AtomStatus, AtomStore, MutationReviewQueue
 from engine.retrieval import ClaimVerifier, MemoryRetriever
@@ -144,6 +144,107 @@ def test_memory_atoms_cards_detail_and_graph_endpoints() -> None:
         assert filtered_graph_map["ok"] is True
         assert filtered_graph_map["total"] >= 1
         assert all("tea" in str(node["summary"]).lower() for node in filtered_graph_map["nodes"])
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_memory_graph_neighbors_endpoint_is_bounded_and_truthful() -> None:
+    store = AtomStore()
+    root = store.add_candidate(_candidate("g1", "Root memory about tea rituals.", "conv_g1", "tea"))
+    conflict = store.add_candidate(_candidate("g2", "Conflict memory about tea rituals.", "conv_g2", "tea"))
+    distance_two = store.add_candidate(_candidate("g3", "Distance-two arc memory.", "conv_g3", "tea"))
+    shared = store.add_candidate(_candidate("g4", "Shared callback memory.", "conv_g4", "callback"))
+    shared_child = store.add_candidate(_candidate("g5", "Shared child should never expand.", "conv_g5", "callback"))
+    constellation = store.add_candidate(_candidate("g6", "Constellation partner memory.", "conv_g6", "tea"))
+
+    store.mark_conflict(root.atom_id, conflict.atom_id, reason="root_conflict")
+    store.mark_conflict(shared.atom_id, shared_child.atom_id, reason="shared_conflict")
+
+    now = datetime.now(timezone.utc)
+    snapshot = ContinuitySnapshot(
+        generated_at=now,
+        constellations=[
+            Constellation(
+                constellation_id="const_graph_neighbors",
+                topic="tea",
+                atom_ids=[root.atom_id, constellation.atom_id],
+                strength=0.81,
+                entities=["user"],
+            )
+        ],
+        narrative_arcs=[
+            NarrativeArc(
+                arc_id="arc_graph_neighbors",
+                entity="user",
+                topic="tea",
+                atom_ids=[conflict.atom_id, distance_two.atom_id],
+                start_at=now,
+                end_at=now,
+                confidence=0.87,
+            )
+        ],
+        shared_language_keys=[
+            SharedLanguageKey(
+                key_id="tea_ritual",
+                phrase="tea ritual",
+                atom_ids=[root.atom_id, shared.atom_id],
+                support_count=2,
+                weight=0.9,
+            )
+        ],
+    )
+
+    continuity = ContinuityStore()
+    continuity.set_snapshot(snapshot)
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        payload = _json_get(
+            f"{base}/api/memory/graph/neighbors?atom_id={quote(root.atom_id)}&depth=2&include_shared_language=true"
+        )
+        assert payload["ok"] is True
+        assert payload["node"]["atom_id"] == root.atom_id
+        neighbor_ids = [row["atom_id"] for row in payload["neighbors"]]
+        assert conflict.atom_id in neighbor_ids
+        assert constellation.atom_id in neighbor_ids
+        assert shared.atom_id in neighbor_ids
+        assert distance_two.atom_id in neighbor_ids
+        assert shared_child.atom_id not in neighbor_ids
+        assert any(row["atom_id"] == distance_two.atom_id and row["distance"] == 2 for row in payload["neighbors"])
+        allowed_ids = set(neighbor_ids).union({root.atom_id})
+        assert all(link["source"] in allowed_ids for link in payload["links"])
+        assert all(link["target"] in allowed_ids for link in payload["links"])
+
+        compact_root = _json_get(
+            f"{base}/api/memory/graph/neighbors?atom_id={quote(root.atom_id)}&include_root_detail=false"
+        )
+        assert compact_root["node"]["atom_id"] == root.atom_id
+        assert "kind" in compact_root["node"]
+        assert "card_id" not in compact_root["node"]
+        assert "status" not in compact_root["node"]
+        assert "summary" not in compact_root["node"]
+
+        truncated = _json_get(
+            f"{base}/api/memory/graph/neighbors?atom_id={quote(root.atom_id)}&depth=2&node_limit=1&link_limit=10&include_shared_language=true"
+        )
+        assert truncated["truncated"] is True
+        assert truncated["truncation"]["node_limit_hit"] is True
+        kept_ids = {row["atom_id"] for row in truncated["neighbors"]}.union({root.atom_id})
+        assert all(link["source"] in kept_ids for link in truncated["links"])
+        assert all(link["target"] in kept_ids for link in truncated["links"])
+
+        status_code, error_payload = _json_get_error(
+            f"{base}/api/memory/graph/neighbors?atom_id={quote(root.atom_id)}&depth=3"
+        )
+        assert status_code == 400
+        assert error_payload["error"] == "depth must be between 1 and 2"
+
+        missing_code, missing_payload = _json_get_error(f"{base}/api/memory/graph/neighbors?atom_id=missing_atom")
+        assert missing_code == 404
+        assert missing_payload["error"] == "atom not found"
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
 

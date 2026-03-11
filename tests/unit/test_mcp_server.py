@@ -651,7 +651,12 @@ class _FakeApiClient:
             node_limit = int(query_obj.get("node_limit") or query_obj.get("limit") or 60)
             link_limit = int(query_obj.get("link_limit") or 120)
             include_shared_language = str(query_obj.get("include_shared_language") or "false").strip().lower() == "true"
-            include_root_detail = str(query_obj.get("include_root_detail") or "true").strip().lower() == "true"
+            include_root_detail_raw = query_obj.get("include_root_detail")
+            include_root_detail = (
+                True
+                if include_root_detail_raw is None
+                else str(include_root_detail_raw).strip().lower() == "true"
+            )
             if atom_id == "atom_1":
                 neighbors = [
                     {"atom_id": "atom_2", "kind": "event_card", "distance": 1, "via_edge_kind": "conflict"},
@@ -712,7 +717,9 @@ class _FakeApiClient:
                         "dropped_shared_language": dropped_shared_language,
                     },
                 }
-            return 404, {"error": "atom not found"}
+            if allow_error_status:
+                return 404, {"error": "atom not found"}
+            raise RuntimeApiError("runtime_api_http_error", status_code=404, detail="atom not found")
         return 200, self.get_json(path, query=query_obj)
 
     def post_json(self, path: str, payload: dict[str, object] | None = None) -> dict[str, object]:
@@ -1737,6 +1744,69 @@ def test_mcp_memory_graph_neighbors_falls_back_when_native_endpoint_is_unavailab
     assert int(payload.get("requests_used") or 0) >= 2
     assert any(path == "/api/memory/graph/neighbors" for path, _query in client.calls)
     assert any(path == "/api/memory/graph" for path, _query in client.calls)
+
+
+def test_mcp_memory_graph_neighbors_fallback_honors_root_detail_and_truthfully_marks_shared_language_loss() -> None:
+    client = _FakeApiClient()
+    client.native_graph_neighbors_available = False
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            max_graph_nodes=5,
+            max_graph_links=5,
+            max_neighbor_expansion_requests=4,
+        ),
+        api_client=client,
+    )
+
+    _call(server, 1, "initialize", {})
+    neighbors = _call(
+        server,
+        2,
+        "tools/call",
+        {
+            "name": "memory.graph_neighbors",
+            "arguments": {
+                "node_id": "atom_1",
+                "depth": 2,
+                "limit": 5,
+                "include_root_detail": False,
+                "include_shared_language": True,
+            },
+        },
+    )
+    payload = dict(dict(neighbors["result"]).get("structuredContent") or {})
+    node = dict(payload.get("node") or {})
+    assert node == {"atom_id": "atom_1"}
+    truncation = dict(payload.get("truncation") or {})
+    assert truncation.get("dropped_shared_language") is True
+
+
+def test_fake_api_client_graph_neighbors_missing_atom_requires_allow_error_status() -> None:
+    client = _FakeApiClient()
+
+    status_code, payload = client.request_json(
+        "GET",
+        "/api/memory/graph/neighbors",
+        query={"atom_id": "missing"},
+        allow_error_status=True,
+    )
+    assert status_code == 404
+    assert payload == {"error": "atom not found"}
+
+    try:
+        client.request_json(
+            "GET",
+            "/api/memory/graph/neighbors",
+            query={"atom_id": "missing"},
+            allow_error_status=False,
+        )
+    except RuntimeApiError as exc:
+        assert exc.status_code == 404
+        assert exc.detail == "atom not found"
+    else:
+        raise AssertionError("expected RuntimeApiError for missing atom without allow_error_status")
 
 
 def test_mcp_memory_list_atoms_definition_view() -> None:

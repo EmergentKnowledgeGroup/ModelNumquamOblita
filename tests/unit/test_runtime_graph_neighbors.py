@@ -180,6 +180,32 @@ def test_graph_neighbors_payload_truncation_is_truthful_and_links_reference_kept
     assert all(str(row.get("target") or "") in allowed_ids for row in links)
 
 
+def test_graph_neighbors_payload_does_not_admit_unlinked_neighbors_when_link_limit_hits() -> None:
+    runtime, atom_ids = _graph_runtime()
+
+    payload = _build_graph_neighbors_payload(
+        runtime,
+        atom_id=atom_ids["root"],
+        depth=2,
+        node_limit=10,
+        link_limit=1,
+        include_shared_language=True,
+    )
+
+    neighbors = list(payload.get("neighbors") or [])
+    neighbor_ids = {str(row.get("atom_id") or "") for row in neighbors}
+    assert neighbor_ids == {atom_ids["conflict"]}
+
+    links = list(payload.get("links") or [])
+    assert links == [{"source": atom_ids["root"], "target": atom_ids["conflict"], "kind": "conflict"}]
+
+    truncation = dict(payload.get("truncation") or {})
+    assert truncation.get("link_limit_hit") is True
+    assert truncation.get("node_limit_hit") is False
+    assert truncation.get("request_budget_hit") is False
+    assert truncation.get("dropped_shared_language") is True
+
+
 def test_graph_neighbors_payload_honors_root_detail_omission() -> None:
     runtime, atom_ids = _graph_runtime()
 

@@ -2746,6 +2746,8 @@ class MCPServer:
         depth: int,
         node_limit: int,
         link_limit: int,
+        include_shared_language: bool,
+        include_root_detail: bool,
     ) -> dict[str, Any]:
         requests_used = 0
         pending = [node_id]
@@ -2755,13 +2757,17 @@ class MCPServer:
         seen_links: set[tuple[str, str, str]] = set()
         root_atom: Mapping[str, Any] | None = None
         node_limit_hit = False
+        request_budget_hit = False
+        dropped_shared_language = False
 
         for _layer in range(depth):
             if not pending:
                 break
             next_pending: list[str] = []
-            for current in pending:
+            for index, current in enumerate(pending):
                 if requests_used >= self.config.max_neighbor_expansion_requests:
+                    if index < len(pending):
+                        request_budget_hit = True
                     break
                 payload = self.api_client.get_json("/api/memory/graph", query={"atom_id": current})
                 requests_used += 1
@@ -2775,7 +2781,13 @@ class MCPServer:
                     target = str(row.get("target") or "").strip()
                     kind = str(row.get("kind") or "").strip()
                     neighbor_id = target if source == current else source
-                    if not source or not target or not kind or neighbor_id == node_id or neighbor_id.startswith("slk:"):
+                    if not source or not target or not kind or neighbor_id == node_id:
+                        continue
+                    if neighbor_id.startswith("slk:"):
+                        if include_shared_language:
+                            # Legacy graph surfaces expose shared-language key nodes rather than
+                            # the concrete atom neighbors returned by the native endpoint.
+                            dropped_shared_language = True
                         continue
                     if neighbor_id not in neighbors:
                         if len(neighbors) >= node_limit:
@@ -2792,7 +2804,10 @@ class MCPServer:
                         visited_atoms.add(neighbor_id)
                         next_pending.append(neighbor_id)
             pending = next_pending
-            if requests_used >= self.config.max_neighbor_expansion_requests:
+            if request_budget_hit:
+                break
+            if requests_used >= self.config.max_neighbor_expansion_requests and pending:
+                request_budget_hit = True
                 break
             if len(neighbors) >= node_limit:
                 break
@@ -2804,8 +2819,9 @@ class MCPServer:
             for row in links
             if str(row.get("source") or "") in allowed_ids and str(row.get("target") or "") in allowed_ids
         ]
+        node_payload = self._sanitize_atom_payload(root_atom or {"atom_id": node_id}) if include_root_detail else {"atom_id": node_id}
         return {
-            "node": self._sanitize_atom_payload(root_atom or {"atom_id": node_id}),
+            "node": node_payload,
             "neighbors": neighbor_rows,
             "links": filtered_links[:link_limit],
             "depth": depth,
@@ -2815,13 +2831,13 @@ class MCPServer:
             "truncated": (
                 node_limit_hit
                 or len(filtered_links) > link_limit
-                or requests_used >= self.config.max_neighbor_expansion_requests
+                or request_budget_hit
             ),
             "truncation": {
                 "node_limit_hit": node_limit_hit,
                 "link_limit_hit": len(filtered_links) > link_limit,
-                "request_budget_hit": requests_used >= self.config.max_neighbor_expansion_requests,
-                "dropped_shared_language": False,
+                "request_budget_hit": request_budget_hit,
+                "dropped_shared_language": dropped_shared_language,
             },
         }
 
@@ -2881,6 +2897,8 @@ class MCPServer:
             depth=depth,
             node_limit=node_limit,
             link_limit=link_limit,
+            include_shared_language=include_shared_language,
+            include_root_detail=include_root_detail,
         )
 
     def _tool_memory_quicknote_status(self, args: dict[str, Any]) -> dict[str, Any]:

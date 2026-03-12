@@ -440,6 +440,8 @@ body.simple-mode .trace-column {
   flex-wrap: wrap;
   gap: 0.4rem 0.75rem;
   align-items: center;
+  font-size: 0.73rem;
+  color: rgba(200, 214, 231, 0.72);
 }
 
 .wizard-review-list {
@@ -499,11 +501,6 @@ body.simple-mode .trace-column {
   font-size: 0.77rem;
   color: rgba(214, 226, 240, 0.76);
   line-height: 1.35;
-}
-
-.wizard-review-meta {
-  font-size: 0.73rem;
-  color: rgba(200, 214, 231, 0.72);
 }
 
 .wizard-review-actions {

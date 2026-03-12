@@ -6180,11 +6180,26 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "wizard run not found"})
             draft_path_raw = str((wizard_state.get("build_info") or {}).get("draft_path") or wizard_state.get("last_built_episode_draft_path") or "").strip()
             source_path = Path(draft_path_raw).expanduser().resolve() if draft_path_raw else None
+            empty_page_payload = {
+                "filtered_total": 0,
+                "page": 1,
+                "page_size": page_size,
+                "total_pages": 1,
+                "has_prev": False,
+                "has_next": False,
+            }
             if source_path is None:
                 return _json_response(
                     self,
                     HTTPStatus.OK,
-                    {"ok": True, "cards": [], "total": 0, "source_cards_path": "", "run_id": wizard_state.get("run_id")},
+                    {
+                        "ok": True,
+                        "cards": [],
+                        "total": 0,
+                        "source_cards_path": "",
+                        "run_id": wizard_state.get("run_id"),
+                        **empty_page_payload,
+                    },
                 )
             if not source_path.exists():
                 _wizard_reset_downstream_state(wizard_state, from_stage="build_episodes")
@@ -6197,7 +6212,14 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 return _json_response(
                     self,
                     HTTPStatus.OK,
-                    {"ok": True, "cards": [], "total": 0, "source_cards_path": str(source_path), "run_id": wizard_state.get("run_id")},
+                    {
+                        "ok": True,
+                        "cards": [],
+                        "total": 0,
+                        "source_cards_path": str(source_path),
+                        "run_id": wizard_state.get("run_id"),
+                        **empty_page_payload,
+                    },
                 )
             try:
                 payload = _load_episode_cards_payload(source_path)

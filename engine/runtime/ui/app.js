@@ -2168,6 +2168,7 @@ async function loadWizardReviewCards() {
   const runId = state.wizardRunId || "";
   const search = (els.wizardReviewSearch?.value || "").trim();
   const status = (els.wizardReviewStatus?.value || "all").trim();
+  state.wizardReviewEditingId = null;
   if (!runId) {
     state.wizardReviewCards = [];
     state.wizardReviewMeta = { total: 0, filteredTotal: 0, page: 1, pageSize: Number(els.wizardReviewPageSize?.value || 12), totalPages: 1 };

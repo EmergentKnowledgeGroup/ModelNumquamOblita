@@ -736,6 +736,57 @@ def test_wizard_review_cards_supports_pagination_and_inline_edit_batches(tmp_pat
         stop_runtime_server(server, thread, runtime=runtime)
 
 
+def test_wizard_review_cards_keep_pagination_shape_in_empty_and_missing_draft_states(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+
+        empty_payload = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&page=2&page_size=24")
+        assert empty_payload["ok"] is True
+        assert empty_payload["cards"] == []
+        assert empty_payload["total"] == 0
+        assert empty_payload["filtered_total"] == 0
+        assert empty_payload["page"] == 1
+        assert empty_payload["page_size"] == 24
+        assert empty_payload["total_pages"] == 1
+        assert empty_payload["has_prev"] is False
+        assert empty_payload["has_next"] is False
+
+        missing_draft_path = tmp_path / "missing_draft.json"
+        state = runtime_server_module._load_wizard_state(run_id)
+        state["build_info"] = {
+            "draft_path": str(missing_draft_path),
+            "build_id": "build_missing_review",
+            "store_fingerprint": "store_fp_missing",
+        }
+        state["last_built_episode_draft_path"] = str(missing_draft_path)
+        runtime_server_module._save_wizard_state(state)
+
+        missing_payload = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&page=5&page_size=16")
+        assert missing_payload["ok"] is True
+        assert missing_payload["cards"] == []
+        assert missing_payload["total"] == 0
+        assert missing_payload["filtered_total"] == 0
+        assert missing_payload["page"] == 1
+        assert missing_payload["page_size"] == 16
+        assert missing_payload["total_pages"] == 1
+        assert missing_payload["has_prev"] is False
+        assert missing_payload["has_next"] is False
+
+        refreshed_state = runtime_server_module._load_wizard_state(run_id)
+        assert refreshed_state.get("current_stage") == "build_episodes"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
 def test_wizard_archive_happy_path_reaches_safe_activation(tmp_path: Path) -> None:
     store = AtomStore()
     continuity = ContinuityStore()

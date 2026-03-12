@@ -1555,6 +1555,12 @@ def _wizard_review_counts(source_payload: dict[str, Any], review_decisions: Mapp
         total += 1
         decision_payload = review_decisions.get(episode_id)
         decision = str((decision_payload or {}).get("decision") or "pending").strip().lower()
+        if decision == "approve":
+            decision = "approved"
+        elif decision == "edit":
+            decision = "edited"
+        elif decision == "reject":
+            decision = "rejected"
         if decision == "approved":
             explicit += 1
             approved += 1
@@ -6222,13 +6228,6 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     },
                 )
             if not source_path.exists():
-                _wizard_reset_downstream_state(wizard_state, from_stage="build_episodes")
-                _wizard_reset_to_stage(
-                    wizard_state,
-                    stage="build_episodes",
-                    note="Draft cards moved or deleted; build again or remap the artifact path.",
-                )
-                _save_wizard_state(wizard_state)
                 return _json_response(
                     self,
                     HTTPStatus.OK,

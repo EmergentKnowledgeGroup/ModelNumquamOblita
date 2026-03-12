@@ -32,6 +32,7 @@ const state = {
   },
   wizardReviewRequestSeq: 0,
   wizardReviewSummaryRequestSeq: 0,
+  wizardReviewPendingWrites: {},
   wizardReviewEditingId: null,
   wizardInputOptions: null,
   wizardInputMode: "archive",
@@ -64,6 +65,7 @@ const settings = {
 
 let searchTimer = null;
 let autoRefreshTimer = null;
+let wizardReviewSearchTimer = null;
 const els = {
   modelName: document.getElementById("modelName"),
   metricTurns: document.getElementById("metricTurns"),
@@ -1793,6 +1795,7 @@ function renderWizardReviewList() {
       const episodeId = String(card.episode_id || "");
       const decision = String(card.review_decision || "pending");
       const editing = state.wizardReviewEditingId === episodeId;
+      const busy = !!state.wizardReviewPendingWrites?.[episodeId];
       const reviewPayload = card.review_payload || {};
       const titleValue = String(reviewPayload.title ?? card.title ?? "");
       const summaryValue = String(reviewPayload.summary ?? card.summary ?? "");
@@ -1807,25 +1810,25 @@ function renderWizardReviewList() {
           ? card.topic_tags.join(", ")
           : "";
       return (
-        `<article class="wizard-review-item ${escapeHtml(decision)}${editing ? " editing" : ""}" data-episode-id="${escapeHtml(episodeId)}">` +
+        `<article class="wizard-review-item ${escapeHtml(decision)}${editing ? " editing" : ""}${busy ? " busy" : ""}" data-episode-id="${escapeHtml(episodeId)}">` +
         `<div class="wizard-review-top"><strong>${escapeHtml(episodeId)}</strong><span>${escapeHtml(friendlyReviewDecision(decision))}</span></div>` +
         `<div class="wizard-review-title">${escapeHtml(titleValue || "(untitled episode)")}</div>` +
         `<div class="wizard-review-summary">${escapeHtml(trimDisplay(summaryValue, 180))}</div>` +
         `<div class="wizard-review-meta">${escapeHtml(reviewCardMeta(card, reviewPayload))}</div>` +
         `<div class="wizard-review-actions">` +
-        `<button type="button" class="btn ghost review-approve">Approve As-Is</button>` +
-        `<button type="button" class="btn ghost review-edit">${editing ? "Close Quick Edit" : "Quick Edit"}</button>` +
-        `<button type="button" class="btn ghost review-reject">Reject</button>` +
-        `${decision !== "pending" ? '<button type="button" class="btn ghost review-pending">Mark Pending</button>' : ""}` +
+        `<button type="button" class="btn ghost review-approve"${busy ? ' disabled="disabled"' : ""}>Approve As-Is</button>` +
+        `<button type="button" class="btn ghost review-edit"${busy ? ' disabled="disabled"' : ""}>${editing ? "Close Quick Edit" : "Quick Edit"}</button>` +
+        `<button type="button" class="btn ghost review-reject"${busy ? ' disabled="disabled"' : ""}>Reject</button>` +
+        `${decision !== "pending" ? `<button type="button" class="btn ghost review-pending"${busy ? ' disabled="disabled"' : ""}>Mark Pending</button>` : ""}` +
         `</div>` +
         `<div class="wizard-review-editor"${editing ? "" : ' hidden="hidden"'}>` +
-        `<label class="wizard-review-field"><span>Title</span><input type="text" class="input review-edit-title" value="${escapeHtml(titleValue)}" /></label>` +
-        `<label class="wizard-review-field"><span>Summary</span><textarea class="input review-edit-summary" rows="4">${escapeHtml(summaryValue)}</textarea></label>` +
-        `<label class="wizard-review-field"><span>Actors</span><input type="text" class="input review-edit-actors" value="${escapeHtml(actorsValue)}" /></label>` +
-        `<label class="wizard-review-field"><span>Topic tags</span><input type="text" class="input review-edit-topics" value="${escapeHtml(topicsValue)}" /></label>` +
+        `<label class="wizard-review-field"><span>Title</span><input type="text" class="input review-edit-title" value="${escapeHtml(titleValue)}"${busy ? ' disabled="disabled"' : ""} /></label>` +
+        `<label class="wizard-review-field"><span>Summary</span><textarea class="input review-edit-summary" rows="4"${busy ? ' disabled="disabled"' : ""}>${escapeHtml(summaryValue)}</textarea></label>` +
+        `<label class="wizard-review-field"><span>Actors</span><input type="text" class="input review-edit-actors" value="${escapeHtml(actorsValue)}"${busy ? ' disabled="disabled"' : ""} /></label>` +
+        `<label class="wizard-review-field"><span>Topic tags</span><input type="text" class="input review-edit-topics" value="${escapeHtml(topicsValue)}"${busy ? ' disabled="disabled"' : ""} /></label>` +
         `<div class="wizard-inline-actions wizard-inline-actions-tight">` +
-        `<button type="button" class="btn review-save-edit">Save Edit + Approve</button>` +
-        `<button type="button" class="btn ghost review-cancel-edit">Cancel</button>` +
+        `<button type="button" class="btn review-save-edit"${busy ? ' disabled="disabled"' : ""}>Save Edit + Approve</button>` +
+        `<button type="button" class="btn ghost review-cancel-edit"${busy ? ' disabled="disabled"' : ""}>Cancel</button>` +
         `</div>` +
         `</div>` +
         `</article>`
@@ -1926,12 +1929,12 @@ function resetWizardReviewPaging() {
 }
 
 function reviewCardMeta(card, reviewPayload = {}) {
-  const actorRows = Array.isArray(reviewPayload.actors) && reviewPayload.actors.length
+  const actorRows = Object.prototype.hasOwnProperty.call(reviewPayload, "actors") && Array.isArray(reviewPayload.actors)
     ? reviewPayload.actors
     : Array.isArray(card.actors)
       ? card.actors
       : [];
-  const topicRows = Array.isArray(reviewPayload.topic_tags) && reviewPayload.topic_tags.length
+  const topicRows = Object.prototype.hasOwnProperty.call(reviewPayload, "topic_tags") && Array.isArray(reviewPayload.topic_tags)
     ? reviewPayload.topic_tags
     : Array.isArray(card.topic_tags)
       ? card.topic_tags
@@ -2232,17 +2235,43 @@ async function loadWizardReviewCards() {
 }
 
 async function updateWizardReviewDecision(episodeId, decision, edits = {}) {
-  await jsonFetch("/api/wizard/review/update", {
-    method: "POST",
-    body: JSON.stringify({
-      run_id: state.wizardRunId || undefined,
-      episode_id: episodeId,
-      decision,
-      ...edits,
-    }),
-  });
-  wizardResult(els.wizardReviewResult, `${episodeId}: ${friendlyReviewDecision(decision)}.`);
-  await Promise.all([loadWizardReviewCards(), refreshWizardReviewSummary(state.wizardRunId || undefined)]);
+  if (state.wizardReviewPendingWrites?.[episodeId]) {
+    return;
+  }
+  state.wizardReviewPendingWrites = {
+    ...(state.wizardReviewPendingWrites || {}),
+    [episodeId]: true,
+  };
+  renderWizardReviewList();
+  try {
+    await jsonFetch("/api/wizard/review/update", {
+      method: "POST",
+      body: JSON.stringify({
+        run_id: state.wizardRunId || undefined,
+        episode_id: episodeId,
+        decision,
+        ...edits,
+      }),
+    });
+    wizardResult(els.wizardReviewResult, `${episodeId}: ${friendlyReviewDecision(decision)}.`);
+    await Promise.all([loadWizardReviewCards(), refreshWizardReviewSummary(state.wizardRunId || undefined)]);
+  } finally {
+    const nextWrites = { ...(state.wizardReviewPendingWrites || {}) };
+    delete nextWrites[episodeId];
+    state.wizardReviewPendingWrites = nextWrites;
+    renderWizardReviewList();
+  }
+}
+
+function scheduleWizardReviewSearch() {
+  if (wizardReviewSearchTimer) {
+    window.clearTimeout(wizardReviewSearchTimer);
+  }
+  wizardReviewSearchTimer = window.setTimeout(() => {
+    wizardReviewSearchTimer = null;
+    resetWizardReviewPaging();
+    loadWizardReviewCards().catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
+  }, 250);
 }
 
 async function compileWizardReview() {
@@ -3408,8 +3437,7 @@ function bindEvents() {
     loadWizardReviewCards().catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
   });
   els.wizardReviewSearch?.addEventListener("input", () => {
-    resetWizardReviewPaging();
-    loadWizardReviewCards().catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
+    scheduleWizardReviewSearch();
   });
   els.wizardReviewStatus?.addEventListener("change", () => {
     resetWizardReviewPaging();

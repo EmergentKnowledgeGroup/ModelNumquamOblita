@@ -814,7 +814,7 @@ def test_wizard_review_cards_keep_pagination_shape_in_empty_and_missing_draft_st
         assert missing_payload["has_next"] is False
 
         refreshed_state = runtime_server_module._load_wizard_state(run_id)
-        assert refreshed_state.get("current_stage") == "build_episodes"
+        assert refreshed_state.get("current_stage") == state.get("current_stage")
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
 

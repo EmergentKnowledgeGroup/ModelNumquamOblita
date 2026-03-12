@@ -595,7 +595,8 @@ def test_phase5_7_wizard_episode_why_and_ops_endpoints(tmp_path: Path) -> None:
         assert health["ok"] is True
         assert "checks" in health
         assert health["service"] == "modelnumquamoblita-runtime"
-        assert isinstance(str(health.get("runtime_version") or ""), str)
+        assert isinstance(health.get("runtime_version"), str)
+        assert str(health.get("runtime_version") or "").strip()
         assert isinstance(health.get("binding") or {}, dict)
 
         exported = _json_post(f"{base}/api/runtime/health/export", {})

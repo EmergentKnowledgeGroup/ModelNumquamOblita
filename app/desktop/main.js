@@ -540,25 +540,10 @@ async function waitForRuntimeDown(runtimeHealthUrl, timeoutMs = 8000) {
 }
 
 async function terminateExistingRuntime(launchPlan) {
-  const lockPayload = readRuntimeLock(shellPaths);
-  const lockSummary = summarizeRuntimeLock(lockPayload, {
-    expectedBinding: latestExpectedBinding,
-    expectedHost: desiredRuntimeHost(),
-    expectedPort: desiredRuntimePort(),
-  });
   try {
     await requestRuntimeShutdown({ runtimeShutdownUrl: launchPlan.runtimeShutdownUrl });
   } catch (error) {
-    const ownerPid = Number(lockSummary.owner_pid || 0);
-    if (ownerPid > 0) {
-      try {
-        process.kill(ownerPid, 'SIGTERM');
-      } catch (_killError) {
-        throw error;
-      }
-    } else {
-      throw error;
-    }
+    throw new Error(`Existing runtime refused desktop shutdown: ${error?.message || error}`);
   }
   const stopped = await waitForRuntimeDown(launchPlan.runtimeHealthUrl);
   if (!stopped) {
@@ -620,18 +605,32 @@ function buildLaunchPlan({ setupMode = false }) {
   });
 }
 
+function expectedBindingForLaunchPlan(launchPlan) {
+  if (launchPlan && launchPlan.setupMode) {
+    return {
+      store_path: String(shellPaths.setupModeStorePath || '').trim(),
+      store_fingerprint: '',
+      episodes_path: '',
+      build_id: '',
+      artifact_mode: 'setup',
+    };
+  }
+  return latestExpectedBinding;
+}
+
 async function reattachOrRecoverExistingRuntime(launchPlan) {
   const health = await fetchRuntimeHealthOnce({ runtimeHealthUrl: launchPlan.runtimeHealthUrl });
+  const expectedBinding = expectedBindingForLaunchPlan(launchPlan);
   const lockPayload = readRuntimeLock(shellPaths);
   const lockSummary = summarizeRuntimeLock(lockPayload, {
-    expectedBinding: latestExpectedBinding,
+    expectedBinding,
     expectedHost: desiredRuntimeHost(),
     expectedPort: desiredRuntimePort(),
   });
   const assessment = assessExistingRuntime({
     healthPayload: health,
     lockSummary,
-    expectedBinding: latestExpectedBinding,
+    expectedBinding,
     expectedRuntimeVersion: launchPlan.runtimeVersion,
     expectedRuntimeUrl: launchPlan.runtimeUrl,
   });
@@ -690,14 +689,12 @@ async function startRuntime({ setupMode = false, requestedByUser = false } = {})
       lastError: '',
       bootStage: setupMode ? 'Starting the local setup workspace.' : 'Starting the local runtime.',
     });
-    if (!setupMode) {
-      const reattached = await reattachOrRecoverExistingRuntime(launchPlan);
-      if (reattached) {
-        if (cli.smokeExitWhenReady) {
-          quitForSmoke(0);
-        }
-        return;
+    const reattached = await reattachOrRecoverExistingRuntime(launchPlan);
+    if (reattached) {
+      if (cli.smokeExitWhenReady) {
+        quitForSmoke(0);
       }
+      return;
     }
     writeShellLog(`launch command=${launchPlan.command} args=${JSON.stringify(launchPlan.args)}`);
     runtimeChild = spawn(

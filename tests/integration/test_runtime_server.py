@@ -223,9 +223,9 @@ def test_runtime_health_exposes_binding_and_desktop_shutdown(tmp_path: Path) -> 
             break
         assert thread.is_alive() is False
         assert server.desktop_shutdown_requested is True
+        assert server.socket.fileno() == -1
     finally:
-        if thread.is_alive():
-            stop_runtime_server(server, thread, runtime=runtime)
+        stop_runtime_server(server, thread, runtime=runtime)
 
 
 def test_runtime_http_server_session_endpoints_roundtrip() -> None:

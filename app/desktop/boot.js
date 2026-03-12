@@ -76,7 +76,8 @@
     els.primary.dataset.action = primary.action || '';
     els.openUi.disabled = !state.runtimeUrl;
     els.restart.disabled = status === 'booting';
-    els.stop.disabled = !state.runtimeUrl && !['booting', 'ready', 'degraded'].includes(status);
+    const canStop = Boolean(state.runtimeUrl) || ['booting', 'ready', 'degraded'].includes(status);
+    els.stop.disabled = !canStop;
     els.closeBehavior.value = (state.preferences || {}).close_behavior || 'hide_to_tray';
     els.autoStart.value = (state.preferences || {}).auto_start || 'auto_start_if_ready';
     const trayMessage = String(state.trayFallbackMessage || '').trim();

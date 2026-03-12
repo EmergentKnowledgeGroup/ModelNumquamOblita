@@ -16,6 +16,7 @@ from engine.memory import SqliteAtomStore
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DESKTOP_ROOT = REPO_ROOT / "app" / "desktop"
+RUNTIME_MANIFEST_PATH = DESKTOP_ROOT / "runtime-bundle.manifest.json"
 
 
 def _seed_candidate(candidate_id: str, text: str, source_id: str) -> CandidateAtom:
@@ -81,6 +82,11 @@ def _write_ready_wizard_state(wizard_runs_root: Path, sqlite_path: Path, cards_p
         f"{json.dumps({'run_id': run_dir.name}, indent=2)}\n",
         encoding="utf-8",
     )
+
+
+def _expected_runtime_version() -> str:
+    payload = json.loads(RUNTIME_MANIFEST_PATH.read_text(encoding="utf-8"))
+    return str(payload.get("runtime_version") or "").strip()
 
 
 def test_desktop_shell_node_suite_runs() -> None:
@@ -173,25 +179,29 @@ def test_desktop_shell_packaged_dir_smoke_uses_bundled_repo_root(tmp_path: Path)
     wizard_runs_root = state_root / "wizard_runs"
     _write_ready_wizard_state(wizard_runs_root, sqlite_path, cards_path)
 
-    result = subprocess.run(
-        [
-            shutil.which("xvfb-run") or "xvfb-run",
-            "-a",
-            str(executable),
-            "--smoke-exit-when-ready",
-            "--boot-timeout-ms",
-            "30000",
-        ],
-        cwd=packaged_root,
-        env={
-            **os.environ,
-            "MNO_DESKTOP_STATE_ROOT": str(state_root),
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=180,
-    )
+    command = [
+        shutil.which("xvfb-run") or "xvfb-run",
+        "-a",
+        str(executable),
+        "--smoke-exit-when-ready",
+        "--boot-timeout-ms",
+        "30000",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=packaged_root,
+            env={
+                **os.environ,
+                "MNO_DESKTOP_STATE_ROOT": str(state_root),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=180,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"packaged desktop smoke timed out after {exc.timeout}s\ncommand={command}\nstdout={exc.stdout}\nstderr={exc.stderr}")
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
     desktop_shell_root = state_root / "desktop_shell"
     shell_logs = sorted(desktop_shell_root.glob("desktop_shell_*.log"), key=lambda item: item.stat().st_mtime, reverse=True)
@@ -199,4 +209,4 @@ def test_desktop_shell_packaged_dir_smoke_uses_bundled_repo_root(tmp_path: Path)
     latest_log = shell_logs[0].read_text(encoding="utf-8")
     assert f"launch command={bundled_python}" in latest_log
     last_known_good = json.loads((desktop_shell_root / "runtime_bundle.last_known_good.json").read_text(encoding="utf-8"))
-    assert last_known_good["runtime_version"] == "cpython-3.12.13+20260303"
+    assert last_known_good["runtime_version"] == _expected_runtime_version()

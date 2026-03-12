@@ -150,6 +150,10 @@ def test_run_live_runtime_plan_only_setup_mode(tmp_path: Path) -> None:
     assert "launch_mode=setup_mode" in result.stdout
     assert f"memories_path={setup_store}" in result.stdout
     assert "episode_cards_path=" in result.stdout
+    assert "store_backend=sqlite" in result.stdout
+    assert "atom_count=0" in result.stdout
+    assert setup_store.exists() is False
+    assert setup_store.parent.exists() is False
 
 
 def test_run_live_runtime_setup_mode_rejects_live_store_flags(tmp_path: Path) -> None:

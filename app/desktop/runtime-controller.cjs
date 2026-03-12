@@ -131,6 +131,13 @@ function safePathExists(targetPath, fsImpl = fs) {
   }
 }
 
+function pathWithinRoot(targetPath, rootPath) {
+  const resolvedTarget = path.resolve(String(targetPath || ''));
+  const resolvedRoot = path.resolve(String(rootPath || ''));
+  const relative = path.relative(resolvedRoot, resolvedTarget);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
 function defaultShellPreferences() {
   return {
     schema: 'modelnumquamoblita.desktop.preferences.v1',
@@ -600,18 +607,36 @@ function buildRuntimeLaunchPlan({
     : sanitizeRuntimeBundleManifest(runtimeManifest, { manifestPath: runtimeManifest?.manifestPath || '', appVersion: '' });
   let command = '';
   let args = [];
+  const entrypointPath = path.resolve(resolvedRoot, manifest.entrypoint);
+  if (requireBundledRuntime) {
+    if (!pathWithinRoot(entrypointPath, resolvedRoot)) {
+      throw new Error(`bundled runtime entrypoint escapes repo root: ${entrypointPath}`);
+    }
+    if (!safePathExists(entrypointPath)) {
+      throw new Error(`bundled runtime entrypoint not found: ${entrypointPath}`);
+    }
+  }
   if (manifest.bundleMode === 'executable') {
     command = path.resolve(resolvedRoot, manifest.executablePath);
+    if (requireBundledRuntime && !pathWithinRoot(command, resolvedRoot)) {
+      throw new Error(`bundled runtime executable escapes repo root: ${command}`);
+    }
     if (requireBundledRuntime && !safePathExists(command)) {
       throw new Error(`bundled runtime executable not found: ${command}`);
     }
   } else {
     const platformCommand = String(manifest.pythonCommands[platform] || manifest.pythonCommands.default || '').trim();
     const explicitPython = String(pythonCommand || '').trim();
+    if (requireBundledRuntime && explicitPython) {
+      throw new Error('bundled runtime launch does not allow overriding pythonCommand');
+    }
     if (explicitPython) {
       command = explicitPython;
     } else if (platformCommand && !path.isAbsolute(platformCommand) && /[\\/]/.test(platformCommand)) {
       const bundledPython = path.resolve(resolvedRoot, platformCommand);
+      if (requireBundledRuntime && !pathWithinRoot(bundledPython, resolvedRoot)) {
+        throw new Error(`bundled Python runtime escapes repo root: ${bundledPython}`);
+      }
       if (safePathExists(bundledPython)) {
         command = bundledPython;
       } else if (requireBundledRuntime) {
@@ -619,10 +644,12 @@ function buildRuntimeLaunchPlan({
       } else {
         command = defaultPythonCommand(platform);
       }
+    } else if (requireBundledRuntime) {
+      throw new Error('bundled runtime launch requires a repo-local python command path');
     } else {
       command = platformCommand || defaultPythonCommand(platform);
     }
-    args = [path.join(resolvedRoot, manifest.entrypoint)];
+    args = [entrypointPath];
   }
   args.push('--host', runtimeHost, '--port', String(runtimePort));
   if (setupMode) {
@@ -699,6 +726,10 @@ function runtimeHealthMatchesExpected(healthPayload, { expectedBinding = {}, exp
   const runtimeVersion = String(payload.runtime_version || '').trim();
   const runtimeIdentity = String(payload.service || '').trim();
   const runtimeUrl = String(payload.runtime_url || '').trim();
+  const expectedStoreFingerprint = String(expectedBinding.store_fingerprint || '').trim();
+  const expectedEpisodesPath = String(expectedBinding.episodes_path || '').trim();
+  const expectedStorePath = String(expectedBinding.store_path || '').trim();
+  const hasExpectedBinding = Boolean(expectedStoreFingerprint || expectedEpisodesPath || expectedStorePath);
   if (runtimeIdentity !== 'modelnumquamoblita-runtime') {
     return false;
   }
@@ -708,13 +739,25 @@ function runtimeHealthMatchesExpected(healthPayload, { expectedBinding = {}, exp
   if (expectedRuntimeUrl && runtimeUrl && runtimeUrl !== expectedRuntimeUrl) {
     return false;
   }
-  return String(binding.store_fingerprint || '').trim() === String(expectedBinding.store_fingerprint || '').trim()
-    && String(binding.episodes_path || '').trim() === String(expectedBinding.episodes_path || '').trim()
-    && String(binding.store_path || '').trim() === String(expectedBinding.store_path || '').trim();
+  if (!hasExpectedBinding) {
+    return false;
+  }
+  const actualStoreFingerprint = String(binding.store_fingerprint || '').trim();
+  const actualEpisodesPath = String(binding.episodes_path || '').trim();
+  const actualStorePath = String(binding.store_path || '').trim();
+  return (!expectedStoreFingerprint || actualStoreFingerprint === expectedStoreFingerprint)
+    && (!expectedEpisodesPath || actualEpisodesPath === expectedEpisodesPath)
+    && (!expectedStorePath || actualStorePath === expectedStorePath);
 }
 
 function assessExistingRuntime({ healthPayload = null, lockSummary = {}, expectedBinding = {}, expectedRuntimeVersion = '', expectedRuntimeUrl = '' } = {}) {
   if (!healthPayload) {
+    if (String(lockSummary.status || '') === 'matching_live') {
+      return { action: 'terminate', reason: 'health_missing_matching_live_lock' };
+    }
+    if (String(lockSummary.status || '') === 'foreign_live') {
+      return { action: 'terminate', reason: 'health_missing_foreign_live_lock' };
+    }
     return { action: 'none', reason: 'not_running' };
   }
   if (runtimeHealthMatchesExpected(healthPayload, { expectedBinding, expectedRuntimeVersion, expectedRuntimeUrl })) {
@@ -804,6 +847,7 @@ module.exports = {
   parseRuntimeStdoutLine,
   parseShellCliArgs,
   pidIsAlive,
+  pathWithinRoot,
   readRuntimeLock,
   requestRuntimeShutdown,
   resolveRepoRoot,

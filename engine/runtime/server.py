@@ -57,6 +57,7 @@ RUNTIME_ROOT = Path(str(os.environ.get("MNO_RUNTIME_STATE_ROOT") or "").strip())
 WIZARD_RUNS_ROOT = RUNTIME_ROOT / "wizard_runs"
 WIZARD_LATEST_PATH = WIZARD_RUNS_ROOT / "LATEST.json"
 BUILDER_PROFILES_ROOT = RUNTIME_ROOT / "builder_profiles"
+IMPORTS_ROOT = RUNTIME_ROOT / "imports"
 EPISODES_ROOT = RUNTIME_ROOT / "episodes"
 BACKUPS_ROOT = RUNTIME_ROOT / "backups"
 DIAGNOSTICS_ROOT = RUNTIME_ROOT / "diagnostics"
@@ -1231,7 +1232,7 @@ def _wizard_state_defaults(run_id: str) -> dict[str, Any]:
         "current_stage": "import",
         "completed_stages": [],
         "selected_input_archive_path": "",
-        "store_path": str((REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3").resolve()),
+        "store_path": str((IMPORTS_ROOT / "atoms.sqlite3").resolve()),
         "last_built_episode_draft_path": "",
         "last_built_episode_rejects_path": "",
         "last_built_episode_readout_path": "",
@@ -2575,7 +2576,7 @@ def _wizard_reset_state_to_stage(state: dict[str, Any], *, stage: str, reason: s
         state["selected_input_archive_path"] = ""
         state["selected_input"] = _wizard_empty_input_selection()
         state["store_validation"] = _wizard_empty_store_validation()
-        state["store_path"] = str((REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3").resolve())
+        state["store_path"] = str((IMPORTS_ROOT / "atoms.sqlite3").resolve())
     _wizard_reset_downstream_state(state, from_stage=clean_stage)
     _wizard_reset_to_stage(state, stage=clean_stage, note=reason)
     return state
@@ -8378,9 +8379,9 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 if selected_kind == "ia_archive":
                     archive_path = Path(str(classification.get("path") or "")).expanduser().resolve()
                     store_path = Path(
-                        str(data.get("store_path") or state.get("store_path") or "").strip() or (REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3")
+                        str(data.get("store_path") or state.get("store_path") or "").strip() or (IMPORTS_ROOT / "atoms.sqlite3")
                     ).expanduser().resolve()
-                    out_dir = Path(str(data.get("out_dir") or (REPO_ROOT / ".runtime" / "imports"))).expanduser().resolve()
+                    out_dir = Path(str(data.get("out_dir") or IMPORTS_ROOT)).expanduser().resolve()
                     cmd = [
                         sys.executable,
                         str((REPO_ROOT / "tools" / "import_ia_db.py").resolve()),
@@ -9323,7 +9324,11 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             def _shutdown_worker() -> None:
                 time.sleep(0.05)
                 try:
-                    self.server.shutdown()
+                    stop_runtime_server(
+                        self.server,
+                        getattr(self.server, "runtime_thread", None),
+                        runtime=getattr(self.server, "runtime", None),
+                    )
                 except Exception:
                     return
 
@@ -9919,6 +9924,9 @@ class RuntimeHTTPServer(ThreadingHTTPServer):
         self.runtime_version = _project_version()
         self.runtime_launch_mode = "normal"
         self.desktop_shutdown_requested = False
+        self.runtime_thread: threading.Thread | None = None
+
+
 def start_runtime_server(
     runtime: RuntimeSession,
     *,
@@ -9930,6 +9938,7 @@ def start_runtime_server(
 ) -> tuple[RuntimeHTTPServer, threading.Thread]:
     server = RuntimeHTTPServer((host, port), runtime, adapter_registry=adapter_registry, review_queue=review_queue)
     thread = threading.Thread(target=server.serve_forever, daemon=bool(daemon), name="runtime-http")
+    server.runtime_thread = thread
     thread.start()
     return server, thread
 

@@ -97,6 +97,15 @@ def _open_store(path: Path):
     raise ValueError(f"unsupported memories path: {path}")
 
 
+def _store_backend_label(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".sqlite3", ".sqlite", ".db"}:
+        return "sqlite"
+    if suffix == ".json":
+        return "json"
+    raise ValueError(f"unsupported memories path: {path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Launch local runtime server against a real memory store.")
     parser.add_argument("--memories", default="", help="Path to sqlite store (.sqlite3/.db) or memories.json.")
@@ -140,6 +149,17 @@ def main() -> int:
         print(f"error=episode cards path not found: {episode_cards_path}")
         return 2
 
+    runtime_url = f"http://{args.host}:{int(args.port)}"
+    if args.plan_only and args.setup_mode:
+        print("mode=plan_only")
+        print(f"launch_mode={launch_mode}")
+        print(f"memories_path={memories_path}")
+        print(f"store_backend={_store_backend_label(memories_path)}")
+        print("atom_count=0")
+        print(f"episode_cards_path={episode_cards_path if episode_cards_path is not None else ''}")
+        print(f"runtime_url={runtime_url}")
+        return 0
+
     if args.setup_mode:
         memories_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -152,7 +172,6 @@ def main() -> int:
     try:
         atoms = store.list_atoms()
         atom_count = len(atoms)
-        runtime_url = f"http://{args.host}:{int(args.port)}"
         if args.plan_only:
             print("mode=plan_only")
             print(f"launch_mode={launch_mode}")

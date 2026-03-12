@@ -60,6 +60,26 @@ def _download(asset_name: str) -> Path:
     return archive_path
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
+    root = destination.resolve()
+    for member in archive.getmembers():
+        member_path = (root / member.name).resolve()
+        if member_path != root and root not in member_path.parents:
+            raise SystemExit(f"managed runtime archive attempted path escape: {member.name}")
+    archive.extractall(root)
+
+
 def _extract_to_output(archive_path: Path, destination: Path) -> None:
     temp_root = Path(tempfile.mkdtemp(prefix="mno-managed-runtime-"))
     if destination.exists():
@@ -67,7 +87,7 @@ def _extract_to_output(archive_path: Path, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
         with tarfile.open(archive_path, "r:gz") as archive:
-            archive.extractall(temp_root)
+            _safe_extract(archive, temp_root)
         source_root = temp_root / "python"
         if not source_root.exists():
             raise SystemExit(f"managed runtime archive did not produce the expected python/ directory: {archive_path}")
@@ -80,7 +100,7 @@ def _extract_to_output(archive_path: Path, destination: Path) -> None:
 
 
 def _runtime_metadata(asset_name: str, archive_path: Path) -> dict[str, str]:
-    digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+    digest = _sha256_file(archive_path)
     return {
         "schema": "modelnumquamoblita.desktop.runtime_payload.v1",
         "release_tag": RELEASE_TAG,

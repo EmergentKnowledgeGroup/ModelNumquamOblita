@@ -133,6 +133,11 @@ test('buildRuntimeLaunchPlan resolves bundled Python relative to repo root when 
 });
 
 test('buildRuntimeLaunchPlan refuses packaged startup when bundled Python is required but missing', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mno-missing-bundled-python-'));
+  const repoRoot = path.join(tmpDir, 'repo');
+  const entrypoint = path.join(repoRoot, 'tools', 'run_live_runtime.py');
+  fs.mkdirSync(path.dirname(entrypoint), { recursive: true });
+  fs.writeFileSync(entrypoint, '#!/usr/bin/env python3\n', 'utf8');
   const manifest = sanitizeRuntimeBundleManifest({
     schema: 'modelnumquamoblita.desktop.runtime_bundle.v1',
     bundle_mode: 'python_entrypoint',
@@ -142,8 +147,48 @@ test('buildRuntimeLaunchPlan refuses packaged startup when bundled Python is req
     python_commands: { default: 'runtime/python/bin/python3' },
   }, { appVersion: '0.1.0' });
   assert.throws(
-    () => buildRuntimeLaunchPlan({ repoRoot: '/repo', runtimeManifest: manifest, requireBundledRuntime: true }),
+    () => buildRuntimeLaunchPlan({ repoRoot, runtimeManifest: manifest, requireBundledRuntime: true }),
     /bundled Python runtime not found/,
+  );
+});
+
+test('buildRuntimeLaunchPlan refuses packaged startup when pythonCommand override is provided', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mno-python-override-'));
+  const repoRoot = path.join(tmpDir, 'repo');
+  const entrypoint = path.join(repoRoot, 'tools', 'run_live_runtime.py');
+  fs.mkdirSync(path.dirname(entrypoint), { recursive: true });
+  fs.writeFileSync(entrypoint, '#!/usr/bin/env python3\n', 'utf8');
+  const manifest = sanitizeRuntimeBundleManifest({
+    schema: 'modelnumquamoblita.desktop.runtime_bundle.v1',
+    bundle_mode: 'python_entrypoint',
+    runtime_version: '0.1.0',
+    allowed_app_versions: ['0.1.0'],
+    entrypoint: 'tools/run_live_runtime.py',
+    python_commands: { default: 'runtime/python/bin/python3' },
+  }, { appVersion: '0.1.0' });
+  assert.throws(
+    () => buildRuntimeLaunchPlan({ repoRoot, runtimeManifest: manifest, requireBundledRuntime: true, pythonCommand: 'python3' }),
+    /does not allow overriding pythonCommand/,
+  );
+});
+
+test('buildRuntimeLaunchPlan refuses packaged startup when entrypoint escapes repo root', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mno-bundled-entrypoint-'));
+  const repoRoot = path.join(tmpDir, 'repo');
+  const bundledPython = path.join(repoRoot, 'runtime', 'python', 'bin', 'python3');
+  fs.mkdirSync(path.dirname(bundledPython), { recursive: true });
+  fs.writeFileSync(bundledPython, '#!/bin/sh\n', 'utf8');
+  const manifest = sanitizeRuntimeBundleManifest({
+    schema: 'modelnumquamoblita.desktop.runtime_bundle.v1',
+    bundle_mode: 'python_entrypoint',
+    runtime_version: '0.1.0',
+    allowed_app_versions: ['0.1.0'],
+    entrypoint: '../tools/run_live_runtime.py',
+    python_commands: { default: 'runtime/python/bin/python3' },
+  }, { appVersion: '0.1.0' });
+  assert.throws(
+    () => buildRuntimeLaunchPlan({ repoRoot, runtimeManifest: manifest, requireBundledRuntime: true }),
+    /entrypoint escapes repo root/,
   );
 });
 
@@ -365,6 +410,25 @@ test('runtimeHealthMatchesExpected requires runtime identity, version, and bindi
   assert.equal(ok, true);
   const bad = runtimeHealthMatchesExpected({ service: 'other', binding: expected }, { expectedBinding: expected });
   assert.equal(bad, false);
+  const setupMatch = runtimeHealthMatchesExpected({
+    service: 'modelnumquamoblita-runtime',
+    runtime_version: '0.1.0',
+    runtime_url: 'http://127.0.0.1:7340',
+    binding: {
+      store_path: '/repo/runtime/desktop_shell/setup.sqlite3',
+      store_fingerprint: 'setup_fp',
+      episodes_path: '',
+    },
+  }, {
+    expectedBinding: {
+      store_path: '/repo/runtime/desktop_shell/setup.sqlite3',
+      store_fingerprint: '',
+      episodes_path: '',
+    },
+    expectedRuntimeVersion: '0.1.0',
+    expectedRuntimeUrl: 'http://127.0.0.1:7340',
+  });
+  assert.equal(setupMatch, true);
 });
 
 test('assessExistingRuntime reattaches only to a fully matching runtime', () => {
@@ -389,6 +453,19 @@ test('assessExistingRuntime reattaches only to a fully matching runtime', () => 
     expectedRuntimeVersion: '0.1.0',
   });
   assert.equal(terminate.action, 'terminate');
+  const missingHealthMatching = assessExistingRuntime({
+    healthPayload: null,
+    lockSummary: { status: 'matching_live' },
+    expectedBinding: expected,
+    expectedRuntimeVersion: '0.1.0',
+  });
+  assert.equal(missingHealthMatching.action, 'terminate');
+  const missingHealthForeign = assessExistingRuntime({
+    healthPayload: null,
+    lockSummary: { status: 'foreign_live' },
+    expectedBinding: expected,
+  });
+  assert.equal(missingHealthForeign.action, 'terminate');
 });
 
 test('loadLatestWizardState resolves latest wizard run from disk', () => {

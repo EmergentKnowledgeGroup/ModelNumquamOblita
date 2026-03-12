@@ -11,6 +11,7 @@ const {
   deriveShellStartupState,
   fetchRuntimeHealthOnce,
   formatTimeoutLabel,
+  hydratedRuntimeUrl,
   loadDesktopAppVersion,
   loadLastKnownGoodRuntime,
   loadLatestWizardState,
@@ -40,7 +41,7 @@ const appVersion = String(app.getVersion() || '').trim() || loadDesktopAppVersio
 const singleInstanceLock = app.requestSingleInstanceLock();
 
 if (!singleInstanceLock) {
-  app.quit();
+  app.exit(0);
 }
 
 const state = {
@@ -234,12 +235,13 @@ function hydrateStateFromDisk({ runtimeHealth = null, lastError = '' } = {}) {
     expectedHost: desiredRuntimeHost(),
     expectedPort: desiredRuntimePort(),
   });
+  const currentRuntimeUrl = hydratedRuntimeUrl(runtimeHealth);
   let derived = deriveShellStartupState({
     wizardRunId: latest.runId,
     wizardState: latest.state,
     preferences,
     lockSummary,
-    runtimeUrl: desiredRuntimeUrl(),
+    runtimeUrl: currentRuntimeUrl,
     runtimeManifest: manifest,
     runtimeHealth,
     fsImpl: fs,
@@ -281,7 +283,7 @@ function hydrateStateFromDisk({ runtimeHealth = null, lastError = '' } = {}) {
   runtimeBundleManifest = manifest;
   emitState({
     ...derived,
-    runtimeUrl: runtimeHealth?.runtime_url || derived.runtimeUrl || desiredRuntimeUrl(),
+    runtimeUrl: currentRuntimeUrl || derived.runtimeUrl || '',
     lastError: String(lastError || derived.lastError || manifestError || '').trim(),
     repoRoot: shellPaths.repoRoot,
     runtimeRoot: shellPaths.runtimeRoot,

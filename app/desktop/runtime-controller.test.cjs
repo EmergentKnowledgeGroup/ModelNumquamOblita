@@ -12,6 +12,7 @@ const {
   defaultShellPreferences,
   deriveShellStartupState,
   formatTimeoutLabel,
+  hydratedRuntimeUrl,
   loadDesktopAppVersion,
   loadLatestWizardState,
   loadLastKnownGoodRuntime,
@@ -219,6 +220,12 @@ test('parseRuntimeStdoutLine accepts key-value output only', () => {
   assert.equal(parseRuntimeStdoutLine('Press Ctrl+C to stop.'), null);
 });
 
+test('hydratedRuntimeUrl only returns a runtime URL for live health payloads', () => {
+  assert.equal(hydratedRuntimeUrl(null), '');
+  assert.equal(hydratedRuntimeUrl({}), '');
+  assert.equal(hydratedRuntimeUrl({ runtime_url: 'http://127.0.0.1:7340' }), 'http://127.0.0.1:7340');
+});
+
 test('resolveShellPaths keeps runtime folders anchored to repo root', () => {
   const paths = resolveShellPaths('/repo');
   assert.equal(paths.repoRoot, '/repo');
@@ -384,6 +391,55 @@ test('deriveShellStartupState returns stopped for ready config with manual-start
   assert.equal(state.status, 'stopped');
   assert.equal(state.readyConfiguration, true);
   assert.equal(state.autoStartAllowed, false);
+});
+
+
+test('deriveShellStartupState does not manufacture a runtime URL for stopped shells', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mno-shell-stopped-url-'));
+  const archive = path.join(tmpDir, 'archive.json');
+  const store = path.join(tmpDir, 'store.sqlite3');
+  const cards = path.join(tmpDir, 'cards.reviewed.json');
+  for (const filePath of [archive, store, cards]) {
+    fs.writeFileSync(filePath, '{}\n', 'utf8');
+  }
+  const state = deriveShellStartupState({
+    wizardRunId: 'wizard_stopped',
+    wizardState: makeWizardState({
+      selected_input: { kind: 'ia_archive', is_valid: true, path: archive },
+      store_validation: { kind: 'sqlite_store', is_valid: true, path: store, store_fingerprint: 'store_fingerprint_v1' },
+      published_set: { episodes_path: cards, build_id: 'build_123' },
+      verify: { status: 'Safe', remap_required: false },
+    }),
+  });
+  assert.equal(state.status, 'stopped');
+  assert.equal(state.runtimeUrl, '');
+});
+
+test('deriveShellStartupState preserves the live runtime URL when health is present', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mno-shell-live-url-'));
+  const archive = path.join(tmpDir, 'archive.json');
+  const store = path.join(tmpDir, 'store.sqlite3');
+  const cards = path.join(tmpDir, 'cards.reviewed.json');
+  for (const filePath of [archive, store, cards]) {
+    fs.writeFileSync(filePath, '{}\n', 'utf8');
+  }
+  const expected = makeWizardState({
+    selected_input: { kind: 'ia_archive', is_valid: true, path: archive },
+    store_validation: { kind: 'sqlite_store', is_valid: true, path: store, store_fingerprint: 'store_fingerprint_v1' },
+    published_set: { episodes_path: cards, build_id: 'build_123' },
+    verify: { status: 'Safe', remap_required: false },
+  });
+  const state = deriveShellStartupState({
+    wizardRunId: 'wizard_live',
+    wizardState: expected,
+    runtimeUrl: 'http://127.0.0.1:7340',
+    runtimeHealth: {
+      service: 'modelnumquamoblita-runtime',
+      runtime_url: 'http://127.0.0.1:7340',
+      binding: buildExpectedBinding(expected),
+    },
+  });
+  assert.equal(state.runtimeUrl, 'http://127.0.0.1:7340');
 });
 
 test('deriveShellStartupState returns degraded for stale locks even when config is otherwise ready', () => {

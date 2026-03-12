@@ -138,6 +138,12 @@ function pathWithinRoot(targetPath, rootPath) {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
+function hydratedRuntimeUrl(runtimeHealth) {
+  return runtimeHealth && typeof runtimeHealth === 'object'
+    ? String(runtimeHealth.runtime_url || '').trim()
+    : '';
+}
+
 function defaultShellPreferences() {
   return {
     schema: 'modelnumquamoblita.desktop.preferences.v1',
@@ -843,6 +849,7 @@ module.exports = {
   defaultShellPreferences,
   deriveShellStartupState,
   fetchRuntimeHealthOnce,
+  hydratedRuntimeUrl,
   formatTimeoutLabel,
   loadDesktopAppVersion,
   loadJsonObject,

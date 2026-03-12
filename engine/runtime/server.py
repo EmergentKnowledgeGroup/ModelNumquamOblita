@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
+import ipaddress
 import hmac
 from pathlib import Path
 from typing import Any, Mapping
@@ -78,6 +79,22 @@ GRAPH_NEIGHBOR_MAX_LINK_LIMIT = 240
 GRAPH_NEIGHBOR_REQUEST_BUDGET = 12
 GRAPH_NEIGHBOR_EXPANDABLE_EDGE_ORDER = ("conflict", "constellation", "narrative_arc")
 GRAPH_NEIGHBOR_RECORD_ONLY_EDGE_ORDER = ("shared_language",)
+
+
+def _host_is_loopback(host: str) -> bool:
+    candidate = str(host or '').strip()
+    if not candidate:
+        return False
+    if candidate.lower() == 'localhost':
+        return True
+    try:
+        parsed = ipaddress.ip_address(candidate)
+    except ValueError:
+        return False
+    if parsed.is_loopback:
+        return True
+    mapped = getattr(parsed, 'ipv4_mapped', None)
+    return bool(mapped and mapped.is_loopback)
 
 
 def _project_version() -> str:
@@ -9317,7 +9334,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"writeback policy update failed: {exc}"})
         if path == "/api/runtime/desktop/shutdown":
             client_host = str((self.client_address or ("", 0))[0] or "").strip()
-            if client_host not in {"127.0.0.1", "::1", "localhost"}:
+            if not _host_is_loopback(client_host):
                 return _json_response(self, HTTPStatus.FORBIDDEN, {"error": "desktop shutdown is local-only"})
             self.server.desktop_shutdown_requested = True
             self.server.desktop_shutdown_error = ""

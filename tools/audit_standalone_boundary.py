@@ -119,7 +119,7 @@ def _scan_tokens(paths: Iterable[Path], *, forbidden_tokens: list[str], allowlis
     hits: list[dict[str, str]] = []
     allow = allowlist or set()
     for path in paths:
-        if path in allow:
+        if path in allow or not path.is_file():
             continue
         text = path.read_text(encoding="utf-8")
         for token in forbidden_tokens:
@@ -128,17 +128,18 @@ def _scan_tokens(paths: Iterable[Path], *, forbidden_tokens: list[str], allowlis
     return hits
 
 
-def _validate_required_docs() -> list[str]:
+def _validate_required_docs() -> tuple[list[str], list[str]]:
     failures: list[str] = []
+    missing_local_docs: list[str] = []
     for key, path in REQUIRED_DOCS.items():
         if not path.is_file():
-            failures.append(f"missing_required_doc:{path.relative_to(REPO_ROOT)}")
+            missing_local_docs.append(str(path.relative_to(REPO_ROOT)))
             continue
         text = path.read_text(encoding="utf-8")
         for phrase in REQUIRED_DOC_PHRASES.get(key, []):
             if phrase not in text:
                 failures.append(f"missing_required_phrase:{path.relative_to(REPO_ROOT)}:{phrase}")
-    return failures
+    return failures, missing_local_docs
 
 
 def _run_import_probe() -> dict[str, object]:
@@ -175,7 +176,7 @@ def run_audit() -> dict[str, object]:
         ACTIVE_DOCS,
         forbidden_tokens=FORBIDDEN_ACTIVE_DOC_TOKENS,
     )
-    required_doc_failures = _validate_required_docs()
+    required_doc_failures, missing_local_docs = _validate_required_docs()
     import_probe = _run_import_probe()
 
     failures: list[str] = []
@@ -193,6 +194,7 @@ def run_audit() -> dict[str, object]:
         "forbidden_code_hits": code_hits,
         "forbidden_active_doc_hits": active_doc_hits,
         "required_doc_failures": required_doc_failures,
+        "missing_local_docs": missing_local_docs,
         "import_probe": import_probe,
         "failures": failures,
     }

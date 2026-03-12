@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ModelNumquamOblita Desktop</title>
+    <link rel="stylesheet" href="./boot.css" />
+  </head>
+  <body>
+    <main class="boot-shell">
+      <section class="boot-card">
+        <div class="boot-eyebrow">ModelNumquamOblita Desktop</div>
+        <h1>Starting your local memory appliance</h1>
+        <p class="boot-lead">The desktop shell is bringing the Python runtime online, then it will hand control to the main MNO app.</p>
+        <div id="bootStatus" class="boot-status booting">Booting</div>
+        <div id="bootStage" class="boot-stage">Preparing runtime startup.</div>
+        <div id="bootPaths" class="boot-paths"></div>
+        <div id="bootError" class="boot-error hidden"></div>
+        <div class="boot-actions">
+          <button id="btnBootRetry" type="button">Retry runtime</button>
+          <button id="btnBootOpenUi" type="button" class="ghost">Open browser fallback</button>
+          <button id="btnBootOpenState" type="button" class="ghost">Open state folder</button>
+          <button id="btnBootOpenPublished" type="button" class="ghost">Open published sets</button>
+          <button id="btnBootOpenRuntime" type="button" class="ghost">Open runtime folder</button>
+          <button id="btnBootOpenLogs" type="button" class="ghost">Open logs</button>
+        </div>
+      </section>
+    </main>
+    <script src="./boot.js"></script>
+  </body>
+</html>

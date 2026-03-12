@@ -1,0 +1,132 @@
+:root {
+  color-scheme: dark;
+  --bg-0: #060b14;
+  --bg-1: rgba(9, 20, 34, 0.92);
+  --bg-2: rgba(16, 31, 52, 0.8);
+  --line: rgba(126, 166, 216, 0.2);
+  --text-0: #f1f5fb;
+  --text-1: rgba(214, 225, 241, 0.78);
+  --accent: #f2a14c;
+  --accent-2: #79d1c1;
+  --danger: #ff7f74;
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.44);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  min-height: 100vh;
+  font-family: Georgia, "Times New Roman", serif;
+  background:
+    radial-gradient(640px 260px at 0% 0%, rgba(242, 161, 76, 0.16), transparent 68%),
+    radial-gradient(760px 320px at 100% 0%, rgba(121, 209, 193, 0.14), transparent 72%),
+    linear-gradient(180deg, #06101d 0%, #08111f 52%, #050912 100%);
+  color: var(--text-0);
+}
+
+.boot-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}
+
+.boot-card {
+  width: min(100%, 48rem);
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 1.5rem;
+  background: linear-gradient(180deg, var(--bg-1), rgba(7, 17, 30, 0.96));
+  box-shadow: var(--shadow);
+}
+
+.boot-eyebrow {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+h1 {
+  margin: 0.6rem 0 0;
+  font-size: clamp(2rem, 5vw, 3.3rem);
+  line-height: 0.96;
+}
+
+.boot-lead {
+  margin: 0.8rem 0 0;
+  max-width: 42rem;
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--text-1);
+}
+
+.boot-status {
+  margin-top: 1.2rem;
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 1rem;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.boot-status.booting { background: rgba(242, 161, 76, 0.12); color: var(--accent); }
+.boot-status.ready { background: rgba(121, 209, 193, 0.12); color: var(--accent-2); }
+.boot-status.error { background: rgba(255, 127, 116, 0.12); color: var(--danger); }
+
+.boot-stage,
+.boot-paths,
+.boot-error {
+  margin-top: 0.9rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  background: var(--bg-2);
+  border: 1px solid rgba(126, 166, 216, 0.14);
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.boot-error { border-color: rgba(255, 127, 116, 0.28); color: #ffd6d1; }
+.hidden { display: none; }
+
+.boot-actions {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+}
+
+button {
+  min-height: 46px;
+  border-radius: 999px;
+  border: 1px solid rgba(242, 161, 76, 0.28);
+  background: linear-gradient(180deg, rgba(242, 161, 76, 0.24), rgba(242, 161, 76, 0.12));
+  color: var(--text-0);
+  font: inherit;
+  cursor: pointer;
+}
+
+button.ghost {
+  border-color: rgba(126, 166, 216, 0.22);
+  background: rgba(10, 20, 34, 0.78);
+}
+
+button:hover,
+button:focus-visible {
+  outline: none;
+  border-color: rgba(242, 161, 76, 0.65);
+  transform: translateY(-1px);
+}
+
+@media (min-width: 960px) {
+  .boot-card {
+    padding: 2rem;
+  }
+}

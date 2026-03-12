@@ -14,3 +14,8 @@ venv/
 /docs/
 coverage.xml
 htmlcov/
+node_modules/
+app/desktop/node_modules/
+app/desktop/dist/
+app/desktop/out/
+app/desktop/.electron-cache/

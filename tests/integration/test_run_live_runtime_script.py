@@ -69,6 +69,7 @@ def test_run_live_runtime_plan_only_memories_path(tmp_path: Path) -> None:
     assert f"memories_path={sqlite_path}" in result.stdout
     assert "store_backend=sqlite" in result.stdout
     assert "runtime_url=http://127.0.0.1:7431" in result.stdout
+    assert "launch_mode=normal" in result.stdout
 
 
 def test_run_live_runtime_plan_only_from_manifest(tmp_path: Path) -> None:
@@ -93,6 +94,7 @@ def test_run_live_runtime_plan_only_from_manifest(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
     assert f"memories_path={sqlite_path}" in result.stdout
+    assert "launch_mode=normal" in result.stdout
 
 
 def test_run_live_runtime_plan_only_with_episode_cards(tmp_path: Path) -> None:
@@ -119,6 +121,58 @@ def test_run_live_runtime_plan_only_with_episode_cards(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
     assert f"episode_cards_path={cards_path}" in result.stdout
+    assert "launch_mode=normal" in result.stdout
+
+
+def test_run_live_runtime_plan_only_setup_mode(tmp_path: Path) -> None:
+    setup_store = tmp_path / "desktop_shell" / "setup_mode.sqlite3"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/run_live_runtime.py",
+            "--setup-mode",
+            "--setup-store",
+            str(setup_store),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "7431",
+            "--plan-only",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert "launch_mode=setup_mode" in result.stdout
+    assert f"memories_path={setup_store}" in result.stdout
+    assert "episode_cards_path=" in result.stdout
+
+
+def test_run_live_runtime_setup_mode_rejects_live_store_flags(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "atoms.sqlite3"
+    _build_store(sqlite_path)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/run_live_runtime.py",
+            "--setup-mode",
+            "--memories",
+            str(sqlite_path),
+            "--plan-only",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert result.returncode == 2
+    assert "--setup-mode cannot be combined with --memories or --from-live-manifest" in result.stdout
 
 
 def test_run_live_runtime_manifest_requires_store_path(tmp_path: Path) -> None:

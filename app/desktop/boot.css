@@ -1,26 +1,29 @@
 :root {
   color-scheme: dark;
-  --bg-0: #060b14;
-  --bg-1: rgba(9, 20, 34, 0.92);
-  --bg-2: rgba(16, 31, 52, 0.8);
-  --line: rgba(126, 166, 216, 0.2);
-  --text-0: #f1f5fb;
-  --text-1: rgba(214, 225, 241, 0.78);
+  --bg-0: #04070d;
+  --bg-1: rgba(9, 18, 32, 0.94);
+  --bg-2: rgba(16, 28, 49, 0.9);
+  --bg-3: rgba(10, 19, 34, 0.88);
+  --line: rgba(133, 167, 217, 0.18);
+  --line-strong: rgba(242, 161, 76, 0.34);
+  --text-0: #f6f4ee;
+  --text-1: rgba(225, 232, 244, 0.76);
   --accent: #f2a14c;
-  --accent-2: #79d1c1;
+  --accent-2: #6fd1bf;
+  --warn: #ffcc7d;
   --danger: #ff7f74;
-  --shadow: 0 24px 80px rgba(0, 0, 0, 0.44);
+  --shadow: 0 28px 90px rgba(0, 0, 0, 0.52);
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
 body {
   min-height: 100vh;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: Georgia, 'Times New Roman', serif;
   background:
-    radial-gradient(640px 260px at 0% 0%, rgba(242, 161, 76, 0.16), transparent 68%),
-    radial-gradient(760px 320px at 100% 0%, rgba(121, 209, 193, 0.14), transparent 72%),
-    linear-gradient(180deg, #06101d 0%, #08111f 52%, #050912 100%);
+    radial-gradient(700px 260px at 0% 0%, rgba(242, 161, 76, 0.18), transparent 68%),
+    radial-gradient(900px 380px at 100% 0%, rgba(111, 209, 191, 0.12), transparent 74%),
+    linear-gradient(180deg, #071120 0%, #08111f 48%, #04070d 100%);
   color: var(--text-0);
 }
 
@@ -28,72 +31,214 @@ body {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 1.25rem;
+  padding: 1rem;
 }
 
 .boot-card {
-  width: min(100%, 48rem);
-  padding: 1.5rem;
+  width: min(100%, 86rem);
+  border-radius: 1.7rem;
   border: 1px solid var(--line);
-  border-radius: 1.5rem;
-  background: linear-gradient(180deg, var(--bg-1), rgba(7, 17, 30, 0.96));
+  background: linear-gradient(180deg, var(--bg-1), rgba(5, 12, 22, 0.98));
   box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.boot-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.boot-primary,
+.boot-sidepanel {
+  padding: 1.25rem;
+}
+
+.boot-sidepanel {
+  border-top: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(9, 17, 30, 0.9), rgba(6, 13, 24, 0.98));
 }
 
 .boot-eyebrow {
-  font-family: "Courier New", Courier, monospace;
+  font-family: 'Courier New', Courier, monospace;
   font-size: 0.72rem;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--accent);
 }
 
 h1 {
-  margin: 0.6rem 0 0;
-  font-size: clamp(2rem, 5vw, 3.3rem);
-  line-height: 0.96;
+  margin: 0.7rem 0 0;
+  font-size: clamp(2.2rem, 5vw, 4.2rem);
+  line-height: 0.94;
 }
 
 .boot-lead {
-  margin: 0.8rem 0 0;
-  max-width: 42rem;
+  margin: 0.85rem 0 0;
+  max-width: 44rem;
   font-size: 1rem;
-  line-height: 1.55;
+  line-height: 1.65;
   color: var(--text-1);
 }
 
+.boot-status-row {
+  margin-top: 1.4rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
 .boot-status {
-  margin-top: 1.2rem;
   display: inline-flex;
-  min-height: 44px;
+  min-height: 2.75rem;
   align-items: center;
   border-radius: 999px;
   padding: 0 1rem;
-  font-family: "Courier New", Courier, monospace;
-  font-size: 0.75rem;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.76rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   border: 1px solid rgba(255, 255, 255, 0.14);
 }
 
+.boot-status.setup_required,
 .boot-status.booting { background: rgba(242, 161, 76, 0.12); color: var(--accent); }
-.boot-status.ready { background: rgba(121, 209, 193, 0.12); color: var(--accent-2); }
+.boot-status.ready { background: rgba(111, 209, 191, 0.12); color: var(--accent-2); }
+.boot-status.degraded,
+.boot-status.stopped { background: rgba(255, 204, 125, 0.12); color: var(--warn); }
 .boot-status.error { background: rgba(255, 127, 116, 0.12); color: var(--danger); }
+
+.boot-status-reason {
+  font-size: 0.92rem;
+  color: var(--text-1);
+}
 
 .boot-stage,
 .boot-paths,
-.boot-error {
-  margin-top: 0.9rem;
-  padding: 0.9rem 1rem;
+.boot-error,
+.boot-warning,
+.boot-background-note,
+.boot-panel {
   border-radius: 1rem;
-  background: var(--bg-2);
   border: 1px solid rgba(126, 166, 216, 0.14);
-  font-family: "Courier New", Courier, monospace;
-  font-size: 0.8rem;
+  background: var(--bg-2);
+}
+
+.boot-stage,
+.boot-paths,
+.boot-error,
+.boot-warning,
+.boot-background-note {
+  margin-top: 1rem;
+  padding: 0.95rem 1rem;
+}
+
+.boot-stage,
+.boot-paths,
+.boot-error,
+.boot-warning {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.boot-error { border-color: rgba(255, 127, 116, 0.28); color: #ffd7d3; }
+.boot-warning { border-color: rgba(242, 161, 76, 0.24); color: #ffdfb9; }
+
+.boot-background-note {
+  margin-top: 1rem;
+  background: linear-gradient(180deg, rgba(10, 21, 37, 0.94), rgba(7, 14, 24, 0.98));
+}
+
+.boot-background-note-title,
+.boot-panel-title {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.74rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.boot-background-note p {
+  margin: 0.7rem 0 0.95rem;
+  color: var(--text-1);
   line-height: 1.55;
 }
 
-.boot-error { border-color: rgba(255, 127, 116, 0.28); color: #ffd6d1; }
+.boot-actions,
+.boot-link-row {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+button,
+select {
+  min-height: 2.9rem;
+  border-radius: 999px;
+  font: inherit;
+}
+
+button {
+  border: 1px solid rgba(242, 161, 76, 0.28);
+  background: linear-gradient(180deg, rgba(242, 161, 76, 0.26), rgba(242, 161, 76, 0.12));
+  color: var(--text-0);
+  cursor: pointer;
+  padding: 0 1rem;
+}
+
+button.ghost {
+  border-color: rgba(126, 166, 216, 0.22);
+  background: rgba(8, 17, 31, 0.82);
+}
+
+button:hover,
+button:focus-visible,
+select:hover,
+select:focus-visible {
+  outline: none;
+  border-color: rgba(242, 161, 76, 0.68);
+  transform: translateY(-1px);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.boot-field {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.9rem;
+}
+
+.boot-field span {
+  color: var(--text-1);
+  font-size: 0.92rem;
+}
+
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: rgba(5, 11, 20, 0.96);
+  color: var(--text-0);
+  padding: 0 0.95rem;
+}
+
+.boot-panel {
+  padding: 1rem;
+}
+
+.boot-panel + .boot-panel {
+  margin-top: 0.9rem;
+}
+
+.boot-paths {
+  display: grid;
+  gap: 0.5rem;
+}
 
 .visually-hidden {
   position: absolute;
@@ -108,37 +253,24 @@ h1 {
   border: 0;
 }
 
-.boot-actions {
-  margin-top: 1rem;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  gap: 0.75rem;
+@media (min-width: 64rem) {
+  .boot-grid {
+    grid-template-columns: minmax(0, 1.45fr) minmax(20rem, 0.92fr);
+  }
+
+  .boot-sidepanel {
+    border-top: 0;
+    border-left: 1px solid var(--line);
+  }
+
+  .boot-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-button {
-  min-height: 46px;
-  border-radius: 999px;
-  border: 1px solid rgba(242, 161, 76, 0.28);
-  background: linear-gradient(180deg, rgba(242, 161, 76, 0.24), rgba(242, 161, 76, 0.12));
-  color: var(--text-0);
-  font: inherit;
-  cursor: pointer;
-}
-
-button.ghost {
-  border-color: rgba(126, 166, 216, 0.22);
-  background: rgba(10, 20, 34, 0.78);
-}
-
-button:hover,
-button:focus-visible {
-  outline: none;
-  border-color: rgba(242, 161, 76, 0.65);
-  transform: translateY(-1px);
-}
-
-@media (min-width: 960px) {
-  .boot-card {
-    padding: 2rem;
+@media (min-width: 80rem) {
+  .boot-primary,
+  .boot-sidepanel {
+    padding: 1.75rem;
   }
 }

@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+import tomllib
 import unicodedata
 import zipfile
 from dataclasses import asdict
@@ -52,7 +53,7 @@ from .live_eval import load_inmemory_store_from_json
 
 UI_ROOT = Path(__file__).resolve().parent / "ui"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RUNTIME_ROOT = REPO_ROOT / "runtime"
+RUNTIME_ROOT = Path(str(os.environ.get("MNO_RUNTIME_STATE_ROOT") or "").strip()).expanduser().resolve() if str(os.environ.get("MNO_RUNTIME_STATE_ROOT") or "").strip() else (REPO_ROOT / "runtime")
 WIZARD_RUNS_ROOT = RUNTIME_ROOT / "wizard_runs"
 WIZARD_LATEST_PATH = WIZARD_RUNS_ROOT / "LATEST.json"
 BUILDER_PROFILES_ROOT = RUNTIME_ROOT / "builder_profiles"
@@ -76,6 +77,17 @@ GRAPH_NEIGHBOR_MAX_LINK_LIMIT = 240
 GRAPH_NEIGHBOR_REQUEST_BUDGET = 12
 GRAPH_NEIGHBOR_EXPANDABLE_EDGE_ORDER = ("conflict", "constellation", "narrative_arc")
 GRAPH_NEIGHBOR_RECORD_ONLY_EDGE_ORDER = ("shared_language",)
+
+
+def _project_version() -> str:
+    pyproject_path = REPO_ROOT / "pyproject.toml"
+    try:
+        payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    except Exception:
+        return "0.0.0"
+    project = payload.get("project") if isinstance(payload, dict) else {}
+    version = str((project or {}).get("version") or "").strip()
+    return version or "0.0.0"
 
 
 def _canonical_graph_link_key(source: str, target: str, kind: str) -> tuple[str, str, str]:
@@ -3875,10 +3887,17 @@ def _runtime_health(server: "RuntimeHTTPServer") -> dict[str, Any]:
     elif warned:
         status = "watch"
 
+    host, port = server.server_address
+
     return {
+        "service": "modelnumquamoblita-runtime",
         "status": status,
         "checked_at": _utc_iso(),
         "checks": checks,
+        "runtime_url": f"http://{host}:{port}",
+        "runtime_version": str(getattr(server, "runtime_version", "") or _project_version()),
+        "launch_mode": str(getattr(server, "runtime_launch_mode", "normal") or "normal"),
+        "binding": dict(getattr(server, "active_runtime_binding", {}) or {}),
         "writeback_policy": dict(server.writeback_policy),
     }
 
@@ -8860,6 +8879,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     build_id=str((state.get("published_set") or {}).get("build_id") or ""),
                 )
                 provider_config = _provider_model_config(self.server)
+                self.server.runtime_launch_mode = "normal"
                 state["activation"] = {
                     **_wizard_empty_activation_state(),
                     "direct": {
@@ -8954,6 +8974,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     build_id=str(build_info.get("build_id") or ""),
                 )
                 provider_config = _provider_model_config(self.server)
+                self.server.runtime_launch_mode = "draft"
                 draft_override = {
                     "active": True,
                     "label": "Unreviewed draft",
@@ -9293,6 +9314,29 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 return _json_response(self, HTTPStatus.OK, {"ok": True, "policy": dict(self.server.writeback_policy)})
             except Exception as exc:
                 return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"writeback policy update failed: {exc}"})
+        if path == "/api/runtime/desktop/shutdown":
+            client_host = str((self.client_address or ("", 0))[0] or "").strip()
+            if client_host not in {"127.0.0.1", "::1", "localhost"}:
+                return _json_response(self, HTTPStatus.FORBIDDEN, {"error": "desktop shutdown is local-only"})
+            self.server.desktop_shutdown_requested = True
+
+            def _shutdown_worker() -> None:
+                time.sleep(0.05)
+                try:
+                    self.server.shutdown()
+                except Exception:
+                    return
+
+            threading.Thread(target=_shutdown_worker, daemon=True, name="runtime-desktop-shutdown").start()
+            return _json_response(
+                self,
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "status": "stopping",
+                    "checked_at": _utc_iso(),
+                },
+            )
         if path == "/api/runtime/health/export":
             try:
                 health_payload = _runtime_health(self.server)
@@ -9868,7 +9912,13 @@ class RuntimeHTTPServer(ThreadingHTTPServer):
             "store_fingerprint": _wizard_runtime_store_fingerprint(runtime),
             "episodes_path": str(getattr(runtime, "episode_cards_path", "") or ""),
             "checked_at": _utc_iso(),
+            "backend": "",
+            "artifact_mode": "",
+            "build_id": "",
         }
+        self.runtime_version = _project_version()
+        self.runtime_launch_mode = "normal"
+        self.desktop_shutdown_requested = False
 def start_runtime_server(
     runtime: RuntimeSession,
     *,

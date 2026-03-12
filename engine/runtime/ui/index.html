@@ -52,12 +52,13 @@
               <div>
                 <p class="wizard-kicker">Memory Runtime</p>
                 <h2>Import. Publish. Activate.</h2>
+                <p class="wizard-head-copy">Start here. The normal path needs no terminal, no config editing, and no typed file paths.</p>
               </div>
               <div class="wizard-head-actions">
-                <button id="btnWizardResume" class="btn ghost" type="button">Resume</button>
-                <button id="btnWizardStartNew" class="btn ghost" type="button">Start New</button>
-                <button id="btnWizardRestore" class="btn ghost" type="button">Restore Last Published</button>
-                <button id="btnWizardArtifacts" class="btn ghost" type="button">Open Output Folder</button>
+                <button id="btnWizardResume" class="btn ghost" type="button">Resume Last Run</button>
+                <button id="btnWizardStartNew" class="btn ghost" type="button">Start Fresh</button>
+                <button id="btnWizardRestore" class="btn ghost" type="button">Restore Last Good Copy</button>
+                <button id="btnWizardArtifacts" class="btn ghost" type="button">Show Run Folder</button>
               </div>
             </div>
             <div id="wizardRunMeta" class="wizard-run-meta">No wizard run loaded.</div>
@@ -68,7 +69,7 @@
                   <h3>Import</h3>
                   <span class="wizard-step">Step 1</span>
                 </div>
-                <p class="wizard-card-copy">Choose a fresh IA archive or reuse an existing MNO store. No typed paths on the normal path.</p>
+                <p class="wizard-card-copy">Pick a fresh IA archive or reuse an existing MNO store. The normal path never asks you to type a path by hand.</p>
                 <input id="wizardArchivePath" class="input wizard-hidden-input" type="text" aria-label="Selected input path" readonly />
                 <div class="wizard-entry-lanes">
                   <button id="btnWizardLaneArchive" class="btn ghost wizard-lane active" type="button">Import IA Archive</button>
@@ -77,42 +78,46 @@
                 <div id="wizardArchivePanel" class="wizard-lane-panel active">
                   <label class="wizard-file-picker" for="wizardArchiveFile">
                     <span>Pick IA `db.json`</span>
-                    <small>Upload once. The app stages it locally for validation and import.</small>
+                    <small>Use the archive exported from IA. The app stages it locally, checks it, then builds the MNO store for you.</small>
                   </label>
                   <input id="wizardArchiveFile" class="wizard-file-input" type="file" accept=".json,application/json" aria-label="Pick IA archive" />
                   <div id="wizardArchiveSummary" class="wizard-card-result">No archive uploaded yet.</div>
                 </div>
                 <div id="wizardStorePanel" class="wizard-lane-panel">
                   <label class="wizard-field-block">
-                    <span>Known MNO stores</span>
+                    <span>Existing MNO stores</span>
                     <select id="wizardStoreSelect" class="input" aria-label="Choose existing MNO store"></select>
                   </label>
                   <div class="wizard-inline-actions wizard-inline-actions-tight">
                     <button id="btnWizardRefreshSources" class="btn ghost" type="button">Refresh Stores</button>
                   </div>
-                  <div id="wizardStoreSummary" class="wizard-card-result">Pick an existing store to skip archive import.</div>
+                  <div id="wizardStoreSummary" class="wizard-card-result">Pick an existing store if the memory data is already in MNO format.</div>
                 </div>
                 <div class="wizard-inline-actions">
-                  <button id="btnWizardValidate" class="btn ghost" type="button">Validate</button>
-                  <button id="btnWizardImport" class="btn ghost" type="button">Import</button>
+                  <button id="btnWizardValidate" class="btn ghost" type="button">Check File</button>
+                  <button id="btnWizardImport" class="btn ghost" type="button">Create MNO Store</button>
                 </div>
-                <div id="wizardImportResult" class="wizard-card-result">Validation and import output appear here.</div>
+                <div id="wizardImportResult" class="wizard-card-result">This area explains what the file is, whether it is safe to use, and what the import created.</div>
               </article>
               <article class="wizard-card">
                 <div class="wizard-card-head">
                   <h3>Build Episodes</h3>
                   <span class="wizard-step">Step 2</span>
                 </div>
-                <p class="wizard-card-copy">Turn the selected memory store into reviewable episode cards. Builder curation stays optional and tucked into advanced controls.</p>
+                <p class="wizard-card-copy">Turn the selected memory store into draft episode cards you can review. Builder curation stays optional and tucked into advanced controls.</p>
+                <label class="wizard-field-block wizard-inline-help">
+                  <span>Build style</span>
+                  <small>Strict keeps only the strongest candidates. Balanced keeps more. Memory assist is the loosest.</small>
+                </label>
                 <select id="wizardBuildPolicy" class="input" aria-label="Episode build policy">
                   <option value="strict">strict (recommended)</option>
                   <option value="balanced">balanced</option>
                   <option value="assist">memory assist</option>
                 </select>
                 <div class="wizard-inline-actions">
-                  <button id="btnWizardBuild" class="btn ghost" type="button">Build</button>
+                  <button id="btnWizardBuild" class="btn ghost" type="button">Make Review Draft</button>
                 </div>
-                <div id="wizardBuildResult" class="wizard-card-result">Build counts and artifact paths appear here.</div>
+                <div id="wizardBuildResult" class="wizard-card-result">This area shows how many draft cards were created and where the draft lives.</div>
                 <details class="wizard-advanced">
                   <summary>Advanced builder curation</summary>
                   <div class="wizard-advanced-grid">
@@ -137,7 +142,7 @@
                   <h3>Review</h3>
                   <span class="wizard-step">Step 3</span>
                 </div>
-                <p class="wizard-card-copy">Every draft card must be approved, edited, or rejected before publish. No silent auto-approval.</p>
+                <p class="wizard-card-copy">Every draft card must be approved, edited, or rejected before publish. Nothing is silently auto-approved.</p>
                 <div class="wizard-review-controls">
                   <input id="wizardReviewSearch" class="input" type="search" placeholder="Search draft cards" aria-label="Search draft cards" />
                   <select id="wizardReviewStatus" class="input" aria-label="Filter review decision status">
@@ -147,37 +152,45 @@
                     <option value="edited">edited</option>
                     <option value="rejected">rejected</option>
                   </select>
-                  <button id="btnWizardReviewRefresh" class="btn ghost" type="button">Reload</button>
+                  <select id="wizardReviewPageSize" class="input" aria-label="Draft cards per page">
+                    <option value="12">12 per page</option>
+                    <option value="24">24 per page</option>
+                    <option value="48">48 per page</option>
+                  </select>
+                  <button id="btnWizardReviewRefresh" class="btn ghost" type="button">Refresh Drafts</button>
                 </div>
+                <div id="wizardReviewMeta" class="wizard-card-result">Draft review progress appears here.</div>
                 <div id="wizardReviewList" class="wizard-review-list"></div>
-                <div class="wizard-inline-actions">
-                  <button id="btnWizardReviewRefresh" class="btn ghost" type="button">Reload Drafts</button>
+                <div class="wizard-inline-actions wizard-review-pagination">
+                  <button id="btnWizardReviewPrev" class="btn ghost" type="button">Previous Page</button>
+                  <div id="wizardReviewPager" class="wizard-page-pill">Page 1 of 1</div>
+                  <button id="btnWizardReviewNext" class="btn ghost" type="button">Next Page</button>
                 </div>
-                <div id="wizardReviewResult" class="wizard-card-result">Review status appears here.</div>
+                <div id="wizardReviewResult" class="wizard-card-result">Approve as-is, quick-edit and approve, or reject. You can always refresh after a change.</div>
               </article>
               <article class="wizard-card">
                 <div class="wizard-card-head">
                   <h3>Publish</h3>
                   <span class="wizard-step">Step 4</span>
                 </div>
-                <p class="wizard-card-copy">Publishing freezes a reviewed set against the current store fingerprint and build ID so verify and activation can trust it.</p>
+                <p class="wizard-card-copy">Publishing freezes one reviewed set against the current store fingerprint and build ID so later checks can trust it.</p>
                 <div class="wizard-inline-actions">
-                  <button id="btnWizardPublish" class="btn ghost" type="button">Publish Reviewed Set</button>
+                  <button id="btnWizardPublish" class="btn ghost" type="button">Freeze Reviewed Set</button>
                 </div>
-                <div id="wizardPublishResult" class="wizard-card-result">Published set details appear here.</div>
-                <div id="wizardPublishedHistory" class="wizard-card-result">Restore information appears here.</div>
+                <div id="wizardPublishResult" class="wizard-card-result">Current published set details appear here.</div>
+                <div id="wizardPublishedHistory" class="wizard-card-result">Published history and restore help appear here.</div>
               </article>
               <article class="wizard-card">
                 <div class="wizard-card-head">
                   <h3>Verify</h3>
                   <span class="wizard-step">Step 5</span>
                 </div>
-                <p class="wizard-card-copy">Only <strong>Safe</strong> is a normal success state. Needs attention is for local developer follow-up. Blocked stops activation.</p>
+                <p class="wizard-card-copy">Only <strong>Safe</strong> counts as normal success. <strong>Needs attention</strong> means local follow-up. <strong>Blocked</strong> stops activation.</p>
                 <div class="wizard-inline-actions">
-                  <button id="btnWizardVerify" class="btn ghost" type="button">Run Local Verification</button>
+                  <button id="btnWizardVerify" class="btn ghost" type="button">Check Readiness</button>
                 </div>
-                <div id="wizardVerifyResult" class="wizard-card-result">Verification summary appears here.</div>
-                <div id="wizardVerifyLinks" class="wizard-card-result">Actionable links to reviewed cards/evidence appear here.</div>
+                <div id="wizardVerifyResult" class="wizard-card-result">This area tells you if the set is safe, needs attention, or is blocked.</div>
+                <div id="wizardVerifyLinks" class="wizard-card-result">Helpful links to the exact place that needs attention appear here.</div>
                 <input id="wizardRemapFile" class="wizard-file-input" type="file" aria-label="Pick replacement artifact" />
                 <div id="wizardRemapStatus" class="wizard-recovery-panel">Remap and reset actions appear here when the app detects missing artifacts.</div>
               </article>
@@ -186,30 +199,30 @@
                   <h3>Activate</h3>
                   <span class="wizard-step">Step 6</span>
                 </div>
-                <p class="wizard-card-copy">Direct runtime and MCP targets are managed from one place. Activation is reversible, and third-party MCP entries are never overwritten silently.</p>
+                <p class="wizard-card-copy">Local runtime and MCP targets are managed from one place. Activation is reversible, and third-party MCP entries are never overwritten silently.</p>
                 <div class="wizard-inline-actions">
-                  <button id="btnWizardActivateRefresh" class="btn ghost" type="button">Refresh Activation Status</button>
-                  <button id="btnWizardGoLive" class="btn ghost" type="button">Activate Direct Runtime</button>
-                  <button id="btnWizardDirectCleanup" class="btn ghost" type="button">Repair Direct Runtime Lock</button>
+                  <button id="btnWizardActivateRefresh" class="btn ghost" type="button">Check Activation Status</button>
+                  <button id="btnWizardGoLive" class="btn ghost" type="button">Start Local Runtime</button>
+                  <button id="btnWizardDirectCleanup" class="btn ghost" type="button">Fix Stale Local Lock</button>
                 </div>
                 <div id="wizardActivationStatus" class="wizard-activation-status"></div>
                 <div id="wizardMcpTargets" class="wizard-activation-targets"></div>
-                <details class="wizard-advanced wizard-danger-zone">
-                  <summary>Developer-only draft activation</summary>
-                  <p class="wizard-card-copy">Unsafe local testing only. This runs the unreviewed draft directly and never counts as normal success.</p>
+                <details id="wizardDeveloperTools" class="wizard-advanced wizard-danger-zone">
+                  <summary>Developer tools (unsafe, local only)</summary>
+                  <p class="wizard-card-copy">Use this only for local draft testing. It never counts as normal success and it never becomes MCP-ready.</p>
                   <label class="wizard-toggle-row">
                     <input id="wizardDeveloperMode" type="checkbox" />
                     <span>Enable developer mode</span>
                   </label>
-                  <textarea id="wizardDraftReason" class="input" rows="3" placeholder="Why are you bypassing publish/verify for local draft activation?" aria-label="Draft activation reason"></textarea>
+                  <textarea id="wizardDraftReason" class="input" rows="3" placeholder="Why are you bypassing publish and the normal verification path for local draft activation?" aria-label="Draft activation reason"></textarea>
                   <div class="wizard-inline-actions">
-                    <button id="btnWizardDraftGoLive" class="btn danger" type="button">Activate Unreviewed Draft</button>
+                    <button id="btnWizardDraftGoLive" class="btn danger" type="button">Run Unsafe Draft Locally</button>
                   </div>
                 </details>
                 <div class="wizard-inline-actions">
-                  <button id="btnWizardExportMcp" class="btn ghost" type="button">Export MCP Bundle</button>
+                  <button id="btnWizardExportMcp" class="btn ghost" type="button">Prepare MCP Bundle</button>
                 </div>
-                <div id="wizardGoLiveResult" class="wizard-card-result">Activation output appears here.</div>
+                <div id="wizardGoLiveResult" class="wizard-card-result">Activation results, rollback warnings, and MCP ownership messages appear here.</div>
               </article>
               <article class="wizard-card">
                 <div class="wizard-card-head">
@@ -217,7 +230,7 @@
                   <span class="wizard-step">Step 7</span>
                 </div>
                 <p class="wizard-card-copy">When activation is green, use the runtime health and provider details here to confirm the system is serving the right store and reviewed set.</p>
-                <div id="wizardGoLiveConfig" class="wizard-card-result">Provider/model config visibility appears here.</div>
+                <div id="wizardGoLiveConfig" class="wizard-card-result">Read-only runtime settings and provider details appear here.</div>
               </article>
             </div>
           </section>

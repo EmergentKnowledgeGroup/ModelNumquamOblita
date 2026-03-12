@@ -4,6 +4,7 @@ from collections import deque
 import base64
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -1309,6 +1310,9 @@ def _wizard_empty_review_state() -> dict[str, Any]:
         "store_fingerprint": "",
         "reviewable_count": 0,
         "pending_count": 0,
+        "approved_count": 0,
+        "edited_count": 0,
+        "rejected_count": 0,
         "complete": False,
         "decision_count": 0,
         "source_cards_path": "",
@@ -1539,6 +1543,9 @@ def _wizard_review_counts(source_payload: dict[str, Any], review_decisions: Mapp
     total = 0
     explicit = 0
     pending = 0
+    approved = 0
+    edited = 0
+    rejected = 0
     for row in list(source_payload.get("cards") or []):
         if not isinstance(row, dict):
             continue
@@ -1548,11 +1555,31 @@ def _wizard_review_counts(source_payload: dict[str, Any], review_decisions: Mapp
         total += 1
         decision_payload = review_decisions.get(episode_id)
         decision = str((decision_payload or {}).get("decision") or "pending").strip().lower()
-        if decision in {"approved", "edited", "rejected"}:
+        if decision == "approve":
+            decision = "approved"
+        elif decision == "edit":
+            decision = "edited"
+        elif decision == "reject":
+            decision = "rejected"
+        if decision == "approved":
             explicit += 1
+            approved += 1
+        elif decision == "edited":
+            explicit += 1
+            edited += 1
+        elif decision == "rejected":
+            explicit += 1
+            rejected += 1
         else:
             pending += 1
-    return {"reviewable_count": total, "decision_count": explicit, "pending_count": pending}
+    return {
+        "reviewable_count": total,
+        "decision_count": explicit,
+        "pending_count": pending,
+        "approved_count": approved,
+        "edited_count": edited,
+        "rejected_count": rejected,
+    }
 
 
 def _wizard_stage_state_payload(state: dict[str, Any]) -> dict[str, Any]:
@@ -6171,30 +6198,47 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             run_id = str((q.get("run_id") or [""])[0]).strip() or None
             status_filter = str((q.get("status") or ["all"])[0]).strip().lower()
             search = str((q.get("q") or [""])[0]).strip().lower()
+            page = _as_int(str((q.get("page") or ["1"])[0]), default=1, min_value=1, max_value=10_000)
+            page_size = _as_int(str((q.get("page_size") or ["12"])[0]), default=12, min_value=1, max_value=100)
             try:
                 wizard_state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
             except FileNotFoundError:
                 return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "wizard run not found"})
             draft_path_raw = str((wizard_state.get("build_info") or {}).get("draft_path") or wizard_state.get("last_built_episode_draft_path") or "").strip()
             source_path = Path(draft_path_raw).expanduser().resolve() if draft_path_raw else None
+            empty_page_payload = {
+                "filtered_total": 0,
+                "page": 1,
+                "page_size": page_size,
+                "total_pages": 1,
+                "has_prev": False,
+                "has_next": False,
+            }
             if source_path is None:
                 return _json_response(
                     self,
                     HTTPStatus.OK,
-                    {"ok": True, "cards": [], "total": 0, "source_cards_path": "", "run_id": wizard_state.get("run_id")},
+                    {
+                        "ok": True,
+                        "cards": [],
+                        "total": 0,
+                        "source_cards_path": "",
+                        "run_id": wizard_state.get("run_id"),
+                        **empty_page_payload,
+                    },
                 )
             if not source_path.exists():
-                _wizard_reset_downstream_state(wizard_state, from_stage="build_episodes")
-                _wizard_reset_to_stage(
-                    wizard_state,
-                    stage="build_episodes",
-                    note="Draft cards moved or deleted; build again or remap the artifact path.",
-                )
-                _save_wizard_state(wizard_state)
                 return _json_response(
                     self,
                     HTTPStatus.OK,
-                    {"ok": True, "cards": [], "total": 0, "source_cards_path": str(source_path), "run_id": wizard_state.get("run_id")},
+                    {
+                        "ok": True,
+                        "cards": [],
+                        "total": 0,
+                        "source_cards_path": str(source_path),
+                        "run_id": wizard_state.get("run_id"),
+                        **empty_page_payload,
+                    },
                 )
             try:
                 payload = _load_episode_cards_payload(source_path)
@@ -6203,14 +6247,17 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             decisions = wizard_state.get("review_decisions")
             if not isinstance(decisions, dict):
                 decisions = {}
-            cards: list[dict[str, Any]] = []
-            for row in list(payload.get("cards") or []):
+            raw_cards = list(payload.get("cards") or [])
+            reviewable_total = 0
+            all_cards: list[dict[str, Any]] = []
+            for row in raw_cards:
                 if not isinstance(row, dict):
                     continue
                 card = _normalize_episode_card(row)
                 episode_id = str(card.get("episode_id") or "").strip()
                 if not episode_id:
                     continue
+                reviewable_total += 1
                 decision_payload = decisions.get(episode_id) if isinstance(decisions, dict) else None
                 decision = "pending"
                 if isinstance(decision_payload, dict):
@@ -6231,9 +6278,14 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     ).lower()
                     if search not in hay:
                         continue
-                cards.append(card)
+                all_cards.append(card)
+            filtered_total = len(all_cards)
+            total_pages = max(1, math.ceil(filtered_total / page_size)) if filtered_total else 1
+            page = min(page, total_pages)
+            start_index = (page - 1) * page_size
+            end_index = start_index + page_size
+            cards = all_cards[start_index:end_index]
             _wizard_sync_review_state(wizard_state, source_payload=payload, source_cards_path=source_path)
-            _save_wizard_state(wizard_state)
             return _json_response(
                 self,
                 HTTPStatus.OK,
@@ -6242,7 +6294,13 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     "run_id": wizard_state.get("run_id"),
                     "source_cards_path": str(source_path),
                     "cards": cards,
-                    "total": len(cards),
+                    "total": reviewable_total,
+                    "filtered_total": filtered_total,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": total_pages,
+                    "has_prev": page > 1,
+                    "has_next": page < total_pages,
                 },
             )
         if path == "/api/wizard/builder/profile":

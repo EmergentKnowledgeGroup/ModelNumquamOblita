@@ -48,6 +48,26 @@ def _seed_sqlite_store(path: Path) -> None:
         store.close()
 
 
+def _seed_wizard_review_draft(path: Path, *, count: int) -> dict:
+    payload = {
+        "schema": "numquamoblita.episode_cards.v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cards": [
+            {
+                "episode_id": f"ep_{index:03d}",
+                "title": f"Episode {index:03d}",
+                "summary": f"Draft summary {index:03d} for pagination and review ergonomics.",
+                "actors": ["user", "assistant"],
+                "topic_tags": ["testing", "wizard"],
+                "promotion_status": "candidate",
+            }
+            for index in range(1, count + 1)
+        ],
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return payload
+
+
 def _json_get(url: str) -> dict:
     with urlopen(url, timeout=5) as response:
         return json.loads(response.read().decode("utf-8"))
@@ -648,6 +668,153 @@ def test_wizard_publish_requires_explicit_review_decisions(tmp_path: Path) -> No
         status, payload = _json_post_error(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
         assert status == 400
         assert "review draft cards before publishing" in str(payload.get("error") or "").lower()
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_review_cards_supports_pagination_and_inline_edit_batches(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        draft_path = tmp_path / "wizard_paged_draft.json"
+        draft_payload = _seed_wizard_review_draft(draft_path, count=31)
+
+        state = runtime_server_module._load_wizard_state(run_id)
+        state["build_info"] = {
+            "draft_path": str(draft_path),
+            "build_id": "build_paged_review",
+            "store_fingerprint": "store_fp_review",
+        }
+        state["last_built_episode_draft_path"] = str(draft_path)
+        runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+        runtime_server_module._save_wizard_state(state)
+
+        _json_post(
+            f"{base}/api/wizard/review/update",
+            {"run_id": run_id, "episode_id": "ep_001", "decision": "approved"},
+        )
+        _json_post(
+            f"{base}/api/wizard/review/update",
+            {
+                "run_id": run_id,
+                "episode_id": "ep_002",
+                "decision": "edited",
+                "title": "Edited title",
+                "summary": "Edited summary",
+                "actors": ["user"],
+                "topic_tags": ["testing"],
+            },
+        )
+        _json_post(
+            f"{base}/api/wizard/review/update",
+            {"run_id": run_id, "episode_id": "ep_003", "decision": "rejected"},
+        )
+
+        wizard_state = _json_get(f"{base}/api/wizard/state?run_id={quote(run_id)}")
+        review_state = wizard_state["state"]["review_state"]
+        assert review_state["reviewable_count"] == 31
+        assert review_state["pending_count"] == 28
+        assert review_state["approved_count"] == 1
+        assert review_state["edited_count"] == 1
+        assert review_state["rejected_count"] == 1
+
+        first_page = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&page=1&page_size=12")
+        assert first_page["ok"] is True
+        assert first_page["total"] == 31
+        assert first_page["filtered_total"] == 31
+        assert first_page["page"] == 1
+        assert first_page["page_size"] == 12
+        assert first_page["total_pages"] == 3
+        assert first_page["has_prev"] is False
+        assert first_page["has_next"] is True
+        assert len(first_page["cards"]) == 12
+
+        last_page = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&page=3&page_size=12")
+        assert last_page["ok"] is True
+        assert last_page["page"] == 3
+        assert last_page["has_prev"] is True
+        assert last_page["has_next"] is False
+        assert len(last_page["cards"]) == 7
+
+        approved_only = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&status=approved&page=1&page_size=12")
+        assert approved_only["ok"] is True
+        assert approved_only["filtered_total"] == 1
+        assert len(approved_only["cards"]) == 1
+        assert str(approved_only["cards"][0]["episode_id"]) == "ep_001"
+
+        edited_only = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&status=edited&page=1&page_size=12")
+        assert edited_only["ok"] is True
+        assert edited_only["filtered_total"] == 1
+        assert len(edited_only["cards"]) == 1
+        assert str(edited_only["cards"][0]["episode_id"]) == "ep_002"
+        assert edited_only["cards"][0]["review_payload"]["title"] == "Edited title"
+        assert edited_only["cards"][0]["review_payload"]["summary"] == "Edited summary"
+
+        searched = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&q={quote('Episode 020')}&page=1&page_size=12")
+        assert searched["ok"] is True
+        assert searched["filtered_total"] == 1
+        assert len(searched["cards"]) == 1
+        assert str(searched["cards"][0]["episode_id"]) == "ep_020"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_review_cards_keep_pagination_shape_in_empty_and_missing_draft_states(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+
+        empty_payload = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&page=2&page_size=24")
+        assert empty_payload["ok"] is True
+        assert empty_payload["cards"] == []
+        assert empty_payload["total"] == 0
+        assert empty_payload["filtered_total"] == 0
+        assert empty_payload["page"] == 1
+        assert empty_payload["page_size"] == 24
+        assert empty_payload["total_pages"] == 1
+        assert empty_payload["has_prev"] is False
+        assert empty_payload["has_next"] is False
+
+        missing_draft_path = tmp_path / "missing_draft.json"
+        state = runtime_server_module._load_wizard_state(run_id)
+        state["build_info"] = {
+            "draft_path": str(missing_draft_path),
+            "build_id": "build_missing_review",
+            "store_fingerprint": "store_fp_missing",
+        }
+        state["last_built_episode_draft_path"] = str(missing_draft_path)
+        runtime_server_module._save_wizard_state(state)
+
+        missing_payload = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&page=5&page_size=16")
+        assert missing_payload["ok"] is True
+        assert missing_payload["cards"] == []
+        assert missing_payload["total"] == 0
+        assert missing_payload["filtered_total"] == 0
+        assert missing_payload["page"] == 1
+        assert missing_payload["page_size"] == 16
+        assert missing_payload["total_pages"] == 1
+        assert missing_payload["has_prev"] is False
+        assert missing_payload["has_next"] is False
+
+        refreshed_state = runtime_server_module._load_wizard_state(run_id)
+        assert refreshed_state.get("current_stage") == state.get("current_stage")
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
 

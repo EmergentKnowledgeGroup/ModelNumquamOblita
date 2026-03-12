@@ -571,10 +571,16 @@ def test_runtime_http_server_exposes_phase6_chat_shell_cards_and_reason_catalog(
         assert "id=\"btnWizardStartNew\"" in html
         assert "id=\"btnWizardRestore\"" in html
         assert "id=\"wizardArchivePath\"" in html
+        assert "id=\"wizardReviewMeta\"" in html
+        assert "id=\"wizardReviewPageSize\"" in html
         assert "id=\"wizardReviewList\"" in html
+        assert "id=\"btnWizardReviewPrev\"" in html
+        assert "id=\"btnWizardReviewNext\"" in html
         assert "id=\"wizardVerifyLinks\"" in html
         assert "id=\"btnWizardGoLive\"" in html
         assert "id=\"wizardGoLiveConfig\"" in html
+        assert "Developer tools (unsafe, local only)" in html
+        assert "Start here. The normal path needs no terminal" in html
         assert "id=\"whyPanel\"" in html
         assert "id=\"archiveViewer\"" in html
         assert "id=\"btnMemoryScopeEpisodes\"" in html
@@ -615,6 +621,7 @@ def test_runtime_http_server_exposes_phase6_chat_shell_cards_and_reason_catalog(
         assert "/api/wizard/restore-last-published" in js
         assert "/api/wizard/import/run" in js
         assert "/api/wizard/review/compile" in js
+        assert "/api/wizard/review/cards?" in js
         assert "/api/wizard/verify/run" in js
         assert "/api/runtime/provider/config" in js
         assert "/api/memory/episodes" in js
@@ -648,10 +655,13 @@ def test_runtime_http_server_exposes_phase6_chat_shell_cards_and_reason_catalog(
         assert ".ui-mode-bar" in css
         assert "body.simple-mode .settings-panel" in css
         assert ".wizard-shell" in css
+        assert ".wizard-review-editor" in css
+        assert ".wizard-page-pill" in css
         assert ".why-shell" in css
         assert ".archive-shell" in css
         assert ".memory-scope-tabs" in css
         assert ".ops-shell" in css
+        assert "body.simple-mode .wizard-danger-zone" in css
 
         reasons = _json_get(f"{base}/api/runtime/decision-reasons")
         assert reasons["ok"] is True

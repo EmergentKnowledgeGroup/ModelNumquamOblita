@@ -565,6 +565,11 @@ def test_runtime_http_server_exposes_phase6_chat_shell_cards_and_reason_catalog(
         assert "id=\"modeHint\"" in html
         assert "id=\"memoryKind\"" in html
         assert "id=\"memoryContradiction\"" in html
+        assert "id=\"memoryNeighborhoodDepth\"" in html
+        assert "id=\"memoryNeighborhoodShared\"" in html
+        assert "id=\"btnMemoryNeighborhoodRefresh\"" in html
+        assert "id=\"memoryNeighborhoodSvg\"" in html
+        assert "id=\"memoryNeighborhoodList\"" in html
         assert "id=\"ledgerList\"" in html
         assert "id=\"btnLedgerRefresh\"" in html
         assert "id=\"wizardShell\"" in html
@@ -613,10 +618,12 @@ def test_runtime_http_server_exposes_phase6_chat_shell_cards_and_reason_catalog(
         assert "/api/runtime/telemetry/turns" in js
         assert "memory route" in js
         assert "/api/memory/cards" in js
+        assert "/api/memory/graph/neighbors?" in js
         assert "nq.settings.uiMode" in js
         assert "simple-mode" in js
         assert "plain summary" in js
         assert "Approve proposal" in js
+        assert "Loading bounded neighborhood" in js
         assert "/api/wizard/start" in js
         assert "/api/wizard/restore-last-published" in js
         assert "/api/wizard/import/run" in js
@@ -651,6 +658,9 @@ def test_runtime_http_server_exposes_phase6_chat_shell_cards_and_reason_catalog(
         assert ".context-viewer" in css
         assert ".badge" in css
         assert ".memory-flag" in css
+        assert ".memory-graph-grid" in css
+        assert ".memory-neighborhood-panel" in css
+        assert ".memory-neighborhood-row" in css
         assert ".ledger-shell" in css
         assert ".ui-mode-bar" in css
         assert "body.simple-mode .settings-panel" in css

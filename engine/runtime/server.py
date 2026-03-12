@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import shlex
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -28,7 +29,7 @@ from uuid import uuid4
 from ..config import default_config
 from ..continuity import Consolidator, ContinuityBuilder, SharedLanguageRegistry
 from ..contracts import AtomType, CandidateAtom, RetrievalOverrideRequestContract, SourceRef
-from ..memory import AtomStatus, MutationReviewQueue, ProposalStatus
+from ..memory import AtomStatus, MutationReviewQueue, ProposalStatus, SqliteAtomStore
 from .adapters import AdapterRegistry, build_default_registry
 from .methodology import (
     build_operator_readout,
@@ -46,6 +47,7 @@ from .methodology import (
     activate_methodology_record,
 )
 from .session import RuntimeSession
+from .live_eval import load_inmemory_store_from_json
 
 UI_ROOT = Path(__file__).resolve().parent / "ui"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -57,6 +59,7 @@ EPISODES_ROOT = RUNTIME_ROOT / "episodes"
 BACKUPS_ROOT = RUNTIME_ROOT / "backups"
 DIAGNOSTICS_ROOT = RUNTIME_ROOT / "diagnostics"
 PACKAGING_ROOT = RUNTIME_ROOT / "packaging"
+LIVE_RUNTIME_LOCK_PATH = RUNTIME_ROOT / "live_runtime.lock.json"
 PACKAGING_GUIDE_PATH = REPO_ROOT / "docs" / "OPERATOR_SETUP_AND_DIAGNOSTICS.md"
 WINDOWS_PACKAGING_SCRIPT_PY = REPO_ROOT / "tools" / "build_windows_single_exe.py"
 WINDOWS_PACKAGING_SCRIPT_PS1 = REPO_ROOT / "tools" / "build_windows_single_exe.ps1"
@@ -169,20 +172,29 @@ BUILD_POLICY_PRESETS: dict[str, dict[str, Any]] = {
 }
 
 WIZARD_STAGES = [
-    "welcome_resume",
     "import",
     "build_episodes",
-    "builder_curation",
     "review",
+    "publish",
     "verify",
-    "organizer_inventory",
-    "organizer_dedupe",
-    "organizer_conflicts",
-    "organizer_package",
-    "organizer_apply",
-    "organizer_verify",
-    "go_live",
+    "activate",
+    "operate",
 ]
+WIZARD_STAGE_SEQUENCE = tuple(WIZARD_STAGES)
+WIZARD_STAGE_INDEX = {stage: index for index, stage in enumerate(WIZARD_STAGE_SEQUENCE)}
+WIZARD_VALID_INPUT_KINDS = {"ia_archive", "mno_store_sqlite", "mno_store_json"}
+WIZARD_VALID_STORE_KINDS = {"mno_store_sqlite", "mno_store_json"}
+WIZARD_VERIFY_STATUSES = {"Unknown", "Safe", "Needs attention", "Blocked"}
+WIZARD_PRIMARY_CHECK_IDS_BLOCK = {
+    "selected_input",
+    "store_validation",
+    "draft_cards",
+    "published_set",
+    "published_store_match",
+    "published_schema_match",
+    "published_build_match",
+}
+WIZARD_STAGE_BYPASS_ACTIONS = {"start", "import_validate", "import_run"}
 
 INTEGRATION_SCHEMA_VERSION = "integration.v1"
 INTEGRATION_REQUEST_ID_RE = re.compile(r"^req_[A-Za-z0-9_-]{16,64}$")
@@ -1203,7 +1215,7 @@ def _wizard_state_defaults(run_id: str) -> dict[str, Any]:
         "run_id": str(run_id),
         "created_at": now,
         "updated_at": now,
-        "current_stage": "welcome_resume",
+        "current_stage": "import",
         "completed_stages": [],
         "selected_input_archive_path": "",
         "store_path": str((REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3").resolve()),
@@ -1215,9 +1227,15 @@ def _wizard_state_defaults(run_id: str) -> dict[str, Any]:
         "published_pointers": {"store_path": "", "episodes_path": ""},
         "published_history": [],
         "review_decisions": {},
-        "verify": {"status": "unknown", "checks": []},
+        "verify": {"status": "Unknown", "checks": [], "actionable_links": [], "checked_at": "", "remap_required": False},
         "history": [],
         "artifacts": {},
+        "selected_input": _wizard_empty_input_selection(),
+        "store_validation": _wizard_empty_store_validation(),
+        "build_info": _wizard_empty_build_info(),
+        "review_state": _wizard_empty_review_state(),
+        "published_set": _wizard_empty_published_set(),
+        "activation": _wizard_empty_activation_state(),
     }
 
 
@@ -1241,6 +1259,1287 @@ def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
+
+def _wizard_empty_input_selection() -> dict[str, Any]:
+    return {
+        "path": "",
+        "kind": "unselected",
+        "label": "Nothing selected yet",
+        "is_valid": False,
+        "status": "unknown",
+        "issues": [],
+        "conversation_count": 0,
+        "message_count": 0,
+        "roles": {},
+        "store_fingerprint": "",
+        "schema_version": None,
+        "atom_count": 0,
+        "source": "none",
+    }
+
+
+def _wizard_empty_store_validation() -> dict[str, Any]:
+    return {
+        "path": "",
+        "kind": "unvalidated",
+        "is_valid": False,
+        "issues": [],
+        "store_fingerprint": "",
+        "schema_version": None,
+        "atom_count": 0,
+        "source": "none",
+    }
+
+
+def _wizard_empty_build_info() -> dict[str, Any]:
+    return {
+        "build_id": "",
+        "store_fingerprint": "",
+        "schema_version": None,
+        "draft_path": "",
+        "rejects_path": "",
+        "readout_path": "",
+        "counts": {},
+    }
+
+
+def _wizard_empty_review_state() -> dict[str, Any]:
+    return {
+        "build_id": "",
+        "store_fingerprint": "",
+        "reviewable_count": 0,
+        "pending_count": 0,
+        "complete": False,
+        "decision_count": 0,
+        "source_cards_path": "",
+    }
+
+
+def _wizard_empty_published_set() -> dict[str, Any]:
+    return {
+        "version_id": "",
+        "episodes_path": "",
+        "snapshot_path": "",
+        "store_fingerprint": "",
+        "schema_version": None,
+        "build_id": "",
+        "episode_count": 0,
+        "review_counts": {},
+        "status": "unpublished",
+        "published_at": "",
+    }
+
+
+def _wizard_empty_activation_state() -> dict[str, Any]:
+    return {
+        "direct": {
+            "status": "not_active",
+            "checked_at": "",
+            "store_fingerprint": "",
+            "episodes_path": "",
+            "runtime_url": "",
+            "issues": [],
+        },
+        "mcp": {
+            "status": "not_installed",
+            "checked_at": "",
+            "issues": [],
+            "owned_targets": {},
+        },
+        "developer_mode": False,
+        "draft_override": {},
+    }
+
+
+def _wizard_file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _wizard_store_fingerprint_from_atom_ids(
+    atom_ids: list[str],
+    *,
+    prefix: str,
+    schema_version: int | None,
+    total_count: int | None = None,
+) -> str:
+    clean_ids = [str(item).strip() for item in atom_ids if str(item).strip()]
+    clean_ids.sort()
+    sample = clean_ids[:64]
+    digest = hashlib.sha256("|".join(sample).encode("utf-8")).hexdigest()[:16] if sample else "none"
+    schema_part = str(schema_version) if schema_version is not None else "na"
+    count = int(total_count) if total_count is not None else len(clean_ids)
+    return f"{prefix}:v{schema_part}:atoms:{count}:sample:{digest}"
+
+
+def _wizard_validate_sqlite_store(path: Path) -> dict[str, Any]:
+    issues: list[str] = []
+    if not path.exists():
+        return {"path": str(path), "kind": "invalid_corrupted", "is_valid": False, "issues": ["file not found"]}
+    required_tables = {"atoms", "provenance_events", "conflicts", "recognition_events", "shared_language_keys", "shared_language_links"}
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        quick_check = conn.execute("PRAGMA quick_check").fetchone()
+        if not quick_check or str(quick_check[0]).strip().lower() != "ok":
+            issues.append("sqlite quick_check failed")
+        version_row = conn.execute("PRAGMA user_version").fetchone()
+        schema_version = int(version_row[0]) if version_row else 0
+        table_rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        tables = {str(row[0]).strip() for row in table_rows}
+        missing = sorted(required_tables - tables)
+        if missing:
+            return {
+                "path": str(path),
+                "kind": "unsupported_sqlite",
+                "is_valid": False,
+                "issues": [f"missing MNO tables: {', '.join(missing)}"],
+                "schema_version": schema_version,
+            }
+        atom_rows = conn.execute("SELECT atom_id FROM atoms ORDER BY atom_id LIMIT 64").fetchall()
+        count_row = conn.execute("SELECT COUNT(*) FROM atoms").fetchone()
+        atom_count = int(count_row[0]) if count_row else 0
+        atom_ids = [str(row[0]).strip() for row in atom_rows if str(row[0]).strip()]
+        fingerprint = _wizard_store_fingerprint_from_atom_ids(atom_ids, prefix="sqlite_store", schema_version=schema_version, total_count=atom_count)
+        return {
+            "path": str(path),
+            "kind": "mno_store_sqlite",
+            "is_valid": not issues and schema_version >= 2,
+            "issues": issues if issues else ([] if schema_version >= 2 else [f"unsupported schema version: {schema_version}"]),
+            "schema_version": schema_version,
+            "atom_count": atom_count,
+            "store_fingerprint": fingerprint,
+            "source": "existing_store",
+        }
+    finally:
+        conn.close()
+
+
+def _wizard_validate_memory_json(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    atoms_raw = payload.get("atoms")
+    if not isinstance(atoms_raw, list):
+        atoms_raw = payload.get("memory_atoms")
+    if not isinstance(atoms_raw, list):
+        atoms_raw = payload.get("items")
+    if not isinstance(atoms_raw, list):
+        return {
+            "path": str(path),
+            "kind": "unsupported_json",
+            "is_valid": False,
+            "issues": ["json is not an MNO memory payload"],
+        }
+    atom_ids: list[str] = []
+    for row in atoms_raw:
+        if not isinstance(row, dict):
+            continue
+        atom_id = str(row.get("atom_id") or row.get("id") or "").strip()
+        if atom_id:
+            atom_ids.append(atom_id)
+    fingerprint = _wizard_store_fingerprint_from_atom_ids(atom_ids, prefix="json_store", schema_version=1)
+    return {
+        "path": str(path),
+        "kind": "mno_store_json",
+        "is_valid": True,
+        "issues": [],
+        "schema_version": 1,
+        "atom_count": len(atom_ids) if atom_ids else len(atoms_raw),
+        "store_fingerprint": fingerprint,
+        "source": "existing_store",
+    }
+
+
+def _wizard_validate_archive_json(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    conversations = payload.get("conversations")
+    if not isinstance(conversations, list):
+        return {
+            "path": str(path),
+            "kind": "unsupported_json",
+            "is_valid": False,
+            "issues": ["db.json missing conversations[] list"],
+        }
+    conversation_count = len(conversations)
+    message_count = 0
+    roles: dict[str, int] = {}
+    invalid_messages = 0
+    for convo in conversations:
+        messages = convo.get("messages") if isinstance(convo, dict) else []
+        if not isinstance(messages, list):
+            continue
+        for message in messages:
+            if not isinstance(message, dict):
+                invalid_messages += 1
+                continue
+            role = str(message.get("role") or "").strip().lower()
+            text = str(message.get("text") or message.get("content") or "").strip()
+            if role:
+                roles[role] = int(roles.get(role) or 0) + 1
+            if not role or not text:
+                invalid_messages += 1
+            message_count += 1
+    issues: list[str] = []
+    if conversation_count == 0:
+        issues.append("no conversations found")
+    if message_count == 0:
+        issues.append("no messages found")
+    if invalid_messages > 0:
+        issues.append(f"{invalid_messages} messages are missing role/text")
+    return {
+        "path": str(path),
+        "kind": "ia_archive",
+        "is_valid": True,
+        "status": "safe" if not issues else "needs_attention",
+        "issues": issues,
+        "conversation_count": conversation_count,
+        "message_count": message_count,
+        "roles": roles,
+        "source": "archive",
+    }
+
+
+def _wizard_classify_input_path(path: Path) -> dict[str, Any]:
+    resolved = path.expanduser().resolve()
+    if not resolved.exists():
+        return {"path": str(resolved), "kind": "invalid_corrupted", "is_valid": False, "issues": ["path not found"]}
+    if not resolved.is_file():
+        return {"path": str(resolved), "kind": "invalid_corrupted", "is_valid": False, "issues": ["path is not a file"]}
+    suffix = resolved.suffix.lower()
+    if suffix in {".sqlite3", ".sqlite", ".db"}:
+        return _wizard_validate_sqlite_store(resolved)
+    if suffix != ".json":
+        return {"path": str(resolved), "kind": "invalid_corrupted", "is_valid": False, "issues": [f"unsupported file suffix: {suffix or '(none)'}"]}
+    try:
+        payload = _load_json_file(resolved)
+    except Exception as exc:
+        return {"path": str(resolved), "kind": "invalid_corrupted", "is_valid": False, "issues": [f"invalid json: {exc}"]}
+    if any(isinstance(payload.get(key), list) for key in ("atoms", "memory_atoms", "items")):
+        return _wizard_validate_memory_json(resolved, payload)
+    if isinstance(payload.get("conversations"), list):
+        return _wizard_validate_archive_json(resolved, payload)
+    return {"path": str(resolved), "kind": "unsupported_json", "is_valid": False, "issues": ["json is neither IA archive nor MNO memory store"]}
+
+
+def _wizard_bind_input_to_state(state: dict[str, Any], classification: Mapping[str, Any]) -> None:
+    selected = _wizard_empty_input_selection()
+    selected.update(dict(classification))
+    state["selected_input"] = selected
+    if str(selected.get("kind") or "") in WIZARD_VALID_STORE_KINDS and bool(selected.get("is_valid")):
+        store_validation = _wizard_empty_store_validation()
+        store_validation.update(dict(classification))
+        state["store_validation"] = store_validation
+        state["store_path"] = str(selected.get("path") or state.get("store_path") or "")
+    elif str(selected.get("kind") or "") == "ia_archive":
+        state["selected_input_archive_path"] = str(selected.get("path") or "")
+
+
+def _wizard_review_counts(source_payload: dict[str, Any], review_decisions: Mapping[str, Any]) -> dict[str, int]:
+    total = 0
+    explicit = 0
+    pending = 0
+    for row in list(source_payload.get("cards") or []):
+        if not isinstance(row, dict):
+            continue
+        episode_id = str(row.get("episode_id") or "").strip()
+        if not episode_id:
+            continue
+        total += 1
+        decision_payload = review_decisions.get(episode_id)
+        decision = str((decision_payload or {}).get("decision") or "pending").strip().lower()
+        if decision in {"approved", "edited", "rejected"}:
+            explicit += 1
+        else:
+            pending += 1
+    return {"reviewable_count": total, "decision_count": explicit, "pending_count": pending}
+
+
+def _wizard_stage_state_payload(state: dict[str, Any]) -> dict[str, Any]:
+    current = str(state.get("current_stage") or "import").strip() or "import"
+    completed = {str(item).strip() for item in list(state.get("completed_stages") or []) if str(item).strip()}
+    rows = []
+    for stage in WIZARD_STAGE_SEQUENCE:
+        if stage == current:
+            status = "current"
+        elif stage in completed:
+            status = "done"
+        else:
+            status = "pending"
+        rows.append({"stage": stage, "status": status})
+    return {
+        "current_stage": current,
+        "completed_stages": sorted(completed, key=lambda item: WIZARD_STAGE_INDEX.get(item, 10**6)),
+        "sequence": list(WIZARD_STAGE_SEQUENCE),
+        "items": rows,
+    }
+
+
+def _wizard_transition(state: dict[str, Any], stage: str, note: str, *, completed: bool = False) -> None:
+    clean_stage = str(stage or "").strip()
+    if clean_stage not in WIZARD_STAGE_SEQUENCE:
+        raise ValueError(f"unsupported wizard stage: {clean_stage}")
+    state["current_stage"] = clean_stage
+    completed_stages = [str(item).strip() for item in list(state.get("completed_stages") or []) if str(item).strip() in WIZARD_STAGE_SEQUENCE]
+    if completed and clean_stage not in completed_stages:
+        completed_stages.append(clean_stage)
+    completed_stages.sort(key=lambda item: WIZARD_STAGE_INDEX.get(item, 10**6))
+    state["completed_stages"] = completed_stages
+    _wizard_history(state, stage=clean_stage, note=note, status="ok")
+
+
+def _wizard_reset_downstream_state(state: dict[str, Any], *, from_stage: str) -> None:
+    stage = str(from_stage or "").strip()
+    if stage == "import":
+        state["last_built_episode_draft_path"] = ""
+        state["last_built_episode_rejects_path"] = ""
+        state["last_built_episode_readout_path"] = ""
+        state["last_compiled_reviewed_path"] = ""
+        state["review_decisions"] = {}
+        state["build_info"] = _wizard_empty_build_info()
+        state["review_state"] = _wizard_empty_review_state()
+        state["published_set"] = _wizard_empty_published_set()
+        state["verify"] = {"status": "Unknown", "checks": [], "actionable_links": [], "checked_at": "", "remap_required": False}
+        state["activation"] = _wizard_empty_activation_state()
+        state["published_pointers"] = {"store_path": "", "episodes_path": ""}
+    elif stage == "build_episodes":
+        state["last_compiled_reviewed_path"] = ""
+        state["review_decisions"] = {}
+        state["review_state"] = _wizard_empty_review_state()
+        state["published_set"] = _wizard_empty_published_set()
+        state["verify"] = {"status": "Unknown", "checks": [], "actionable_links": [], "checked_at": "", "remap_required": False}
+        state["activation"] = _wizard_empty_activation_state()
+        published = dict(state.get("published_pointers") or {})
+        published["episodes_path"] = ""
+        state["published_pointers"] = published
+    elif stage == "review":
+        state["published_set"] = _wizard_empty_published_set()
+        state["verify"] = {"status": "Unknown", "checks": [], "actionable_links": [], "checked_at": "", "remap_required": False}
+        state["activation"] = _wizard_empty_activation_state()
+        published = dict(state.get("published_pointers") or {})
+        published["episodes_path"] = ""
+        state["published_pointers"] = published
+    elif stage in {"publish", "verify"}:
+        state["activation"] = _wizard_empty_activation_state()
+
+
+def _wizard_clear_completed_from(state: dict[str, Any], *, from_stage: str) -> None:
+    clean_stage = str(from_stage or "").strip()
+    from_index = WIZARD_STAGE_INDEX.get(clean_stage, 0)
+    completed = [
+        str(item).strip()
+        for item in list(state.get("completed_stages") or [])
+        if str(item).strip() in WIZARD_STAGE_SEQUENCE and WIZARD_STAGE_INDEX[str(item).strip()] < from_index
+    ]
+    completed.sort(key=lambda item: WIZARD_STAGE_INDEX.get(item, 10**6))
+    state["completed_stages"] = completed
+    current_stage = str(state.get("current_stage") or "import").strip() or "import"
+    if WIZARD_STAGE_INDEX.get(current_stage, 10**6) >= from_index:
+        state["current_stage"] = clean_stage if clean_stage in WIZARD_STAGE_SEQUENCE else "import"
+
+
+def _wizard_reset_to_stage(state: dict[str, Any], *, stage: str, note: str, history_status: str = "warn") -> None:
+    clean_stage = str(stage or "").strip()
+    if clean_stage not in WIZARD_STAGE_SEQUENCE:
+        raise ValueError(f"unsupported wizard stage: {clean_stage}")
+    _wizard_clear_completed_from(state, from_stage=clean_stage)
+    state["current_stage"] = clean_stage
+    _wizard_history(state, stage=clean_stage, note=note, status=history_status)
+
+
+def _wizard_is_stage_complete(state: Mapping[str, Any], stage: str) -> bool:
+    return str(stage or "").strip() in {str(item).strip() for item in list(state.get("completed_stages") or [])}
+
+
+def _wizard_require(state: Mapping[str, Any], *, action: str) -> None:
+    if action in WIZARD_STAGE_BYPASS_ACTIONS:
+        return
+    store_validation = dict(state.get("store_validation") or {})
+    build_info = dict(state.get("build_info") or {})
+    review_state = dict(state.get("review_state") or {})
+    published_set = dict(state.get("published_set") or {})
+    verify = dict(state.get("verify") or {})
+    if action == "build_run":
+        if not bool(store_validation.get("is_valid")):
+            raise ValueError("Select or import a valid MNO memory store before building episodes.")
+        return
+    if action in {"review_cards", "review_update"}:
+        if not str(build_info.get("draft_path") or "").strip():
+            raise ValueError("Build episode draft cards before review.")
+        return
+    if action in {"publish_run", "review_compile"}:
+        if not str(build_info.get("draft_path") or "").strip():
+            raise ValueError("Build episode draft cards before publishing.")
+        if int(review_state.get("reviewable_count") or 0) <= 0:
+            raise ValueError("Review draft cards before publishing.")
+        if int(review_state.get("pending_count") or 0) > 0:
+            raise ValueError("Every review card must be approved, edited, or rejected before publish.")
+        return
+    if action == "verify_run":
+        if not str(published_set.get("episodes_path") or "").strip():
+            raise ValueError("Publish a reviewed episode set before verification.")
+        return
+    if action in {"activate_status", "activate_direct", "activate_mcp", "mcp_export"}:
+        if str(verify.get("status") or "Unknown") != "Safe":
+            raise ValueError("Verification must be Safe before normal activation.")
+        if not str(published_set.get("episodes_path") or "").strip():
+            raise ValueError("A published reviewed set is required for activation.")
+        if not bool(store_validation.get("is_valid")):
+            raise ValueError("A valid MNO memory store is required for activation.")
+
+
+def _wizard_publish_version_id(*, build_id: str, store_fingerprint: str, published_path: Path) -> str:
+    token = f"{build_id}|{store_fingerprint}|{published_path.name}|{int(published_path.stat().st_mtime_ns)}"
+    return f"published_{hashlib.sha256(token.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _wizard_sync_review_state(
+    state: dict[str, Any],
+    *,
+    source_payload: dict[str, Any] | None = None,
+    source_cards_path: Path | None = None,
+) -> dict[str, Any]:
+    payload = source_payload
+    resolved_path = source_cards_path
+    if payload is None:
+        draft_path_raw = str((state.get("build_info") or {}).get("draft_path") or "").strip()
+        if draft_path_raw:
+            resolved_path = Path(draft_path_raw).expanduser().resolve()
+            if resolved_path.exists():
+                payload = _load_episode_cards_payload(resolved_path)
+    review_decisions = state.get("review_decisions")
+    if not isinstance(review_decisions, dict):
+        review_decisions = {}
+        state["review_decisions"] = review_decisions
+    review_state = _wizard_empty_review_state()
+    build_info = dict(state.get("build_info") or {})
+    review_state["build_id"] = str(build_info.get("build_id") or "")
+    review_state["store_fingerprint"] = str(build_info.get("store_fingerprint") or "")
+    if payload is not None:
+        counts = _wizard_review_counts(payload, review_decisions)
+        review_state.update(counts)
+        review_state["complete"] = counts["reviewable_count"] > 0 and counts["pending_count"] == 0
+    if resolved_path is not None:
+        review_state["source_cards_path"] = str(resolved_path)
+    state["review_state"] = review_state
+    return review_state
+
+
+def _wizard_verify_payload(server: "RuntimeHTTPServer", state: dict[str, Any]) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    actionable_links: list[dict[str, Any]] = []
+    run_id_value = str(state.get("run_id") or "").strip()
+    selected_input = dict(state.get("selected_input") or {})
+    store_validation = dict(state.get("store_validation") or {})
+    build_info = dict(state.get("build_info") or {})
+    published_set = dict(state.get("published_set") or {})
+
+    def _append_check(
+        check_id: str,
+        status: str,
+        detail: str,
+        *,
+        path: str = "",
+        api_path: str = "",
+        link_label: str = "",
+    ) -> None:
+        payload: dict[str, Any] = {"id": check_id, "status": status, "detail": detail}
+        if path:
+            payload["path"] = path
+        if api_path:
+            payload["api_path"] = api_path
+        checks.append(payload)
+        if api_path:
+            actionable_links.append(
+                {
+                    "id": check_id,
+                    "label": link_label or detail,
+                    "api_path": api_path,
+                    "path": path,
+                }
+            )
+
+    input_kind = str(selected_input.get("kind") or "").strip()
+    selected_path = str(selected_input.get("path") or "").strip()
+    if input_kind in WIZARD_VALID_INPUT_KINDS and bool(selected_input.get("is_valid")):
+        _append_check("selected_input", "ok", f"Selected input: {input_kind}", path=selected_path)
+    else:
+        detail = ", ".join(str(item) for item in list(selected_input.get("issues") or []) if str(item).strip()) or "Select a valid archive or MNO store."
+        _append_check("selected_input", "fail", detail, path=selected_path)
+
+    store_path = str(store_validation.get("path") or state.get("store_path") or "").strip()
+    store_kind = str(store_validation.get("kind") or "").strip()
+    if store_kind in WIZARD_VALID_STORE_KINDS and bool(store_validation.get("is_valid")):
+        _append_check("store_validation", "ok", f"Runtime store ready: {store_kind}", path=store_path)
+    else:
+        detail = ", ".join(str(item) for item in list(store_validation.get("issues") or []) if str(item).strip()) or "Import or select a valid MNO store."
+        _append_check("store_validation", "fail", detail, path=store_path)
+
+    draft_path = str(build_info.get("draft_path") or state.get("last_built_episode_draft_path") or "").strip()
+    if draft_path and Path(draft_path).expanduser().resolve().exists():
+        _append_check(
+            "draft_cards",
+            "ok",
+            "Draft episode cards are available.",
+            path=draft_path,
+            api_path=f"/api/wizard/review/cards?run_id={quote(run_id_value)}",
+            link_label="Open draft review list",
+        )
+    else:
+        _append_check("draft_cards", "fail", "Build episode draft cards before publish.", path=draft_path)
+
+    published_path = str(published_set.get("episodes_path") or state.get("last_compiled_reviewed_path") or "").strip()
+    published_exists = bool(published_path) and Path(published_path).expanduser().resolve().exists()
+    if published_exists:
+        _append_check(
+            "published_set",
+            "ok",
+            "Published reviewed set is available.",
+            path=published_path,
+            api_path=f"/api/memory/episodes?run_id={quote(run_id_value)}&status=approved",
+            link_label="Open published reviewed episodes",
+        )
+    else:
+        _append_check("published_set", "fail", "Publish a reviewed set before verification.", path=published_path)
+
+    published_store_match = (
+        published_exists
+        and str(published_set.get("store_fingerprint") or "").strip()
+        and str(published_set.get("store_fingerprint") or "").strip() == str(store_validation.get("store_fingerprint") or "").strip()
+    )
+    _append_check(
+        "published_store_match",
+        "ok" if published_store_match else "fail",
+        "Published set matches the selected store." if published_store_match else "Published set does not match the selected store.",
+    )
+
+    published_schema_match = (
+        published_exists
+        and published_set.get("schema_version") is not None
+        and store_validation.get("schema_version") is not None
+        and int(published_set.get("schema_version")) == int(store_validation.get("schema_version"))
+    )
+    _append_check(
+        "published_schema_match",
+        "ok" if published_schema_match else "fail",
+        "Published set matches the current schema." if published_schema_match else "Published set schema does not match the selected store.",
+    )
+
+    published_build_match = (
+        published_exists
+        and str(published_set.get("build_id") or "").strip()
+        and str(published_set.get("build_id") or "").strip() == str(build_info.get("build_id") or "").strip()
+    )
+    _append_check(
+        "published_build_match",
+        "ok" if published_build_match else "fail",
+        "Published set matches the latest reviewed build." if published_build_match else "Published set is stale for the latest build.",
+    )
+
+    review_state = dict(state.get("review_state") or {})
+    if int(review_state.get("pending_count") or 0) > 0:
+        _append_check(
+            "review_pending",
+            "warn",
+            f"{int(review_state.get('pending_count') or 0)} draft review decisions are still pending.",
+            api_path=f"/api/wizard/review/cards?run_id={quote(run_id_value)}&status=pending",
+            link_label="Open pending review decisions",
+        )
+
+    if bool(selected_input.get("issues")):
+        _append_check(
+            "selected_input_issues",
+            "warn",
+            "; ".join(str(item) for item in list(selected_input.get("issues") or []) if str(item).strip()),
+            path=selected_path,
+        )
+
+    remap_required = False
+    for check in checks:
+        if str(check.get("id") or "") in {"selected_input", "store_validation", "draft_cards", "published_set"}:
+            path = str(check.get("path") or "").strip()
+            if path and not Path(path).expanduser().resolve().exists():
+                remap_required = True
+                break
+
+    blocked = any(
+        str(item.get("status") or "") == "fail" and str(item.get("id") or "") in WIZARD_PRIMARY_CHECK_IDS_BLOCK
+        for item in checks
+    )
+    needs_attention = any(str(item.get("status") or "") == "warn" for item in checks)
+    status = "Blocked" if blocked else ("Needs attention" if needs_attention else "Safe")
+    if remap_required and status == "Needs attention":
+        status = "Blocked"
+    checked_at = _utc_iso()
+
+    if published_exists:
+        try:
+            payload = _load_json_file(Path(published_path))
+            cards = [row for row in list(payload.get("cards") or []) if isinstance(row, dict)]
+            count = len(cards)
+            _append_check(
+                "published_count",
+                "ok" if count > 0 else "warn",
+                f"{count} published reviewed episode cards.",
+                path=published_path,
+            )
+        except Exception as exc:
+            _append_check("published_parse", "fail", f"Published set could not be read: {exc}", path=published_path)
+            status = "Blocked"
+
+    return {
+        "status": status,
+        "checks": checks,
+        "actionable_links": actionable_links,
+        "checked_at": checked_at,
+        "remap_required": remap_required,
+    }
+
+
+def _wizard_current_runtime_binding(server: "RuntimeHTTPServer") -> dict[str, Any]:
+    binding = dict(getattr(server, "active_runtime_binding", {}) or {})
+    return {
+        "store_path": str(binding.get("store_path") or ""),
+        "store_fingerprint": str(binding.get("store_fingerprint") or ""),
+        "episodes_path": str(binding.get("episodes_path") or ""),
+        "checked_at": str(binding.get("checked_at") or ""),
+        "backend": str(binding.get("backend") or ""),
+        "artifact_mode": str(binding.get("artifact_mode") or ""),
+        "build_id": str(binding.get("build_id") or ""),
+    }
+
+
+def _wizard_open_store(path: Path) -> tuple[Any, str, bool]:
+    suffix = path.suffix.lower()
+    if suffix in {".sqlite3", ".sqlite", ".db"}:
+        return SqliteAtomStore(path), "sqlite", True
+    if suffix == ".json":
+        return load_inmemory_store_from_json(path), "json", False
+    raise ValueError(f"unsupported store path: {path}")
+
+
+def _wizard_runtime_store_fingerprint(runtime: RuntimeSession) -> str:
+    store = runtime.retriever.store
+    try:
+        atoms = list(store.list_atoms())
+    except Exception:
+        return ""
+    atom_ids = [str(getattr(atom, "atom_id", "") or "").strip() for atom in atoms if str(getattr(atom, "atom_id", "") or "").strip()]
+    return _wizard_store_fingerprint_from_atom_ids(atom_ids, prefix="runtime_store", schema_version=1, total_count=len(atom_ids))
+
+
+def _wizard_activate_direct(
+    server: "RuntimeHTTPServer",
+    *,
+    store_path: Path,
+    episodes_path: Path,
+    store_validation: Mapping[str, Any],
+    artifact_mode: str,
+    build_id: str = "",
+) -> dict[str, Any]:
+    existing_lock = _wizard_read_runtime_lock()
+    if existing_lock and not _wizard_runtime_lock_matches_server(server, existing_lock):
+        owner_pid = int(existing_lock.get("pid") or 0)
+        owner_host = str(existing_lock.get("host") or "").strip()
+        owner_port = int(existing_lock.get("port") or 0)
+        if _wizard_pid_alive(owner_pid):
+            raise RuntimeError(
+                f"Direct runtime is already owned by pid {owner_pid} at {owner_host or 'unknown-host'}:{owner_port or 0}. "
+                "Stop the other runtime or use stale-lock cleanup if that owner is gone."
+            )
+        _wizard_clear_runtime_lock(only_if_stale=True)
+    runtime = server.runtime
+    existing_store = runtime.retriever.store
+    new_store, backend_name, close_store = _wizard_open_store(store_path)
+    try:
+        runtime.retriever.store = new_store
+        if server.review_queue is not None:
+            server.review_queue.store = new_store
+        _reload_runtime_episode_index(runtime, episodes_path)
+        snapshot_info = _rebuild_snapshot(runtime)
+        binding = {
+            "store_path": str(store_path.resolve()),
+            "store_fingerprint": str(store_validation.get("store_fingerprint") or ""),
+            "episodes_path": str(episodes_path.resolve()),
+            "checked_at": _utc_iso(),
+            "backend": backend_name,
+            "artifact_mode": str(artifact_mode or ""),
+            "build_id": str(build_id or ""),
+        }
+        lock_payload = _wizard_write_runtime_lock(server, binding=binding)
+        server.active_runtime_binding = binding
+        server.active_runtime_lock = dict(lock_payload)
+        host, port = server.server_address
+        return {
+            "status": "running",
+            "runtime_url": f"http://{host}:{port}/",
+            "binding": binding,
+            "lock": {
+                "status": "owned",
+                "checked_at": str(lock_payload.get("checked_at") or ""),
+                "cleanup_allowed": False,
+                "owner_pid": int(lock_payload.get("pid") or 0),
+                "owner_host": str(lock_payload.get("host") or ""),
+                "owner_port": int(lock_payload.get("port") or 0),
+            },
+            "snapshot": snapshot_info,
+        }
+    except Exception:
+        if close_store:
+            closer = getattr(new_store, "close", None)
+            if callable(closer):
+                closer()
+        runtime.retriever.store = existing_store
+        if server.review_queue is not None:
+            server.review_queue.store = existing_store
+        raise
+    else:
+        if close_store:
+            old_closer = getattr(existing_store, "close", None)
+            if callable(old_closer) and existing_store is not new_store:
+                try:
+                    old_closer()
+                except Exception:
+                    pass
+
+
+def _wizard_connector_panel():
+    from tools.run_mcp_connector_gui import ConnectorControlPanel
+
+    return ConnectorControlPanel(repo_root=REPO_ROOT)
+
+
+def _wizard_mcp_payload(state: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str, Any]:
+    from tools.mcp_connector_common import DEFAULT_SERVER_NAME
+
+    store_path = str((state.get("store_validation") or {}).get("path") or state.get("store_path") or "").strip()
+    episodes_path = str((state.get("published_set") or {}).get("episodes_path") or state.get("last_compiled_reviewed_path") or "").strip()
+    return {
+        "server_name": str(payload.get("server_name") or DEFAULT_SERVER_NAME).strip() or DEFAULT_SERVER_NAME,
+        "default_role": str(payload.get("default_role") or "viewer").strip() or "viewer",
+        "compat_mode": str(payload.get("compat_mode") or "strict").strip() or "strict",
+        "claude_code_scope": str(payload.get("claude_code_scope") or "local").strip() or "local",
+        "memories_path": store_path,
+        "episodes_path": episodes_path,
+        "mutations_enabled": bool(payload.get("mutations_enabled")),
+        "wsl_distro": str(payload.get("wsl_distro") or "").strip(),
+    }
+
+
+def _wizard_mcp_targets_payload(panel: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    preview = panel.build_preview(payload)
+    return {
+        "claude_code": {
+            "entry": dict(preview.get("claude_code_entry") or {}),
+            "config_path": str(preview.get("windows_claude_code_config") or ""),
+            "install_context": str(preview.get("claude_code_install_context") or ""),
+            "display": str(preview.get("claude_code_display") or ""),
+        },
+        "claude_desktop": {
+            "entry": dict(preview.get("windows_entry") or {}),
+            "config_path": str(preview.get("windows_claude_desktop_config") or ""),
+            "install_context": "desktop_config",
+            "display": "Claude Desktop",
+        },
+    }
+
+
+def _wizard_mcp_entry_looks_app_owned(entry: Mapping[str, Any]) -> bool:
+    command = str(entry.get("command") or "").strip().lower()
+    args = [str(item).strip().lower() for item in list(entry.get("args") or []) if str(item).strip()]
+    if "run_claude_live_mcp.py" in command:
+        return True
+    return any("run_claude_live_mcp.py" in item for item in args)
+
+
+def _wizard_mcp_existing_entry(target: str, payload: dict[str, Any], expected_entry: Mapping[str, Any]) -> dict[str, Any]:
+    from tools.mcp_connector_common import DEFAULT_SERVER_NAME, load_json_object
+
+    config_path_raw = str(payload.get("config_path") or "").strip()
+    config_path = Path(config_path_raw).expanduser().resolve() if config_path_raw else None
+    existing_entry: dict[str, Any] | None = None
+    if config_path is not None and config_path.exists():
+        try:
+            config_payload = load_json_object(config_path)
+            servers = dict(config_payload.get("mcpServers") or {}) if isinstance(config_payload.get("mcpServers"), Mapping) else {}
+            raw_entry = servers.get(str(payload.get("server_name") or DEFAULT_SERVER_NAME))
+            if isinstance(raw_entry, Mapping):
+                existing_entry = dict(raw_entry)
+        except Exception:
+            existing_entry = None
+    return {
+        "target": target,
+        "config_path": str(config_path) if config_path is not None else "",
+        "existing_entry": existing_entry or {},
+        "expected_entry": dict(expected_entry),
+    }
+
+
+def _wizard_mcp_status_for_target(state: Mapping[str, Any], *, target: str, existing: Mapping[str, Any], expected_entry: Mapping[str, Any]) -> dict[str, Any]:
+    existing_entry = dict(existing.get("existing_entry") or {})
+    config_path = str(existing.get("config_path") or "")
+    activation = dict(state.get("activation") or {})
+    mcp_state = dict(activation.get("mcp") or {})
+    owned_targets = dict(mcp_state.get("owned_targets") or {})
+    adopted = bool(owned_targets.get(target))
+    if not existing_entry:
+        return {
+            "target": target,
+            "config_path": config_path,
+            "ownership": "absent",
+            "status": "not_installed",
+            "issues": [],
+        }
+    if existing_entry == dict(expected_entry):
+        return {
+            "target": target,
+            "config_path": config_path,
+            "ownership": "app_owned",
+            "status": "installed",
+            "issues": [],
+        }
+    if adopted:
+        return {
+            "target": target,
+            "config_path": config_path,
+            "ownership": "adopted",
+            "status": "installed",
+            "issues": ["Using an adopted MCP entry."],
+        }
+    if _wizard_mcp_entry_looks_app_owned(existing_entry):
+        return {
+            "target": target,
+            "config_path": config_path,
+            "ownership": "app_owned",
+            "status": "stale_config",
+            "issues": ["Existing app-owned MCP entry does not match the selected store or reviewed set."],
+        }
+    return {
+        "target": target,
+        "config_path": config_path,
+        "ownership": "unknown",
+        "status": "installed",
+        "issues": ["Existing MCP entry was not created by this app."],
+    }
+
+
+def _wizard_mcp_handshake(entry: Mapping[str, Any]) -> dict[str, Any]:
+    command = str(entry.get("command") or "").strip()
+    args = [str(item) for item in list(entry.get("args") or [])]
+    if not command:
+        raise ValueError("MCP entry is missing command")
+    from engine.mcp.server import _read_message as _mcp_read_message
+    from engine.mcp.server import _write_message as _mcp_write_message
+
+    process = subprocess.Popen(
+        [command, *args],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        if process.stdin is None or process.stdout is None:
+            raise RuntimeError("MCP process stdio pipes are unavailable")
+        _mcp_write_message(
+            process.stdin,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"clientInfo": {"name": "mno-caveman-ui", "version": "1"}},
+            },
+        )
+        initialize_response = _mcp_read_message(process.stdout)
+        if not isinstance(initialize_response, dict) or initialize_response.get("error"):
+            raise RuntimeError(f"initialize failed: {initialize_response}")
+        _mcp_write_message(
+            process.stdin,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "ops.health", "arguments": {}},
+            },
+        )
+        health_response = _mcp_read_message(process.stdout)
+        if not isinstance(health_response, dict) or health_response.get("error"):
+            raise RuntimeError(f"ops.health failed: {health_response}")
+        result = dict(health_response.get("result") or {})
+        return {
+            "ok": True,
+            "initialize": initialize_response.get("result"),
+            "health": dict(result.get("structuredContent") or {}),
+        }
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
+def _wizard_activation_status(server: "RuntimeHTTPServer", state: dict[str, Any]) -> dict[str, Any]:
+    binding = _wizard_current_runtime_binding(server)
+    verify = dict(state.get("verify") or {})
+    published_set = dict(state.get("published_set") or {})
+    store_validation = dict(state.get("store_validation") or {})
+    build_info = dict(state.get("build_info") or {})
+    current_activation = dict(state.get("activation") or _wizard_empty_activation_state())
+    draft_override = dict(current_activation.get("draft_override") or {})
+    direct_issues: list[str] = []
+    direct_status = "not_active"
+    lock_summary = _wizard_runtime_lock_summary(server)
+    if bool(draft_override.get("active")):
+        if str(binding.get("artifact_mode") or "") != "draft":
+            direct_status = "stale_config"
+            direct_issues.append("Draft override audit exists, but the runtime is not serving the draft artifact anymore.")
+        elif binding.get("store_fingerprint") != str(store_validation.get("store_fingerprint") or ""):
+            direct_status = "stale_config"
+            direct_issues.append("Draft runtime store does not match the selected store.")
+        elif binding.get("episodes_path") != str(build_info.get("draft_path") or ""):
+            direct_status = "stale_config"
+            direct_issues.append("Draft runtime artifact does not match the current draft build.")
+        else:
+            lock_status = str(lock_summary.get("status") or "")
+            if lock_status == "missing":
+                direct_status = "needs_attention"
+                direct_issues.append("Draft runtime lock is missing. Repair the runtime claim before treating it as active.")
+            elif lock_status == "stale":
+                direct_status = "needs_attention"
+                direct_issues.append("Draft runtime lock is stale. Run cleanup to repair ownership.")
+            elif lock_status == "foreign_live":
+                direct_status = "needs_attention"
+                direct_issues.append("Another live runtime currently owns the direct-runtime lock.")
+            elif lock_status != "owned":
+                direct_status = "needs_attention"
+                direct_issues.append("Draft runtime ownership could not be verified.")
+            else:
+                health = _runtime_health(server)
+                if str(health.get("status") or "") == "needs_attention":
+                    direct_status = "needs_attention"
+                    direct_issues.append("Runtime health is degraded.")
+                else:
+                    direct_status = "draft_active"
+                    direct_issues.append("Unreviewed draft is active. This is unsafe local developer mode, not the normal caveman path.")
+    elif str(verify.get("status") or "") != "Safe":
+        direct_issues.append("Verification must be Safe before normal activation.")
+    elif binding.get("store_fingerprint") != str(store_validation.get("store_fingerprint") or ""):
+        direct_status = "stale_config"
+        direct_issues.append("Runtime store does not match the selected store.")
+    elif binding.get("episodes_path") != str(published_set.get("episodes_path") or ""):
+        direct_status = "stale_config"
+        direct_issues.append("Runtime reviewed set does not match the published set.")
+    else:
+        lock_status = str(lock_summary.get("status") or "")
+        if lock_status == "missing":
+            direct_status = "needs_attention"
+            direct_issues.append("Direct runtime lock is missing. Repair the runtime claim before treating it as active.")
+        elif lock_status == "stale":
+            direct_status = "needs_attention"
+            direct_issues.append("Direct runtime lock is stale. Run cleanup to repair ownership.")
+        elif lock_status == "foreign_live":
+            direct_status = "needs_attention"
+            direct_issues.append("Another live runtime currently owns the direct-runtime lock.")
+        elif lock_status != "owned":
+            direct_status = "needs_attention"
+            direct_issues.append("Direct runtime ownership could not be verified.")
+        else:
+            health = _runtime_health(server)
+            if str(health.get("status") or "") == "needs_attention":
+                direct_status = "needs_attention"
+                direct_issues.append("Runtime health is degraded.")
+            elif binding.get("episodes_path"):
+                direct_status = "running"
+    activation = dict(state.get("activation") or _wizard_empty_activation_state())
+    activation["direct"] = {
+        "status": direct_status,
+        "checked_at": _utc_iso(),
+        "store_fingerprint": str(binding.get("store_fingerprint") or ""),
+        "episodes_path": str(binding.get("episodes_path") or ""),
+        "runtime_url": f"http://{server.server_address[0]}:{server.server_address[1]}/" if binding.get("episodes_path") else "",
+        "issues": direct_issues,
+        "lock": lock_summary,
+        "artifact_mode": str(binding.get("artifact_mode") or ""),
+        "build_id": str(binding.get("build_id") or ""),
+    }
+    activation["draft_override"] = draft_override
+    return activation
+
+
+def _wizard_restore_json_config(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _wizard_pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _wizard_read_runtime_lock() -> dict[str, Any]:
+    if not LIVE_RUNTIME_LOCK_PATH.exists():
+        return {}
+    try:
+        payload = _load_json_file(LIVE_RUNTIME_LOCK_PATH)
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _wizard_write_runtime_lock(server: "RuntimeHTTPServer", *, binding: Mapping[str, Any]) -> dict[str, Any]:
+    token = str(uuid4().hex)
+    host, port = server.server_address
+    payload = {
+        "pid": os.getpid(),
+        "host": str(host),
+        "port": int(port),
+        "token": token,
+        "store_path": str(binding.get("store_path") or ""),
+        "store_fingerprint": str(binding.get("store_fingerprint") or ""),
+        "episodes_path": str(binding.get("episodes_path") or ""),
+        "checked_at": _utc_iso(),
+    }
+    LIVE_RUNTIME_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _write_json_file(LIVE_RUNTIME_LOCK_PATH, payload)
+    return payload
+
+
+def _wizard_clear_runtime_lock(*, only_if_stale: bool = False) -> bool:
+    payload = _wizard_read_runtime_lock()
+    if not payload:
+        return False
+    if only_if_stale and _wizard_pid_alive(int(payload.get("pid") or 0)):
+        return False
+    LIVE_RUNTIME_LOCK_PATH.unlink(missing_ok=True)
+    return True
+
+
+def _wizard_runtime_lock_matches_server(server: "RuntimeHTTPServer", payload: Mapping[str, Any]) -> bool:
+    expected = dict(getattr(server, "active_runtime_lock", {}) or {})
+    if not expected:
+        return False
+    token = str(payload.get("token") or "")
+    if token != str(expected.get("token") or ""):
+        return False
+    host, port = server.server_address
+    return str(payload.get("host") or "") == str(host) and int(payload.get("port") or 0) == int(port)
+
+
+def _wizard_runtime_lock_summary(server: "RuntimeHTTPServer") -> dict[str, Any]:
+    payload = _wizard_read_runtime_lock()
+    if not payload:
+        return {
+            "status": "missing",
+            "checked_at": _utc_iso(),
+            "cleanup_allowed": bool(getattr(server, "active_runtime_binding", {}).get("episodes_path")),
+            "owner_pid": 0,
+            "owner_host": "",
+            "owner_port": 0,
+        }
+    owner_pid = int(payload.get("pid") or 0)
+    owner_host = str(payload.get("host") or "")
+    owner_port = int(payload.get("port") or 0)
+    alive = _wizard_pid_alive(owner_pid)
+    if _wizard_runtime_lock_matches_server(server, payload):
+        status = "owned"
+    elif alive:
+        status = "foreign_live"
+    else:
+        status = "stale"
+    return {
+        "status": status,
+        "checked_at": str(payload.get("checked_at") or _utc_iso()),
+        "cleanup_allowed": status in {"missing", "stale"},
+        "owner_pid": owner_pid,
+        "owner_host": owner_host,
+        "owner_port": owner_port,
+    }
+
+
+def _wizard_repair_or_clear_runtime_lock(server: "RuntimeHTTPServer", state: Mapping[str, Any]) -> dict[str, Any]:
+    lock_payload = _wizard_read_runtime_lock()
+    if lock_payload and not _wizard_runtime_lock_matches_server(server, lock_payload) and _wizard_pid_alive(int(lock_payload.get("pid") or 0)):
+        raise RuntimeError("A different live runtime still owns the direct-runtime lock. Cleanup is blocked.")
+    binding = _wizard_current_runtime_binding(server)
+    verify = dict(state.get("verify") or {})
+    store_validation = dict(state.get("store_validation") or {})
+    published_set = dict(state.get("published_set") or {})
+    binding_matches_selected = (
+        str(verify.get("status") or "") == "Safe"
+        and str(binding.get("store_fingerprint") or "") == str(store_validation.get("store_fingerprint") or "")
+        and str(binding.get("episodes_path") or "") == str(published_set.get("episodes_path") or "")
+        and bool(binding.get("episodes_path"))
+    )
+    if binding_matches_selected:
+        repaired = _wizard_write_runtime_lock(server, binding=binding)
+        server.active_runtime_lock = dict(repaired)
+        return {"action": "repaired", "lock": _wizard_runtime_lock_summary(server)}
+    cleared = _wizard_clear_runtime_lock(only_if_stale=False)
+    if cleared:
+        server.active_runtime_lock = {}
+    return {"action": "cleared" if cleared else "noop", "lock": _wizard_runtime_lock_summary(server)}
+
+
+def _wizard_release_runtime_lock(server: "RuntimeHTTPServer") -> bool:
+    payload = _wizard_read_runtime_lock()
+    if not payload or not _wizard_runtime_lock_matches_server(server, payload):
+        return False
+    LIVE_RUNTIME_LOCK_PATH.unlink(missing_ok=True)
+    server.active_runtime_lock = {}
+    return True
+
+
+def _wizard_validate_episode_artifact(
+    path: Path,
+    *,
+    mode: str,
+    expected_store_fingerprint: str = "",
+    expected_build_id: str = "",
+) -> dict[str, Any]:
+    payload = _load_episode_cards_payload(path)
+    schema = str(payload.get("schema") or "").strip()
+    cards = [row for row in list(payload.get("cards") or []) if isinstance(row, dict)]
+    if mode == "draft":
+        if schema != "numquamoblita.episode_cards.v1":
+            raise ValueError("replacement draft must be an episode_cards draft artifact")
+        return {
+            "path": str(path),
+            "schema": schema,
+            "episode_count": len(cards),
+        }
+    if mode != "published":
+        raise ValueError("unsupported episode artifact mode")
+    if schema != "numquamoblita.episode_cards.reviewed.v1":
+        raise ValueError("replacement published set must be an episode_cards.reviewed artifact")
+    payload_store = str(payload.get("store_fingerprint") or "").strip()
+    payload_build = str(payload.get("build_id") or "").strip()
+    if expected_store_fingerprint and payload_store and payload_store != expected_store_fingerprint:
+        raise ValueError("replacement published set does not match the selected store fingerprint")
+    if expected_build_id and payload_build and payload_build != expected_build_id:
+        raise ValueError("replacement published set does not match the latest build identifier")
+    return {
+        "path": str(path),
+        "schema": schema,
+        "episode_count": len(cards),
+        "store_fingerprint": payload_store,
+        "build_id": payload_build,
+    }
+
+
+def _wizard_missing_artifact_rows(state: Mapping[str, Any]) -> list[dict[str, Any]]:
+    selected_input = dict(state.get("selected_input") or {})
+    store_validation = dict(state.get("store_validation") or {})
+    build_info = dict(state.get("build_info") or {})
+    published_set = dict(state.get("published_set") or {})
+    rows: list[dict[str, Any]] = []
+
+    def _append(target: str, label: str, path: str, recommendation: str, reset_stage: str) -> None:
+        clean_path = str(path or "").strip()
+        if not clean_path:
+            return
+        resolved = Path(clean_path).expanduser().resolve()
+        if resolved.exists():
+            return
+        rows.append(
+            {
+                "target": target,
+                "label": label,
+                "missing_path": clean_path,
+                "recommendation": recommendation,
+                "reset_stage": reset_stage,
+            }
+        )
+
+    selected_kind = str(selected_input.get("kind") or "").strip()
+    if selected_kind == "ia_archive":
+        _append("selected_input", "Original IA archive", str(selected_input.get("path") or ""), "Pick the archive again or reset to Import.", "import")
+    elif selected_kind in WIZARD_VALID_STORE_KINDS:
+        _append("selected_input", "Selected MNO store", str(selected_input.get("path") or ""), "Pick the store again or reset to Import.", "import")
+    _append("store_validation", "Active runtime store", str(store_validation.get("path") or state.get("store_path") or ""), "Pick a valid MNO store or reset to Import.", "import")
+    _append("draft_cards", "Draft episode cards", str(build_info.get("draft_path") or state.get("last_built_episode_draft_path") or ""), "Pick the draft cards again or reset to Build Episodes.", "build_episodes")
+    _append("published_set", "Published reviewed set", str(published_set.get("episodes_path") or state.get("last_compiled_reviewed_path") or ""), "Pick the reviewed set again or reset to Review.", "review")
+    return rows
+
+
+def _wizard_remap_status_payload(state: Mapping[str, Any]) -> dict[str, Any]:
+    verify = dict(state.get("verify") or {})
+    return {
+        "required": bool(verify.get("remap_required")),
+        "missing_artifacts": _wizard_missing_artifact_rows(state),
+        "verify_status": str(verify.get("status") or "Unknown"),
+    }
+
+
+def _wizard_apply_remap_to_state(state: dict[str, Any], *, target: str, replacement_path: Path) -> dict[str, Any]:
+    resolved = replacement_path.expanduser().resolve()
+    if target == "selected_input":
+        current_kind = str((state.get("selected_input") or {}).get("kind") or "").strip()
+        classification = _wizard_classify_input_path(resolved)
+        if current_kind == "ia_archive" and str(classification.get("kind") or "") != "ia_archive":
+            raise ValueError("replacement file must be an IA archive")
+        if current_kind in WIZARD_VALID_STORE_KINDS and str(classification.get("kind") or "") not in WIZARD_VALID_STORE_KINDS:
+            raise ValueError("replacement file must be a valid MNO store")
+        _wizard_bind_input_to_state(state, classification)
+        return {"target": target, "replacement": dict(classification)}
+    if target == "store_validation":
+        classification = _wizard_classify_input_path(resolved)
+        if str(classification.get("kind") or "") not in WIZARD_VALID_STORE_KINDS or not bool(classification.get("is_valid")):
+            raise ValueError("replacement file must be a valid MNO store")
+        store_validation = _wizard_empty_store_validation()
+        store_validation.update(dict(classification))
+        state["store_validation"] = store_validation
+        state["store_path"] = str(classification.get("path") or "")
+        selected_input = dict(state.get("selected_input") or {})
+        if str(selected_input.get("kind") or "") in WIZARD_VALID_STORE_KINDS:
+            state["selected_input"] = dict(classification)
+        return {"target": target, "replacement": dict(store_validation)}
+    if target == "draft_cards":
+        artifact = _wizard_validate_episode_artifact(resolved, mode="draft")
+        build_info = dict(state.get("build_info") or {})
+        build_info["draft_path"] = str(resolved)
+        state["build_info"] = build_info
+        state["last_built_episode_draft_path"] = str(resolved)
+        review_state = dict(state.get("review_state") or _wizard_empty_review_state())
+        review_state["source_cards_path"] = str(resolved)
+        state["review_state"] = review_state
+        return {"target": target, "replacement": artifact}
+    if target == "published_set":
+        published_set = dict(state.get("published_set") or {})
+        artifact = _wizard_validate_episode_artifact(
+            resolved,
+            mode="published",
+            expected_store_fingerprint=str(published_set.get("store_fingerprint") or ""),
+            expected_build_id=str(published_set.get("build_id") or ""),
+        )
+        published_set["episodes_path"] = str(resolved)
+        published_set["episode_count"] = int(artifact.get("episode_count") or published_set.get("episode_count") or 0)
+        state["published_set"] = published_set
+        state["last_compiled_reviewed_path"] = str(resolved)
+        published_pointers = dict(state.get("published_pointers") or {})
+        published_pointers["episodes_path"] = str(resolved)
+        state["published_pointers"] = published_pointers
+        return {"target": target, "replacement": artifact}
+    raise ValueError("unsupported remap target")
+
+
+def _wizard_reset_state_to_stage(state: dict[str, Any], *, stage: str, reason: str) -> dict[str, Any]:
+    clean_stage = str(stage or "").strip()
+    if clean_stage not in {"import", "build_episodes", "review"}:
+        raise ValueError("stage must be import, build_episodes, or review")
+    _snapshot_published_pointers(state, reason=f"pre_reset_{clean_stage}")
+    if clean_stage == "import":
+        state["selected_input_archive_path"] = ""
+        state["selected_input"] = _wizard_empty_input_selection()
+        state["store_validation"] = _wizard_empty_store_validation()
+        state["store_path"] = str((REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3").resolve())
+    _wizard_reset_downstream_state(state, from_stage=clean_stage)
+    _wizard_reset_to_stage(state, stage=clean_stage, note=reason)
+    return state
 
 def _quicknote_env_int(name: str, *, default: int, min_value: int, max_value: int) -> int:
     raw = str(os.getenv(name, str(default)) or str(default)).strip()
@@ -1947,6 +3246,8 @@ def _load_wizard_state(run_id: str) -> dict[str, Any]:
     defaults = _wizard_state_defaults(run_id)
     defaults.update(payload)
     defaults["run_id"] = run_id
+    if str(defaults.get("current_stage") or "").strip() == "welcome_resume":
+        defaults["current_stage"] = "import"
     if not isinstance(defaults.get("history"), list):
         defaults["history"] = []
     if not isinstance(defaults.get("completed_stages"), list):
@@ -1959,6 +3260,28 @@ def _load_wizard_state(run_id: str) -> dict[str, Any]:
         defaults["published_history"] = []
     if not isinstance(defaults.get("artifacts"), dict):
         defaults["artifacts"] = {}
+    if not isinstance(defaults.get("selected_input"), dict):
+        defaults["selected_input"] = _wizard_empty_input_selection()
+    if not isinstance(defaults.get("store_validation"), dict):
+        defaults["store_validation"] = _wizard_empty_store_validation()
+    if not isinstance(defaults.get("build_info"), dict):
+        defaults["build_info"] = _wizard_empty_build_info()
+    if not isinstance(defaults.get("review_state"), dict):
+        defaults["review_state"] = _wizard_empty_review_state()
+    if not isinstance(defaults.get("published_set"), dict):
+        defaults["published_set"] = _wizard_empty_published_set()
+    if not isinstance(defaults.get("activation"), dict):
+        defaults["activation"] = _wizard_empty_activation_state()
+    verify = defaults.get("verify")
+    if not isinstance(verify, dict):
+        verify = {"status": "Unknown", "checks": [], "actionable_links": [], "checked_at": "", "remap_required": False}
+    verify.setdefault("status", "Unknown")
+    verify.setdefault("checks", [])
+    verify.setdefault("actionable_links", [])
+    verify.setdefault("checked_at", "")
+    verify.setdefault("remap_required", False)
+    defaults["verify"] = verify
+    defaults["stage_flow"] = _wizard_stage_state_payload(defaults)
     return defaults
 
 
@@ -1966,6 +3289,7 @@ def _save_wizard_state(state: dict[str, Any]) -> dict[str, Any]:
     run_id = str(state.get("run_id") or "").strip()
     if not run_id:
         raise ValueError("wizard state missing run_id")
+    state["stage_flow"] = _wizard_stage_state_payload(state)
     state["updated_at"] = _utc_iso()
     _write_json_file(_wizard_state_path(run_id), state)
     _write_json_file(WIZARD_LATEST_PATH, {"run_id": run_id, "updated_at": state["updated_at"]})
@@ -2007,14 +3331,18 @@ def _wizard_history(state: dict[str, Any], *, stage: str, note: str, status: str
 
 
 def _mark_wizard_stage(state: dict[str, Any], *, stage: str, note: str) -> None:
-    state["current_stage"] = stage
+    clean_stage = str(stage or "").strip()
+    if clean_stage in WIZARD_STAGE_SEQUENCE:
+        _wizard_transition(state, stage=clean_stage, note=note, completed=True)
+        return
+    state["current_stage"] = clean_stage
     completed = state.get("completed_stages")
     if not isinstance(completed, list):
         completed = []
-    if stage not in completed:
-        completed.append(stage)
+    if clean_stage and clean_stage not in completed:
+        completed.append(clean_stage)
     state["completed_stages"] = completed
-    _wizard_history(state, stage=stage, note=note, status="ok")
+    _wizard_history(state, stage=clean_stage, note=note, status="ok")
 
 
 def _snapshot_published_pointers(state: dict[str, Any], *, reason: str) -> None:
@@ -2035,6 +3363,7 @@ def _snapshot_published_pointers(state: dict[str, Any], *, reason: str) -> None:
             "store_path": store_path,
             "episodes_path": episodes_path,
         },
+        "published_set": dict(state.get("published_set") or {}),
     }
     if history:
         latest = history[-1] if isinstance(history[-1], dict) else {}
@@ -2055,8 +3384,11 @@ def _snapshot_published_pointers(state: dict[str, Any], *, reason: str) -> None:
 def _resolve_episode_cards_path(runtime: RuntimeSession, wizard_state: dict[str, Any] | None = None) -> Path | None:
     candidates: list[Path] = []
     if wizard_state:
+        published = str((wizard_state.get("published_set") or {}).get("episodes_path") or "").strip()
         reviewed = str(wizard_state.get("last_compiled_reviewed_path") or "").strip()
-        draft = str(wizard_state.get("last_built_episode_draft_path") or "").strip()
+        draft = str((wizard_state.get("build_info") or {}).get("draft_path") or wizard_state.get("last_built_episode_draft_path") or "").strip()
+        if published:
+            candidates.append(Path(published).expanduser().resolve())
         if reviewed:
             candidates.append(Path(reviewed).expanduser().resolve())
         if draft:
@@ -2116,10 +3448,13 @@ def _compile_reviewed_payload(
     review_decisions: dict[str, Any],
     reviewer: str,
     source_cards_path: Path,
+    store_fingerprint: str,
+    schema_version: int | None,
+    build_id: str,
 ) -> dict[str, Any]:
     rows = list(source_payload.get("cards") or [])
     approved_cards: list[dict[str, Any]] = []
-    counts = {"approved": 0, "edited": 0, "rejected": 0, "auto_approved": 0}
+    counts = {"approved": 0, "edited": 0, "rejected": 0}
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -2129,8 +3464,10 @@ def _compile_reviewed_payload(
             continue
         decision_payload = review_decisions.get(episode_id)
         if not isinstance(decision_payload, dict):
-            decision_payload = {"decision": "auto_approved"}
-        decision = str(decision_payload.get("decision") or "auto_approved").strip().lower()
+            raise ValueError(f"episode {episode_id} has no explicit review decision")
+        decision = str(decision_payload.get("decision") or "pending").strip().lower()
+        if decision not in {"approved", "edited", "rejected"}:
+            raise ValueError(f"episode {episode_id} is still pending review")
         if decision in {"reject", "rejected"}:
             counts["rejected"] += 1
             continue
@@ -2155,8 +3492,6 @@ def _compile_reviewed_payload(
             counts["edited"] += 1
         elif decision in {"approve", "approved"}:
             counts["approved"] += 1
-        else:
-            counts["auto_approved"] += 1
         normalized["promotion_status"] = "approved"
         normalized["reviewed_by"] = str(reviewer or "runtime_ui")
         normalized["reviewed_at"] = _utc_iso()
@@ -2167,6 +3502,9 @@ def _compile_reviewed_payload(
         "generated_at": _utc_iso(),
         "source_cards": str(source_cards_path),
         "review_tsv": "",
+        "store_fingerprint": str(store_fingerprint or ""),
+        "store_schema_version": schema_version,
+        "build_id": str(build_id or ""),
         "episode_count": len(approved_cards),
         "review_counts": counts,
         "cards": approved_cards,
@@ -4783,7 +6121,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     "latest_run_id": latest_run_id or "",
                     "current_run_id": current_run_id,
                     "resume_available": bool(latest_run_id),
-                    "stages": list(WIZARD_STAGES),
+                    "stages": list(WIZARD_STAGE_SEQUENCE),
                     "policy_presets": BUILD_POLICY_PRESETS,
                     "state": state or {},
                 },
@@ -4808,6 +6146,26 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     "organizer": organizer,
                 },
             )
+        if path == "/api/wizard/input/options":
+            from tools.mcp_connector_common import discover_memory_candidates, format_memory_candidate_label
+
+            q = parse_qs(parsed.query)
+            run_id = str((q.get("run_id") or [""])[0]).strip() or None
+            state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+            candidates = discover_memory_candidates(repo_root=REPO_ROOT)
+            labels = [format_memory_candidate_label(row) for row in candidates]
+            return _json_response(
+                self,
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "run_id": state.get("run_id"),
+                    "selected_input": dict(state.get("selected_input") or {}),
+                    "store_validation": dict(state.get("store_validation") or {}),
+                    "memory_candidates": candidates,
+                    "memory_candidate_labels": labels,
+                },
+            )
         if path == "/api/wizard/review/cards":
             q = parse_qs(parsed.query)
             run_id = str((q.get("run_id") or [""])[0]).strip() or None
@@ -4817,12 +6175,26 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 wizard_state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
             except FileNotFoundError:
                 return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "wizard run not found"})
-            source_path = _resolve_episode_cards_path(self.server.runtime, wizard_state)
+            draft_path_raw = str((wizard_state.get("build_info") or {}).get("draft_path") or wizard_state.get("last_built_episode_draft_path") or "").strip()
+            source_path = Path(draft_path_raw).expanduser().resolve() if draft_path_raw else None
             if source_path is None:
                 return _json_response(
                     self,
                     HTTPStatus.OK,
                     {"ok": True, "cards": [], "total": 0, "source_cards_path": "", "run_id": wizard_state.get("run_id")},
+                )
+            if not source_path.exists():
+                _wizard_reset_downstream_state(wizard_state, from_stage="build_episodes")
+                _wizard_reset_to_stage(
+                    wizard_state,
+                    stage="build_episodes",
+                    note="Draft cards moved or deleted; build again or remap the artifact path.",
+                )
+                _save_wizard_state(wizard_state)
+                return _json_response(
+                    self,
+                    HTTPStatus.OK,
+                    {"ok": True, "cards": [], "total": 0, "source_cards_path": str(source_path), "run_id": wizard_state.get("run_id")},
                 )
             try:
                 payload = _load_episode_cards_payload(source_path)
@@ -4860,6 +6232,8 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     if search not in hay:
                         continue
                 cards.append(card)
+            _wizard_sync_review_state(wizard_state, source_payload=payload, source_cards_path=source_path)
+            _save_wizard_state(wizard_state)
             return _json_response(
                 self,
                 HTTPStatus.OK,
@@ -6800,68 +8174,89 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
                     except FileNotFoundError:
                         state = _start_new_wizard_state()
-                _mark_wizard_stage(state, stage="welcome_resume", note="Wizard session started.")
+                note = "Wizard session started." if mode in {"new", "start_new", "start-new"} else "Wizard session resumed."
+                _wizard_history(state, stage=str(state.get("current_stage") or "import"), note=note, status="ok")
                 _save_wizard_state(state)
                 return _json_response(self, HTTPStatus.OK, {"ok": True, "state": state, "run_id": state.get("run_id")})
             except Exception as exc:
                 return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"wizard start failed: {exc}"})
+        if path == "/api/wizard/input/upload":
+            try:
+                data = _read_json(self)
+                run_id = str(data.get("run_id") or "").strip() or None
+                state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                file_name = Path(str(data.get("file_name") or "").strip()).name
+                content_b64 = str(data.get("content_base64") or "").strip()
+                if not file_name or not content_b64:
+                    return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "file_name and content_base64 are required"})
+                upload_root = RUNTIME_ROOT / "wizard_uploads" / str(state.get("run_id") or "unknown")
+                upload_root.mkdir(parents=True, exist_ok=True)
+                target_path = (upload_root / file_name).resolve()
+                if upload_root.resolve() not in target_path.parents and target_path != upload_root.resolve():
+                    return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "invalid upload target"})
+                decoded = base64.b64decode(content_b64.encode("ascii"), validate=True)
+                target_path.write_bytes(decoded)
+                classification = _wizard_classify_input_path(target_path)
+                _wizard_bind_input_to_state(state, classification)
+                state.setdefault("artifacts", {})["uploaded_input"] = {
+                    "path": str(target_path),
+                    "size_bytes": len(decoded),
+                    "at": _utc_iso(),
+                    "classification": classification,
+                }
+                _save_wizard_state(state)
+                return _json_response(
+                    self,
+                    HTTPStatus.OK,
+                    {
+                        "ok": True,
+                        "run_id": state.get("run_id"),
+                        "uploaded_path": str(target_path),
+                        "size_bytes": len(decoded),
+                        "classification": classification,
+                    },
+                )
+            except Exception as exc:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"input upload failed: {exc}"})
         if path == "/api/wizard/import/validate":
             try:
                 data = _read_json(self)
                 run_id = str(data.get("run_id") or "").strip() or None
                 state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
-                archive_path_raw = str(data.get("archive_path") or state.get("selected_input_archive_path") or "").strip()
-                if not archive_path_raw:
-                    return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "archive_path is required"})
-                archive_path = Path(archive_path_raw).expanduser().resolve()
-                if not archive_path.exists():
-                    return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"archive path not found: {archive_path}"})
-                payload = _load_json_file(archive_path)
-                conversations = payload.get("conversations")
-                issues: list[str] = []
-                if not isinstance(conversations, list):
-                    issues.append("db.json missing conversations[] list")
-                    conversations = []
-                conversation_count = len(conversations)
-                message_count = 0
-                roles: dict[str, int] = {}
-                invalid_messages = 0
-                for convo in conversations:
-                    messages = convo.get("messages") if isinstance(convo, dict) else []
-                    if not isinstance(messages, list):
-                        continue
-                    for message in messages:
-                        if not isinstance(message, dict):
-                            invalid_messages += 1
-                            continue
-                        role = str(message.get("role") or "").strip().lower()
-                        text = str(message.get("text") or message.get("content") or "").strip()
-                        if role:
-                            roles[role] = int(roles.get(role) or 0) + 1
-                        if not role or not text:
-                            invalid_messages += 1
-                        message_count += 1
-                if conversation_count == 0:
-                    issues.append("no conversations found")
-                if message_count == 0:
-                    issues.append("no messages found")
-                if invalid_messages > 0:
-                    issues.append(f"{invalid_messages} messages are missing role/text")
-                status = "safe" if not issues else "needs_attention"
-                state["selected_input_archive_path"] = str(archive_path)
+                raw_input_path = str(
+                    data.get("input_path")
+                    or data.get("archive_path")
+                    or data.get("store_path")
+                    or (state.get("selected_input") or {}).get("path")
+                    or state.get("selected_input_archive_path")
+                    or ""
+                ).strip()
+                if not raw_input_path:
+                    return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "input_path is required"})
+                classification = _wizard_classify_input_path(Path(raw_input_path))
+                previous = dict(state.get("selected_input") or {})
+                selection_changed = any(
+                    str(previous.get(key) or "").strip() != str(classification.get(key) or "").strip()
+                    for key in ("path", "kind", "store_fingerprint")
+                )
+                _wizard_bind_input_to_state(state, classification)
+                if selection_changed:
+                    _wizard_reset_downstream_state(state, from_stage="import")
+                    _wizard_reset_to_stage(
+                        state,
+                        stage="import",
+                        note="Selected input changed; cleared downstream build, review, publish, verify, and activation state.",
+                    )
+                status = "blocked"
+                if bool(classification.get("is_valid")):
+                    status = str(classification.get("status") or "safe").strip().lower() or "safe"
                 state.setdefault("artifacts", {})["import_validation"] = {
                     "at": _utc_iso(),
-                    "conversation_count": conversation_count,
-                    "message_count": message_count,
-                    "roles": roles,
-                    "issues": issues,
+                    **classification,
                 }
-                _wizard_history(
-                    state,
-                    stage="import",
-                    note=f"Validated archive ({conversation_count} conversations, {message_count} messages).",
-                    status="ok" if status == "safe" else "warn",
-                )
+                label = str(classification.get("kind") or "input").replace("_", " ")
+                issue_count = len(list(classification.get("issues") or []))
+                _wizard_history(state, stage="import", note=f"Validated {label} ({issue_count} issues).", status="ok" if status == "safe" else "warn")
                 _save_wizard_state(state)
                 return _json_response(
                     self,
@@ -6870,11 +8265,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         "ok": True,
                         "run_id": state.get("run_id"),
                         "status": status,
-                        "archive_path": str(archive_path),
-                        "conversation_count": conversation_count,
-                        "message_count": message_count,
-                        "roles": roles,
-                        "issues": issues,
+                        **classification,
                     },
                 )
             except Exception as exc:
@@ -6884,41 +8275,72 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 data = _read_json(self)
                 run_id = str(data.get("run_id") or "").strip() or None
                 state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
-                archive_path_raw = str(data.get("archive_path") or state.get("selected_input_archive_path") or "").strip()
-                if not archive_path_raw:
-                    return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "archive_path is required"})
-                archive_path = Path(archive_path_raw).expanduser().resolve()
-                store_path = Path(str(data.get("store_path") or state.get("store_path") or "").strip() or (REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3")).expanduser().resolve()
-                out_dir = Path(str(data.get("out_dir") or (REPO_ROOT / ".runtime" / "imports"))).expanduser().resolve()
-                cmd = [
-                    sys.executable,
-                    str((REPO_ROOT / "tools" / "import_ia_db.py").resolve()),
-                    "--input",
-                    str(archive_path),
-                    "--store",
-                    str(store_path),
-                    "--out-dir",
-                    str(out_dir),
-                ]
-                result = _run_repo_tool(cmd, timeout_s=600.0)
-                if not result["ok"]:
+                raw_input_path = str(
+                    data.get("input_path")
+                    or data.get("archive_path")
+                    or data.get("store_path")
+                    or (state.get("selected_input") or {}).get("path")
+                    or state.get("selected_input_archive_path")
+                    or state.get("store_path")
+                    or ""
+                ).strip()
+                if not raw_input_path:
+                    return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "input_path is required"})
+                classification = _wizard_classify_input_path(Path(raw_input_path))
+                _wizard_bind_input_to_state(state, classification)
+                selected_kind = str(classification.get("kind") or "").strip()
+                if not bool(classification.get("is_valid")):
                     return _json_response(
                         self,
-                        HTTPStatus.INTERNAL_SERVER_ERROR,
-                        {
-                            "error": "import tool failed",
-                            "tool": result,
-                        },
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "; ".join(str(item) for item in list(classification.get("issues") or []) if str(item).strip()) or "selected input is invalid"},
                     )
-                kv = dict(result.get("kv") or {})
-                state["selected_input_archive_path"] = str(archive_path)
-                state["store_path"] = str(Path(str(kv.get("store_path") or store_path)).expanduser().resolve())
-                state.setdefault("artifacts", {})["import_report_json"] = str(kv.get("report_json") or "")
-                state.setdefault("artifacts", {})["import_report_md"] = str(kv.get("report_md") or "")
                 _snapshot_published_pointers(state, reason="pre_import_publish_update")
-                state["published_pointers"] = dict(state.get("published_pointers") or {})
-                state["published_pointers"]["store_path"] = str(state["store_path"])
-                _mark_wizard_stage(state, stage="import", note="Archive imported into sqlite store.")
+                _wizard_reset_downstream_state(state, from_stage="import")
+                result: dict[str, Any] = {"ok": True, "mode": "existing_store"}
+                if selected_kind == "ia_archive":
+                    archive_path = Path(str(classification.get("path") or "")).expanduser().resolve()
+                    store_path = Path(
+                        str(data.get("store_path") or state.get("store_path") or "").strip() or (REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3")
+                    ).expanduser().resolve()
+                    out_dir = Path(str(data.get("out_dir") or (REPO_ROOT / ".runtime" / "imports"))).expanduser().resolve()
+                    cmd = [
+                        sys.executable,
+                        str((REPO_ROOT / "tools" / "import_ia_db.py").resolve()),
+                        "--input",
+                        str(archive_path),
+                        "--store",
+                        str(store_path),
+                        "--out-dir",
+                        str(out_dir),
+                    ]
+                    result = _run_repo_tool(cmd, timeout_s=600.0)
+                    if not result["ok"]:
+                        return _json_response(
+                            self,
+                            HTTPStatus.INTERNAL_SERVER_ERROR,
+                            {
+                                "error": "import tool failed",
+                                "tool": result,
+                            },
+                        )
+                    kv = dict(result.get("kv") or {})
+                    state["selected_input_archive_path"] = str(archive_path)
+                    resolved_store_path = Path(str(kv.get("store_path") or store_path)).expanduser().resolve()
+                    store_validation = _wizard_validate_sqlite_store(resolved_store_path)
+                    state["store_path"] = str(resolved_store_path)
+                    state["store_validation"] = dict(_wizard_empty_store_validation() | store_validation)
+                    state.setdefault("artifacts", {})["import_report_json"] = str(kv.get("report_json") or "")
+                    state.setdefault("artifacts", {})["import_report_md"] = str(kv.get("report_md") or "")
+                else:
+                    state["store_path"] = str(classification.get("path") or "")
+                    state["store_validation"] = dict(_wizard_empty_store_validation() | classification)
+                state["published_pointers"] = {
+                    "store_path": str(state.get("store_path") or ""),
+                    "episodes_path": "",
+                }
+                _mark_wizard_stage(state, stage="import", note="Input accepted and store is ready.")
+                _wizard_transition(state, stage="build_episodes", note="Import complete. Ready to build episode drafts.")
                 _save_wizard_state(state)
                 return _json_response(
                     self,
@@ -6927,6 +8349,8 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         "ok": True,
                         "run_id": state.get("run_id"),
                         "store_path": state.get("store_path"),
+                        "input_kind": selected_kind,
+                        "store_validation": state.get("store_validation"),
                         "reports": {
                             "json": state.get("artifacts", {}).get("import_report_json", ""),
                             "md": state.get("artifacts", {}).get("import_report_md", ""),
@@ -6941,7 +8365,17 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 data = _read_json(self)
                 run_id = str(data.get("run_id") or "").strip() or None
                 state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
-                store_path = Path(str(data.get("store_path") or state.get("store_path") or "").strip()).expanduser().resolve()
+                if str(data.get("store_path") or "").strip():
+                    override_validation = _wizard_classify_input_path(Path(str(data.get("store_path") or "").strip()))
+                    if str(override_validation.get("kind") or "") not in WIZARD_VALID_STORE_KINDS or not bool(override_validation.get("is_valid")):
+                        return _json_response(
+                            self,
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "; ".join(str(item) for item in list(override_validation.get("issues") or []) if str(item).strip()) or "store path is not a valid MNO store"},
+                        )
+                    _wizard_bind_input_to_state(state, override_validation)
+                _wizard_require(state, action="build_run")
+                store_path = Path(str((state.get("store_validation") or {}).get("path") or state.get("store_path") or "").strip()).expanduser().resolve()
                 if not store_path.exists():
                     return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"store path not found: {store_path}"})
                 preset_key = str(data.get("policy_preset") or "strict").strip().lower()
@@ -6991,18 +8425,32 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 counts: dict[str, Any] = {}
                 if out_path.exists():
                     try:
-                        payload = _load_episode_cards_payload(out_path)
-                        counts = dict(payload.get("counts") or {})
+                        draft_payload = _load_episode_cards_payload(out_path)
+                        counts = dict(draft_payload.get("counts") or {})
                     except Exception:
+                        draft_payload = None
                         counts = {}
+                _snapshot_published_pointers(state, reason="pre_build_publish_update")
+                _wizard_reset_downstream_state(state, from_stage="build_episodes")
                 state["last_built_episode_draft_path"] = str(out_path)
                 state["last_built_episode_rejects_path"] = str(rejects_path)
                 state["last_built_episode_readout_path"] = str(readout_path)
+                state["build_info"] = {
+                    "build_id": f"build_{stamp.lower()}",
+                    "store_fingerprint": str((state.get("store_validation") or {}).get("store_fingerprint") or ""),
+                    "schema_version": (state.get("store_validation") or {}).get("schema_version"),
+                    "draft_path": str(out_path),
+                    "rejects_path": str(rejects_path),
+                    "readout_path": str(readout_path),
+                    "counts": counts,
+                }
                 state.setdefault("artifacts", {})["build_policy_preset"] = preset_key
                 if builder_profile_path is not None and builder_profile_path.exists():
                     state.setdefault("artifacts", {})["builder_profile_path"] = str(builder_profile_path)
                 state.setdefault("artifacts", {})["last_build_counts"] = counts
+                _wizard_sync_review_state(state, source_cards_path=out_path, source_payload=draft_payload)
                 _mark_wizard_stage(state, stage="build_episodes", note=f"Built episodes using preset={preset_key}.")
+                _wizard_transition(state, stage="review", note="Draft episodes are ready for review.")
                 _save_wizard_state(state)
                 return _json_response(
                     self,
@@ -7016,6 +8464,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         "readout_path": str(readout_path),
                         "builder_profile_path": str(builder_profile_path) if builder_profile_path is not None else "",
                         "counts": counts,
+                        "build_info": state.get("build_info"),
                         "tool": build_result,
                         "readout_tool": readout_result,
                     },
@@ -7127,6 +8576,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 data = _read_json(self)
                 run_id = str(data.get("run_id") or "").strip() or None
                 state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                _wizard_require(state, action="review_update")
                 episode_id = str(data.get("episode_id") or "").strip()
                 if not episode_id:
                     return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "episode_id is required"})
@@ -7149,6 +8599,15 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     "cue_terms": _normalize_string_list(data.get("cue_terms"), max_items=48, max_chars=72),
                 }
                 state["review_decisions"] = review_decisions
+                _wizard_sync_review_state(state)
+                if str((state.get("published_set") or {}).get("version_id") or "").strip():
+                    _snapshot_published_pointers(state, reason="pre_review_change_publish_update")
+                    _wizard_reset_downstream_state(state, from_stage="review")
+                    _wizard_reset_to_stage(
+                        state,
+                        stage="review",
+                        note="Review changed after publish; cleared published set, verify result, and activation state.",
+                    )
                 _mark_wizard_stage(state, stage="review", note=f"Updated review decision for {episode_id}.")
                 _save_wizard_state(state)
                 return _json_response(
@@ -7163,37 +8622,64 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 )
             except Exception as exc:
                 return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"review update failed: {exc}"})
-        if path == "/api/wizard/review/compile":
+        if path in {"/api/wizard/review/compile", "/api/wizard/publish/run"}:
             try:
                 data = _read_json(self)
                 run_id = str(data.get("run_id") or "").strip() or None
                 reviewer = str(data.get("reviewer") or "runtime_ui").strip() or "runtime_ui"
                 state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                _wizard_require(state, action="publish_run")
                 source_path = _resolve_episode_cards_path(self.server.runtime, state)
                 if source_path is None:
                     return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "no episode cards available to compile"})
                 source_payload = _load_episode_cards_payload(source_path)
+                review_state = _wizard_sync_review_state(state, source_payload=source_payload, source_cards_path=source_path)
                 review_decisions = state.get("review_decisions")
                 if not isinstance(review_decisions, dict):
                     review_decisions = {}
+                build_info = dict(state.get("build_info") or {})
                 compiled = _compile_reviewed_payload(
                     source_payload=source_payload,
                     review_decisions=review_decisions,
                     reviewer=reviewer,
                     source_cards_path=source_path,
+                    store_fingerprint=str(build_info.get("store_fingerprint") or ""),
+                    schema_version=build_info.get("schema_version"),
+                    build_id=str(build_info.get("build_id") or ""),
                 )
                 reviewed_path = (EPISODES_ROOT / "episode_cards.reviewed.json").resolve()
                 stamp_path = (EPISODES_ROOT / f"episode_cards.reviewed_{_utc_stamp()}.json").resolve()
                 backup_path = _write_payload_with_backup(reviewed_path, compiled, reason="wizard_review_compile")
                 _write_json_file(stamp_path, compiled)
-                reload_info = _reload_runtime_episode_index(self.server.runtime, reviewed_path)
                 state["last_compiled_reviewed_path"] = str(reviewed_path)
                 _snapshot_published_pointers(state, reason="pre_review_compile_publish_update")
-                published = dict(state.get("published_pointers") or {})
-                published["episodes_path"] = str(reviewed_path)
-                state["published_pointers"] = published
+                state["published_pointers"] = {
+                    "store_path": str(state.get("store_path") or (state.get("store_validation") or {}).get("path") or ""),
+                    "episodes_path": str(reviewed_path),
+                }
+                version_id = _wizard_publish_version_id(
+                    build_id=str(build_info.get("build_id") or ""),
+                    store_fingerprint=str(build_info.get("store_fingerprint") or ""),
+                    published_path=reviewed_path,
+                )
+                state["published_set"] = {
+                    "version_id": version_id,
+                    "episodes_path": str(reviewed_path),
+                    "snapshot_path": str(stamp_path),
+                    "store_fingerprint": str(build_info.get("store_fingerprint") or ""),
+                    "schema_version": build_info.get("schema_version"),
+                    "build_id": str(build_info.get("build_id") or ""),
+                    "episode_count": int(compiled.get("episode_count") or 0),
+                    "review_counts": dict(compiled.get("review_counts") or {}),
+                    "status": "published",
+                    "published_at": _utc_iso(),
+                }
                 state.setdefault("artifacts", {})["last_compiled_reviewed_snapshot"] = str(stamp_path)
-                _mark_wizard_stage(state, stage="review", note="Compiled reviewed episode set.")
+                state["review_state"] = review_state
+                state["verify"] = {"status": "Unknown", "checks": [], "actionable_links": [], "checked_at": "", "remap_required": False}
+                state["activation"] = _wizard_empty_activation_state()
+                _mark_wizard_stage(state, stage="publish", note="Published reviewed episode set.")
+                _wizard_transition(state, stage="verify", note="Published reviewed set. Ready for verification.")
                 _save_wizard_state(state)
                 return _json_response(
                     self,
@@ -7201,96 +8687,28 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     {
                         "ok": True,
                         "run_id": state.get("run_id"),
+                        "version_id": version_id,
                         "reviewed_path": str(reviewed_path),
                         "reviewed_snapshot_path": str(stamp_path),
                         "backup_path": backup_path,
                         "episode_count": int(compiled.get("episode_count") or 0),
                         "review_counts": dict(compiled.get("review_counts") or {}),
-                        "reload": reload_info,
+                        "published_set": state.get("published_set"),
                     },
                 )
             except Exception as exc:
-                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"review compile failed: {exc}"})
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"publish failed: {exc}"})
         if path == "/api/wizard/verify/run":
             try:
                 data = _read_json(self)
                 run_id = str(data.get("run_id") or "").strip() or None
                 state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
-                checks: list[dict[str, Any]] = []
-                actionable_links: list[dict[str, Any]] = []
-
-                def _exists_check(check_id: str, value: str, label: str, *, api_path: str = "") -> None:
-                    candidate = Path(str(value or "")).expanduser().resolve() if str(value or "").strip() else None
-                    if candidate and candidate.exists():
-                        payload = {"id": check_id, "status": "ok", "detail": f"{label}: {candidate}", "path": str(candidate)}
-                        if api_path:
-                            payload["api_path"] = api_path
-                            actionable_links.append({"id": check_id, "label": label, "api_path": api_path, "path": str(candidate)})
-                        checks.append(payload)
-                    else:
-                        checks.append({"id": check_id, "status": "fail", "detail": f"{label} missing"})
-
-                run_id_value = str(state.get("run_id") or "").strip()
-                _exists_check("store", str(state.get("store_path") or ""), "store")
-                _exists_check(
-                    "episode_draft",
-                    str(state.get("last_built_episode_draft_path") or ""),
-                    "episode draft",
-                    api_path=f"/api/wizard/review/cards?run_id={quote(run_id_value)}",
-                )
-                _exists_check(
-                    "reviewed_set",
-                    str(state.get("last_compiled_reviewed_path") or ""),
-                    "reviewed set",
-                    api_path=f"/api/memory/episodes?run_id={quote(run_id_value)}&status=approved",
-                )
-                reviewed_path_raw = str(state.get("last_compiled_reviewed_path") or "").strip()
-                if reviewed_path_raw:
-                    reviewed_path = Path(reviewed_path_raw).expanduser().resolve()
-                    if reviewed_path.exists():
-                        payload = _load_json_file(reviewed_path)
-                        cards = [row for row in list(payload.get("cards") or []) if isinstance(row, dict)]
-                        count = len(cards)
-                        checks.append({"id": "reviewed_count", "status": "ok" if count > 0 else "warn", "detail": f"{count} reviewed cards"})
-                        if cards:
-                            first_card = cards[0]
-                            first_episode_id = str(first_card.get("episode_id") or "").strip()
-                            if first_episode_id:
-                                actionable_links.append(
-                                    {
-                                        "id": "reviewed_episode_card",
-                                        "label": f"Open reviewed episode {first_episode_id}",
-                                        "api_path": f"/api/memory/episodes?run_id={quote(run_id_value)}&q={quote(first_episode_id)}",
-                                        "episode_id": first_episode_id,
-                                    }
-                                )
-                            first_citation = ""
-                            for card in cards:
-                                citations = [str(item).strip() for item in list(card.get("citations") or []) if str(item).strip()]
-                                if citations:
-                                    first_citation = citations[0]
-                                    break
-                            if first_citation:
-                                actionable_links.append(
-                                    {
-                                        "id": "reviewed_citation",
-                                        "label": f"Open cited evidence {first_citation}",
-                                        "api_path": f"/api/archive/citation/{quote(first_citation, safe='')}",
-                                        "citation": first_citation,
-                                    }
-                                )
-                runtime_health = _runtime_health(self.server)
-                checks.extend(list(runtime_health.get("checks") or []))
-                has_fail = any(str(item.get("status")) == "fail" for item in checks)
-                has_warn = any(str(item.get("status")) == "warn" for item in checks)
-                status = "Safe" if not has_fail and not has_warn else "Needs attention"
-                state["verify"] = {
-                    "status": status,
-                    "checks": checks,
-                    "actionable_links": actionable_links,
-                    "checked_at": _utc_iso(),
-                }
-                _mark_wizard_stage(state, stage="verify", note=f"Verification status: {status}.")
+                _wizard_require(state, action="verify_run")
+                verify_payload = _wizard_verify_payload(self.server, state)
+                state["verify"] = verify_payload
+                _mark_wizard_stage(state, stage="verify", note=f"Verification status: {verify_payload['status']}.")
+                if str(verify_payload.get("status") or "") == "Safe":
+                    _wizard_transition(state, stage="activate", note="Verification passed. Ready to activate.")
                 _save_wizard_state(state)
                 return _json_response(
                     self,
@@ -7298,9 +8716,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     {
                         "ok": True,
                         "run_id": state.get("run_id"),
-                        "status": status,
-                        "checks": checks,
-                        "actionable_links": actionable_links,
+                        **verify_payload,
                     },
                 )
             except Exception as exc:
@@ -7320,6 +8736,8 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 snapshot = history.pop()
                 pointers_raw = snapshot.get("published_pointers") if isinstance(snapshot, dict) else {}
                 pointers = pointers_raw if isinstance(pointers_raw, dict) else {}
+                published_set_raw = snapshot.get("published_set") if isinstance(snapshot, dict) else {}
+                published_set = dict(published_set_raw) if isinstance(published_set_raw, dict) else {}
                 restored_store = str(pointers.get("store_path") or "").strip()
                 restored_episodes = str(pointers.get("episodes_path") or "").strip()
 
@@ -7330,13 +8748,27 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 }
                 if restored_store:
                     state["store_path"] = restored_store
-                reload_info: dict[str, Any] = {}
                 if restored_episodes:
                     episode_path = Path(restored_episodes).expanduser().resolve()
-                    if episode_path.exists():
-                        state["last_compiled_reviewed_path"] = str(episode_path)
-                        reload_info = _reload_runtime_episode_index(self.server.runtime, episode_path)
-                _mark_wizard_stage(state, stage="go_live", note="Restored last published pointers.")
+                    if not episode_path.exists():
+                        return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"published set not found: {episode_path}"})
+                    state["last_compiled_reviewed_path"] = str(episode_path)
+                state["published_set"] = published_set if published_set else {
+                    "version_id": "",
+                    "episodes_path": restored_episodes,
+                    "snapshot_path": "",
+                    "store_fingerprint": "",
+                    "schema_version": None,
+                    "build_id": "",
+                    "episode_count": 0,
+                    "review_counts": {},
+                    "status": "published" if restored_episodes else "unpublished",
+                    "published_at": "",
+                }
+                state["verify"] = {"status": "Unknown", "checks": [], "actionable_links": [], "checked_at": "", "remap_required": False}
+                state["activation"] = _wizard_empty_activation_state()
+                _mark_wizard_stage(state, stage="publish", note="Restored last published set.")
+                _wizard_transition(state, stage="verify", note="Published set restored. Verification is required again.")
                 _save_wizard_state(state)
                 return _json_response(
                     self,
@@ -7346,48 +8778,448 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         "run_id": state.get("run_id"),
                         "restored_snapshot": snapshot if isinstance(snapshot, dict) else {},
                         "published_pointers": state.get("published_pointers"),
+                        "published_set": state.get("published_set"),
                         "remaining_snapshots": len(history),
-                        "reload": reload_info,
                     },
                 )
             except Exception as exc:
                 return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"restore failed: {exc}"})
-        if path == "/api/wizard/go-live":
+        if path in {"/api/wizard/go-live", "/api/wizard/activate/direct"}:
             try:
                 data = _read_json(self)
                 run_id = str(data.get("run_id") or "").strip() or None
                 state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
-                published = dict(state.get("published_pointers") or {})
-                if not str(published.get("store_path") or "").strip():
-                    published["store_path"] = str(state.get("store_path") or "")
-                if not str(published.get("episodes_path") or "").strip():
-                    published["episodes_path"] = str(state.get("last_compiled_reviewed_path") or "")
-                state["published_pointers"] = published
+                _wizard_require(state, action="activate_direct")
+                store_validation = dict(state.get("store_validation") or {})
+                store_path = Path(str(store_validation.get("path") or state.get("store_path") or "").strip()).expanduser().resolve()
+                episodes_path = Path(str((state.get("published_set") or {}).get("episodes_path") or state.get("last_compiled_reviewed_path") or "").strip()).expanduser().resolve()
+                activation_result = _wizard_activate_direct(
+                    self.server,
+                    store_path=store_path,
+                    episodes_path=episodes_path,
+                    store_validation=store_validation,
+                    artifact_mode="published",
+                    build_id=str((state.get("published_set") or {}).get("build_id") or ""),
+                )
                 provider_config = _provider_model_config(self.server)
-                _mark_wizard_stage(state, stage="go_live", note="Pipeline marked ready for live chat.")
+                state["activation"] = {
+                    **_wizard_empty_activation_state(),
+                    "direct": {
+                        "status": str(activation_result.get("status") or "running"),
+                        "checked_at": str((activation_result.get("binding") or {}).get("checked_at") or _utc_iso()),
+                        "store_fingerprint": str((activation_result.get("binding") or {}).get("store_fingerprint") or ""),
+                        "episodes_path": str((activation_result.get("binding") or {}).get("episodes_path") or ""),
+                        "runtime_url": str(activation_result.get("runtime_url") or ""),
+                        "issues": [],
+                        "lock": dict(activation_result.get("lock") or {}),
+                    },
+                    "mcp": dict((state.get("activation") or {}).get("mcp") or _wizard_empty_activation_state()["mcp"]),
+                    "developer_mode": bool((state.get("activation") or {}).get("developer_mode")),
+                    "draft_override": {},
+                }
+                _mark_wizard_stage(state, stage="activate", note="Direct runtime activation succeeded.")
+                _wizard_transition(state, stage="operate", note="Runtime is live and ready to operate.")
                 _save_wizard_state(state)
-                host_header = str(self.headers.get("Host") or "").strip()
-                if host_header:
-                    runtime_url = f"http://{host_header}/"
-                else:
-                    host, port = self.server.server_address
-                    runtime_url = f"http://{host}:{port}/"
                 return _json_response(
                     self,
                     HTTPStatus.OK,
                     {
                         "ok": True,
                         "run_id": state.get("run_id"),
-                        "runtime_url": runtime_url,
+                        "runtime_url": activation_result.get("runtime_url"),
                         "model_name": self.server.runtime.model_name,
                         "adapters": self.server.adapter_registry.names(),
                         "provider_config": provider_config,
                         "config_entrypoint": "/api/runtime/provider/config",
                         "published_pointers": state.get("published_pointers"),
+                        "activation": state.get("activation"),
                     },
                 )
             except Exception as exc:
                 return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"go-live failed: {exc}"})
+        if path == "/api/wizard/activate/developer-mode":
+            try:
+                data = _read_json(self)
+                run_id = str(data.get("run_id") or "").strip() or None
+                state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                enabled = bool(data.get("enabled"))
+                activation = dict(state.get("activation") or _wizard_empty_activation_state())
+                draft_override = dict(activation.get("draft_override") or {})
+                if not enabled and bool(draft_override.get("active")):
+                    return _json_response(
+                        self,
+                        HTTPStatus.CONFLICT,
+                        {"error": "draft runtime is active; reactivate the published set before turning developer mode off"},
+                    )
+                activation["developer_mode"] = enabled
+                state["activation"] = activation
+                _save_wizard_state(state)
+                return _json_response(self, HTTPStatus.OK, {"ok": True, "run_id": state.get("run_id"), "activation": activation})
+            except Exception as exc:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"developer mode update failed: {exc}"})
+        if path == "/api/wizard/activate/direct/draft":
+            try:
+                data = _read_json(self)
+                run_id = str(data.get("run_id") or "").strip() or None
+                state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                activation = dict(state.get("activation") or _wizard_empty_activation_state())
+                if not bool(activation.get("developer_mode")):
+                    return _json_response(self, HTTPStatus.CONFLICT, {"error": "enable developer mode before draft activation"})
+                verify_status = str((state.get("verify") or {}).get("status") or "Unknown")
+                if verify_status == "Blocked":
+                    return _json_response(self, HTTPStatus.CONFLICT, {"error": "blocked verification state cannot use draft activation"})
+                acknowledgement = bool(data.get("acknowledged"))
+                reason = str(data.get("reason") or "").strip()
+                operator = str(data.get("operator") or "local_developer").strip() or "local_developer"
+                if not acknowledgement or not reason:
+                    return _json_response(
+                        self,
+                        HTTPStatus.BAD_REQUEST,
+                        {"error": "draft activation requires acknowledgement=true and a non-empty reason"},
+                    )
+                build_info = dict(state.get("build_info") or {})
+                draft_path_raw = str(build_info.get("draft_path") or state.get("last_built_episode_draft_path") or "").strip()
+                if not draft_path_raw:
+                    return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "build draft episode cards before draft activation"})
+                draft_path = Path(draft_path_raw).expanduser().resolve()
+                _wizard_validate_episode_artifact(draft_path, mode="draft")
+                store_validation = dict(state.get("store_validation") or {})
+                if not bool(store_validation.get("is_valid")):
+                    return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "a valid MNO store is required before draft activation"})
+                store_path = Path(str(store_validation.get("path") or state.get("store_path") or "").strip()).expanduser().resolve()
+                activation_result = _wizard_activate_direct(
+                    self.server,
+                    store_path=store_path,
+                    episodes_path=draft_path,
+                    store_validation=store_validation,
+                    artifact_mode="draft",
+                    build_id=str(build_info.get("build_id") or ""),
+                )
+                provider_config = _provider_model_config(self.server)
+                draft_override = {
+                    "active": True,
+                    "label": "Unreviewed draft",
+                    "acknowledged": True,
+                    "reason": reason,
+                    "operator": operator,
+                    "target": "direct",
+                    "timestamp": _utc_iso(),
+                    "store_fingerprint": str(store_validation.get("store_fingerprint") or ""),
+                    "build_id": str(build_info.get("build_id") or ""),
+                    "episodes_path": str(draft_path),
+                }
+                state["activation"] = {
+                    **_wizard_empty_activation_state(),
+                    "direct": {
+                        "status": "draft_active",
+                        "checked_at": str((activation_result.get("binding") or {}).get("checked_at") or _utc_iso()),
+                        "store_fingerprint": str((activation_result.get("binding") or {}).get("store_fingerprint") or ""),
+                        "episodes_path": str((activation_result.get("binding") or {}).get("episodes_path") or ""),
+                        "runtime_url": str(activation_result.get("runtime_url") or ""),
+                        "issues": ["Unreviewed draft is active. This is unsafe local developer mode."],
+                        "lock": dict(activation_result.get("lock") or {}),
+                        "artifact_mode": "draft",
+                        "build_id": str(build_info.get("build_id") or ""),
+                    },
+                    "mcp": dict((state.get("activation") or {}).get("mcp") or _wizard_empty_activation_state()["mcp"]),
+                    "developer_mode": True,
+                    "draft_override": draft_override,
+                }
+                _mark_wizard_stage(state, stage="activate", note="Developer-only draft runtime activation succeeded.")
+                _wizard_transition(state, stage="operate", note="Draft runtime is live for local developer testing.")
+                _save_wizard_state(state)
+                return _json_response(
+                    self,
+                    HTTPStatus.OK,
+                    {
+                        "ok": True,
+                        "run_id": state.get("run_id"),
+                        "runtime_url": activation_result.get("runtime_url"),
+                        "model_name": self.server.runtime.model_name,
+                        "adapters": self.server.adapter_registry.names(),
+                        "provider_config": provider_config,
+                        "config_entrypoint": "/api/runtime/provider/config",
+                        "activation": state.get("activation"),
+                    },
+                )
+            except Exception as exc:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"draft activation failed: {exc}"})
+        if path == "/api/wizard/activate/status":
+            try:
+                data = _read_json(self)
+                run_id = str(data.get("run_id") or "").strip() or None
+                state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                activation = _wizard_activation_status(self.server, state)
+                panel = _wizard_connector_panel()
+                mcp_payload = _wizard_mcp_payload(state, data)
+                preview = panel.build_preview(mcp_payload)
+                targets_payload = _wizard_mcp_targets_payload(panel, mcp_payload)
+                target_statuses: dict[str, Any] = {}
+                for target, target_payload in targets_payload.items():
+                    existing = _wizard_mcp_existing_entry(
+                        target,
+                        {"config_path": target_payload.get("config_path"), "server_name": mcp_payload.get("server_name")},
+                        target_payload.get("entry") or {},
+                    )
+                    target_status = _wizard_mcp_status_for_target(
+                        state,
+                        target=target,
+                        existing=existing,
+                        expected_entry=target_payload.get("entry") or {},
+                    )
+                    target_status["install_context"] = target_payload.get("install_context")
+                    target_status["display"] = target_payload.get("display")
+                    target_statuses[target] = target_status
+                issues = [issue for row in target_statuses.values() for issue in list(row.get("issues") or []) if str(issue).strip()]
+                activation["mcp"] = {
+                    "status": "installed"
+                    if any(str(row.get("status") or "") == "installed" for row in target_statuses.values())
+                    else "not_installed",
+                    "checked_at": _utc_iso(),
+                    "issues": issues,
+                    "owned_targets": dict((state.get("activation") or {}).get("mcp", {}).get("owned_targets") or {}),
+                    "targets": target_statuses,
+                    "preview": {
+                        "server_name": preview.get("server_name"),
+                        "claude_code_scope": preview.get("claude_code_scope"),
+                        "default_role": preview.get("default_role"),
+                        "compat_mode": preview.get("compat_mode"),
+                    },
+                }
+                state["activation"] = activation
+                _save_wizard_state(state)
+                return _json_response(self, HTTPStatus.OK, {"ok": True, "run_id": state.get("run_id"), "activation": activation})
+            except Exception as exc:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"activation status failed: {exc}"})
+        if path == "/api/wizard/remap/status":
+            try:
+                data = _read_json(self)
+                run_id = str(data.get("run_id") or "").strip() or None
+                state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                remap = _wizard_remap_status_payload(state)
+                return _json_response(self, HTTPStatus.OK, {"ok": True, "run_id": state.get("run_id"), "remap": remap, "verify": state.get("verify")})
+            except Exception as exc:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"remap status failed: {exc}"})
+        if path == "/api/wizard/remap/apply":
+            try:
+                data = _read_json(self)
+                run_id = str(data.get("run_id") or "").strip() or None
+                target = str(data.get("target") or "").strip()
+                state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                replacement_path_raw = str(data.get("replacement_path") or "").strip()
+                if replacement_path_raw:
+                    replacement_path = Path(replacement_path_raw).expanduser().resolve()
+                else:
+                    file_name = Path(str(data.get("file_name") or "").strip()).name
+                    content_b64 = str(data.get("content_base64") or "").strip()
+                    if not file_name or not content_b64:
+                        return _json_response(
+                            self,
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "replacement_path or file_name + content_base64 are required"},
+                        )
+                    upload_root = RUNTIME_ROOT / "wizard_uploads" / str(state.get("run_id") or "unknown") / "remap" / target
+                    upload_root.mkdir(parents=True, exist_ok=True)
+                    replacement_path = (upload_root / file_name).resolve()
+                    if upload_root.resolve() not in replacement_path.parents and replacement_path != upload_root.resolve():
+                        return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "invalid remap upload target"})
+                    decoded = base64.b64decode(content_b64.encode("ascii"), validate=True)
+                    replacement_path.write_bytes(decoded)
+                result = _wizard_apply_remap_to_state(state, target=target, replacement_path=replacement_path)
+                state["verify"] = {"status": "Unknown", "checks": [], "actionable_links": [], "checked_at": "", "remap_required": False}
+                _mark_wizard_stage(state, stage=str(state.get("current_stage") or "import"), note=f"Remapped {target} artifact.")
+                _save_wizard_state(state)
+                remap = _wizard_remap_status_payload(state)
+                return _json_response(
+                    self,
+                    HTTPStatus.OK,
+                    {"ok": True, "run_id": state.get("run_id"), "result": result, "remap": remap, "state": state},
+                )
+            except Exception as exc:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"remap apply failed: {exc}"})
+        if path == "/api/wizard/reset":
+            try:
+                data = _read_json(self)
+                run_id = str(data.get("run_id") or "").strip() or None
+                stage = str(data.get("stage") or "").strip()
+                state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                _wizard_reset_state_to_stage(state, stage=stage, reason=f"Reset stale wizard state to {stage}.")
+                _save_wizard_state(state)
+                return _json_response(self, HTTPStatus.OK, {"ok": True, "run_id": state.get("run_id"), "state": state})
+            except Exception as exc:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"wizard reset failed: {exc}"})
+        if path == "/api/wizard/activate/direct/cleanup":
+            try:
+                data = _read_json(self)
+                run_id = str(data.get("run_id") or "").strip() or None
+                state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                cleanup = _wizard_repair_or_clear_runtime_lock(self.server, state)
+                activation = _wizard_activation_status(self.server, state)
+                state["activation"] = activation
+                _save_wizard_state(state)
+                return _json_response(
+                    self,
+                    HTTPStatus.OK,
+                    {"ok": True, "run_id": state.get("run_id"), "cleanup": cleanup, "activation": activation},
+                )
+            except Exception as exc:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"direct runtime cleanup failed: {exc}"})
+        if path in {"/api/wizard/activate/mcp/install", "/api/wizard/activate/mcp/remove", "/api/wizard/activate/mcp/export"}:
+            try:
+                from tools.mcp_connector_common import load_json_object
+
+                data = _read_json(self)
+                run_id = str(data.get("run_id") or "").strip() or None
+                target = str(data.get("target") or "claude_code").strip().lower() or "claude_code"
+                if target not in {"claude_code", "claude_desktop"} and path != "/api/wizard/activate/mcp/export":
+                    return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "target must be claude_code or claude_desktop"})
+                state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                panel = _wizard_connector_panel()
+                mcp_payload = _wizard_mcp_payload(state, data)
+                preview = panel.build_preview(mcp_payload)
+                targets_payload = _wizard_mcp_targets_payload(panel, mcp_payload)
+
+                if path == "/api/wizard/activate/mcp/export":
+                    _wizard_require(state, action="mcp_export")
+                    export_path_raw = str(data.get("export_path") or "").strip()
+                    if export_path_raw:
+                        export_result = panel.save_export_bundle(mcp_payload, export_path=export_path_raw)
+                    else:
+                        export_result = panel.export_bundle(mcp_payload)
+                    activation = _wizard_activation_status(self.server, state)
+                    activation["mcp"] = {
+                        "status": "export_ready",
+                        "checked_at": _utc_iso(),
+                        "issues": [],
+                        "owned_targets": dict((state.get("activation") or {}).get("mcp", {}).get("owned_targets") or {}),
+                    }
+                    state["activation"] = activation
+                    _save_wizard_state(state)
+                    return _json_response(
+                        self,
+                        HTTPStatus.OK,
+                        {"ok": True, "run_id": state.get("run_id"), "export": export_result, "activation": activation},
+                    )
+
+                target_payload = dict(targets_payload.get(target) or {})
+                expected_entry = dict(target_payload.get("entry") or {})
+                existing = _wizard_mcp_existing_entry(
+                    target,
+                    {"config_path": target_payload.get("config_path"), "server_name": mcp_payload.get("server_name")},
+                    expected_entry,
+                )
+                target_status = _wizard_mcp_status_for_target(state, target=target, existing=existing, expected_entry=expected_entry)
+                activation = _wizard_activation_status(self.server, state)
+                mcp_state = dict(activation.get("mcp") or {})
+                owned_targets = dict(mcp_state.get("owned_targets") or {})
+
+                if path == "/api/wizard/activate/mcp/remove":
+                    if target_status.get("ownership") not in {"app_owned", "adopted"}:
+                        return _json_response(
+                            self,
+                            HTTPStatus.CONFLICT,
+                            {
+                                "error": "cannot remove an MCP entry that is not app-owned or explicitly adopted",
+                                "target": target,
+                                "ownership": target_status,
+                            },
+                        )
+                    remove_result = panel.remove_claude_code(mcp_payload) if target == "claude_code" else panel.remove_claude_desktop(mcp_payload)
+                    owned_targets.pop(target, None)
+                    activation["mcp"] = {
+                        "status": "not_installed",
+                        "checked_at": _utc_iso(),
+                        "issues": [],
+                        "owned_targets": owned_targets,
+                    }
+                    state["activation"] = activation
+                    _save_wizard_state(state)
+                    return _json_response(
+                        self,
+                        HTTPStatus.OK,
+                        {"ok": True, "run_id": state.get("run_id"), "target": target, "result": remove_result, "activation": activation},
+                    )
+
+                _wizard_require(state, action="activate_mcp")
+                ownership_action = str(data.get("ownership_action") or "").strip().lower()
+                existing_entry = dict(existing.get("existing_entry") or {})
+                if target_status.get("ownership") == "unknown":
+                    if ownership_action == "cancel" or not ownership_action:
+                        return _json_response(
+                            self,
+                            HTTPStatus.CONFLICT,
+                            {"error": "unknown mcp ownership", "target": target, "ownership": target_status},
+                        )
+                    if ownership_action == "adopt":
+                        if existing_entry != expected_entry:
+                            return _json_response(
+                                self,
+                                HTTPStatus.CONFLICT,
+                                {
+                                    "error": "cannot adopt an incompatible MCP entry; use overwrite or cancel",
+                                    "target": target,
+                                    "ownership": target_status,
+                                },
+                            )
+                        handshake = _wizard_mcp_handshake(existing_entry)
+                        owned_targets[target] = str(mcp_payload.get("server_name") or "")
+                        activation["mcp"] = {
+                            "status": "installed",
+                            "checked_at": _utc_iso(),
+                            "issues": [],
+                            "owned_targets": owned_targets,
+                            "last_handshake": handshake,
+                        }
+                        state["activation"] = activation
+                        _save_wizard_state(state)
+                        return _json_response(
+                            self,
+                            HTTPStatus.OK,
+                            {"ok": True, "run_id": state.get("run_id"), "target": target, "ownership": "adopted", "handshake": handshake, "activation": activation},
+                        )
+                    if ownership_action != "overwrite":
+                        return _json_response(
+                            self,
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "ownership_action must be adopt, overwrite, or cancel", "target": target},
+                        )
+
+                config_path_raw = str(target_payload.get("config_path") or "").strip()
+                config_path = Path(config_path_raw).expanduser().resolve() if config_path_raw else None
+                previous_config = load_json_object(config_path) if config_path is not None and config_path.exists() else {}
+                install_result = panel.install_claude_code(mcp_payload) if target == "claude_code" else panel.install_claude_desktop(mcp_payload)
+                try:
+                    handshake = _wizard_mcp_handshake(expected_entry)
+                except Exception as exc:
+                    if config_path is not None:
+                        _wizard_restore_json_config(config_path, previous_config)
+                    raise RuntimeError(f"MCP handshake failed after install and the config was rolled back: {exc}") from exc
+                owned_targets[target] = str(mcp_payload.get("server_name") or "")
+                activation["mcp"] = {
+                    "status": "installed",
+                    "checked_at": _utc_iso(),
+                    "issues": [],
+                    "owned_targets": owned_targets,
+                    "last_handshake": handshake,
+                }
+                state["activation"] = activation
+                _mark_wizard_stage(state, stage="activate", note=f"MCP activation installed for {target}.")
+                _wizard_transition(state, stage="operate", note="Activation targets are ready to use.")
+                _save_wizard_state(state)
+                return _json_response(
+                    self,
+                    HTTPStatus.OK,
+                    {
+                        "ok": True,
+                        "run_id": state.get("run_id"),
+                        "target": target,
+                        "result": install_result,
+                        "handshake": handshake,
+                        "activation": activation,
+                    },
+                )
+            except Exception as exc:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"mcp activation failed: {exc}"})
         if path == "/api/runtime/writeback/policy":
             try:
                 data = _read_json(self)
@@ -7969,8 +9801,16 @@ class RuntimeHTTPServer(ThreadingHTTPServer):
         _quicknote_persist_state(self)
         self.methodology_lock = threading.Lock()
         self.methodology_state_path = str(Path(str(METHODOLOGY_STATE_PATH)).resolve())
+        Path(self.methodology_state_path).parent.mkdir(parents=True, exist_ok=True)
         self.methodology_state = load_methodology_state(Path(self.methodology_state_path))
         persist_methodology_state(Path(self.methodology_state_path), self.methodology_state)
+        self.active_runtime_lock: dict[str, Any] = {}
+        self.active_runtime_binding = {
+            "store_path": "",
+            "store_fingerprint": _wizard_runtime_store_fingerprint(runtime),
+            "episodes_path": str(getattr(runtime, "episode_cards_path", "") or ""),
+            "checked_at": _utc_iso(),
+        }
 def start_runtime_server(
     runtime: RuntimeSession,
     *,
@@ -7995,6 +9835,7 @@ def stop_runtime_server(
 ) -> None:
     """Best-effort runtime server shutdown that avoids orphaned server threads."""
 
+    _wizard_release_runtime_lock(server)
     server.shutdown()
     server.server_close()
     if thread is not None and thread.is_alive():

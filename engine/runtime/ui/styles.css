@@ -157,26 +157,37 @@ body.simple-mode .trace-column {
 }
 
 .wizard-shell {
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--line);
+  padding: 16px;
+  border-bottom: 1px solid rgba(24, 41, 56, 0.16);
   background:
-    radial-gradient(560px 220px at 4% 0%, rgba(201, 122, 50, 0.16), transparent 68%),
-    radial-gradient(560px 220px at 96% 0%, rgba(47, 125, 131, 0.16), transparent 68%),
-    rgba(255, 255, 255, 0.84);
+    radial-gradient(580px 240px at 0% 0%, rgba(198, 139, 58, 0.18), transparent 68%),
+    radial-gradient(580px 260px at 100% 0%, rgba(42, 106, 126, 0.18), transparent 70%),
+    linear-gradient(180deg, rgba(13, 23, 36, 0.96), rgba(18, 33, 51, 0.94));
   display: grid;
-  gap: 10px;
+  gap: 14px;
+  color: #e8eef6;
 }
 
 .wizard-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
 }
 
 .wizard-head h2 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 1.25rem;
+  letter-spacing: 0.02em;
+  color: #f7fbff;
+}
+
+.wizard-kicker {
+  margin: 0 0 4px;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(224, 189, 122, 0.92);
 }
 
 .wizard-head-actions {
@@ -186,56 +197,66 @@ body.simple-mode .trace-column {
 }
 
 .wizard-run-meta {
-  font-family: "Courier New", Courier, monospace;
-  font-size: 0.72rem;
-  color: var(--text-1);
+  font-family: "IBM Plex Mono", "Courier New", Courier, monospace;
+  font-size: 0.74rem;
+  color: rgba(216, 228, 241, 0.78);
 }
 
 .wizard-stage-rail {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
 }
 
 .wizard-stage {
-  min-height: 24px;
-  display: inline-flex;
+  min-height: 44px;
+  display: flex;
   align-items: center;
-  border-radius: 999px;
-  border: 1px solid rgba(32, 45, 52, 0.18);
-  padding: 0 10px;
-  font-family: "Courier New", Courier, monospace;
-  font-size: 0.67rem;
-  letter-spacing: 0.05em;
+  justify-content: center;
+  border-radius: 14px;
+  border: 1px solid rgba(130, 167, 206, 0.18);
+  padding: 0 12px;
+  font-family: "IBM Plex Mono", "Courier New", Courier, monospace;
+  font-size: 0.69rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-1);
-  background: rgba(255, 255, 255, 0.7);
+  color: rgba(219, 230, 243, 0.82);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .wizard-stage.current {
-  border-color: rgba(47, 125, 131, 0.6);
-  color: #12343a;
-  background: rgba(223, 246, 247, 0.84);
+  border-color: rgba(226, 182, 104, 0.72);
+  color: #fff8ea;
+  background: linear-gradient(180deg, rgba(197, 142, 58, 0.28), rgba(197, 142, 58, 0.12));
+  box-shadow: 0 0 0 1px rgba(226, 182, 104, 0.08), 0 16px 28px rgba(6, 11, 18, 0.22);
 }
 
 .wizard-stage.done {
-  border-color: rgba(59, 115, 79, 0.45);
-  color: #1d4a2a;
-  background: rgba(223, 242, 230, 0.88);
+  border-color: rgba(77, 164, 140, 0.45);
+  color: #dff6ee;
+  background: rgba(65, 131, 111, 0.22);
 }
 
 .wizard-grid {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .wizard-card {
-  border: 1px solid rgba(32, 45, 52, 0.14);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
+  grid-column: span 6;
+  border: 1px solid rgba(138, 171, 209, 0.12);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(19, 33, 50, 0.9), rgba(12, 22, 35, 0.92));
+  padding: 14px;
   display: grid;
-  gap: 8px;
+  gap: 10px;
+  box-shadow: 0 22px 42px rgba(5, 9, 14, 0.18);
+}
+
+.wizard-card-entry,
+.wizard-card-activate {
+  grid-column: span 12;
 }
 
 .wizard-card-head {
@@ -247,15 +268,23 @@ body.simple-mode .trace-column {
 
 .wizard-card-head h3 {
   margin: 0;
-  font-size: 0.88rem;
+  font-size: 1rem;
+  color: #f4f7fb;
 }
 
 .wizard-step {
-  font-family: "Courier New", Courier, monospace;
+  font-family: "IBM Plex Mono", "Courier New", Courier, monospace;
   font-size: 0.66rem;
-  color: var(--text-1);
-  letter-spacing: 0.06em;
+  color: rgba(205, 217, 231, 0.68);
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.wizard-card-copy {
+  margin: 0;
+  color: rgba(217, 228, 241, 0.74);
+  line-height: 1.45;
+  font-size: 0.86rem;
 }
 
 .wizard-inline-actions {
@@ -264,33 +293,130 @@ body.simple-mode .trace-column {
   gap: 8px;
 }
 
+.wizard-inline-actions-tight {
+  gap: 6px;
+}
+
 .wizard-card-result {
-  border: 1px dashed rgba(32, 45, 52, 0.18);
-  border-radius: 10px;
-  padding: 8px;
-  font-family: "Courier New", Courier, monospace;
+  border: 1px dashed rgba(142, 174, 212, 0.18);
+  border-radius: 14px;
+  padding: 10px;
+  font-family: "IBM Plex Mono", "Courier New", Courier, monospace;
   font-size: 0.72rem;
   line-height: 1.4;
-  color: var(--text-1);
-  background: rgba(248, 246, 239, 0.9);
+  color: rgba(224, 233, 244, 0.88);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.wizard-recovery-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.wizard-remap-item {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(226, 182, 104, 0.34);
+  background: rgba(155, 122, 50, 0.08);
+}
+
+.wizard-remap-item header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
 }
 
 .wizard-action-link {
   display: inline-flex;
   align-items: center;
   min-height: 26px;
-  border: 1px solid rgba(47, 125, 131, 0.35);
+  border: 1px solid rgba(89, 167, 186, 0.35);
   border-radius: 999px;
   padding: 0 10px;
   margin: 2px 6px 2px 0;
-  color: #15474d;
+  color: #d9f4fb;
   text-decoration: none;
-  background: rgba(223, 246, 247, 0.82);
+  background: rgba(49, 101, 121, 0.3);
 }
 
 .wizard-action-link:hover {
-  border-color: rgba(47, 125, 131, 0.6);
-  background: rgba(207, 239, 241, 0.96);
+  border-color: rgba(89, 167, 186, 0.6);
+  background: rgba(49, 101, 121, 0.46);
+}
+
+.wizard-hidden-input,
+.wizard-file-input {
+  display: none;
+}
+
+.wizard-entry-lanes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wizard-lane {
+  min-width: 180px;
+}
+
+.wizard-lane.active {
+  border-color: rgba(226, 182, 104, 0.72);
+  background: rgba(196, 142, 58, 0.16);
+  color: #fff7e8;
+}
+
+.wizard-lane-panel {
+  display: none;
+  gap: 10px;
+}
+
+.wizard-lane-panel.active {
+  display: grid;
+}
+
+.wizard-file-picker,
+.wizard-field-block {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(138, 171, 209, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+}
+
+.wizard-file-picker span,
+.wizard-field-block span {
+  font-weight: 600;
+  color: #f3f6fa;
+}
+
+.wizard-file-picker small {
+  color: rgba(217, 228, 241, 0.68);
+  line-height: 1.45;
+}
+
+.wizard-advanced {
+  border: 1px solid rgba(138, 171, 209, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px 12px;
+}
+
+.wizard-advanced summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #f4f7fb;
+}
+
+.wizard-advanced-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .wizard-review-controls {
@@ -299,40 +425,42 @@ body.simple-mode .trace-column {
 }
 
 .wizard-review-list {
-  border: 1px solid rgba(32, 45, 52, 0.14);
-  border-radius: 10px;
+  border: 1px solid rgba(138, 171, 209, 0.14);
+  border-radius: 14px;
   padding: 8px;
-  background: rgba(255, 255, 255, 0.85);
-  max-height: 220px;
+  background: rgba(255, 255, 255, 0.03);
+  max-height: 280px;
   overflow: auto;
   display: grid;
   gap: 8px;
 }
 
 .wizard-review-item {
-  border: 1px solid rgba(32, 45, 52, 0.14);
-  border-radius: 10px;
-  padding: 8px;
-  background: #fff;
+  border: 1px solid rgba(138, 171, 209, 0.12);
+  border-radius: 14px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .wizard-review-top {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  font-family: "Courier New", Courier, monospace;
+  font-family: "IBM Plex Mono", "Courier New", Courier, monospace;
   font-size: 0.7rem;
+  color: rgba(214, 226, 240, 0.82);
 }
 
 .wizard-review-title {
   margin-top: 4px;
   font-size: 0.84rem;
+  color: #f3f7fb;
 }
 
 .wizard-review-summary {
   margin-top: 4px;
   font-size: 0.77rem;
-  color: var(--text-1);
+  color: rgba(214, 226, 240, 0.76);
   line-height: 1.35;
 }
 
@@ -347,6 +475,52 @@ body.simple-mode .trace-column {
   min-height: 30px;
   padding: 0 11px;
   font-size: 0.68rem;
+}
+
+.wizard-activation-status,
+.wizard-activation-targets {
+  display: grid;
+  gap: 10px;
+}
+
+.wizard-activation-targets {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.wizard-activation-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(138, 171, 209, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.wizard-activation-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.wizard-activation-card.running,
+.wizard-activation-card.installed {
+  border-color: rgba(94, 181, 152, 0.42);
+}
+
+.wizard-activation-card.draft_active {
+  border-color: rgba(197, 118, 52, 0.5);
+  background: rgba(197, 118, 52, 0.08);
+}
+
+.wizard-activation-card.stale_config,
+.wizard-activation-card.needs_attention {
+  border-color: rgba(226, 182, 104, 0.45);
+}
+
+.wizard-activation-card.not_active,
+.wizard-activation-card.not_installed {
+  border-color: rgba(138, 171, 209, 0.12);
 }
 
 .why-shell,
@@ -820,6 +994,26 @@ body.simple-mode .trace-column {
 .btn.ghost {
   background: transparent;
   color: var(--text-0);
+}
+
+.btn.danger {
+  background: linear-gradient(180deg, rgba(155, 58, 47, 0.96), rgba(118, 42, 33, 0.96));
+  border-color: rgba(155, 58, 47, 0.55);
+  color: #fff7f5;
+}
+
+.wizard-danger-zone {
+  border-style: solid;
+  border-color: rgba(155, 58, 47, 0.35);
+  background: rgba(155, 58, 47, 0.08);
+}
+
+.wizard-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+  color: rgba(243, 247, 251, 0.92);
 }
 
 .trace-panel {
@@ -1447,13 +1641,20 @@ body.simple-mode .trace-column {
     justify-content: flex-start;
   }
 
+  .wizard-stage-rail,
+  .wizard-grid,
+  .wizard-activation-targets {
+    grid-template-columns: 1fr;
+  }
+
   .wizard-inline-actions,
   .proposal-create-actions {
     flex-direction: column;
   }
 
   .wizard-inline-actions .btn,
-  .proposal-create-actions .btn {
+  .proposal-create-actions .btn,
+  .wizard-lane {
     width: 100%;
   }
 
@@ -1503,15 +1704,6 @@ body.simple-mode .trace-column {
   .layout {
     grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
     align-items: start;
-  }
-
-  .wizard-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .wizard-card:nth-child(3),
-  .wizard-card:nth-child(4) {
-    grid-column: span 2;
   }
 
   .memory-controls {

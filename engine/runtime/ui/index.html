@@ -426,15 +426,50 @@
               <div class="memory-graph-head">
                 <h4>Memory map</h4>
                 <div class="memory-graph-actions">
-                  <button id="btnMemoryGraphFocus" class="btn ghost" type="button">Focus selected</button>
+                  <button id="btnMemoryGraphFocus" class="btn ghost" type="button">Use selected</button>
                   <button id="btnMemoryGraphRefresh" class="btn ghost" type="button">Reload map</button>
                 </div>
               </div>
-              <div id="memoryGraphMeta" class="memory-graph-meta">Map loads from current card filters.</div>
-              <div class="memory-graph-wrap">
-                <svg id="memoryGraphSvg" class="memory-graph-canvas" viewBox="0 0 1000 540" role="img" aria-label="Memory graph visualization"></svg>
+              <div id="memoryGraphMeta" class="memory-graph-meta">Map loads from current card filters. Local graph follows the selected node.</div>
+              <div class="memory-graph-grid">
+                <div class="memory-graph-overview">
+                  <div class="memory-graph-wrap">
+                    <svg id="memoryGraphSvg" class="memory-graph-canvas" viewBox="0 0 1000 540" role="img" aria-label="Memory graph overview visualization"></svg>
+                  </div>
+                  <div id="memoryGraphDetail" class="memory-graph-detail empty">Select a map node to inspect quick graph details.</div>
+                </div>
+                <aside class="memory-neighborhood-panel" aria-label="Selected memory neighborhood explorer">
+                  <div class="memory-neighborhood-head">
+                    <div>
+                      <h5>Selected neighborhood</h5>
+                      <p class="memory-neighborhood-hint">Bounded local graph for the selected card or map node.</p>
+                    </div>
+                    <div class="memory-neighborhood-controls">
+                      <label class="memory-neighborhood-control" for="memoryNeighborhoodDepth">
+                        <span>Reach</span>
+                        <select id="memoryNeighborhoodDepth" class="input" aria-label="Neighborhood depth">
+                          <option value="1">1 hop</option>
+                          <option value="2">2 hops</option>
+                        </select>
+                      </label>
+                      <label class="toggle memory-neighborhood-toggle">
+                        <input id="memoryNeighborhoodShared" type="checkbox" />
+                        <span>Include shared language</span>
+                      </label>
+                      <button id="btnMemoryNeighborhoodRefresh" class="btn ghost" type="button">Reload local graph</button>
+                    </div>
+                  </div>
+                  <div id="memoryNeighborhoodMeta" class="memory-neighborhood-meta" aria-live="polite">
+                    Pick a node or card to load a bounded local graph.
+                  </div>
+                  <div class="memory-graph-wrap neighborhood">
+                    <svg id="memoryNeighborhoodSvg" class="memory-graph-canvas memory-neighborhood-canvas" viewBox="0 0 1000 540" role="img" aria-label="Selected memory neighborhood visualization"></svg>
+                  </div>
+                  <div id="memoryNeighborhoodList" class="memory-neighborhood-list empty" aria-live="polite">
+                    Local graph notes appear here after you select a node.
+                  </div>
+                </aside>
               </div>
-              <div id="memoryGraphDetail" class="memory-graph-detail empty">Select a map node to inspect quick graph details.</div>
             </section>
             <div class="proposal-head">
               <h3>Proposal Inbox</h3>

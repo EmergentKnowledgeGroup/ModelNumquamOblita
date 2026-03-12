@@ -1518,12 +1518,28 @@ body.simple-mode .wizard-danger-zone {
   color: var(--text-1);
 }
 
-.memory-graph-wrap {
+.memory-graph-grid {
   margin-top: 8px;
+  display: grid;
+  gap: 10px;
+}
+
+.memory-graph-overview {
+  display: grid;
+  gap: 8px;
+}
+
+.memory-graph-wrap {
   border: 1px solid rgb(32 45 52 / 0.16);
   border-radius: 10px;
   background: rgb(247 245 239 / 0.9);
   overflow: hidden;
+}
+
+.memory-graph-wrap.neighborhood {
+  background:
+    radial-gradient(300px 150px at 50% 0%, rgb(47 125 131 / 0.12), transparent 68%),
+    linear-gradient(180deg, rgb(247 245 239 / 0.92), rgb(255 255 255 / 0.96));
 }
 
 .memory-graph-canvas {
@@ -1531,6 +1547,68 @@ body.simple-mode .wizard-danger-zone {
   min-height: 220px;
   height: clamp(220px, 28vw, 300px);
   display: block;
+}
+
+.memory-neighborhood-canvas {
+  height: clamp(240px, 34vw, 360px);
+}
+
+.memory-neighborhood-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgb(32 45 52 / 0.14);
+  border-radius: 12px;
+  background:
+    radial-gradient(260px 140px at 0% 0%, rgb(201 122 50 / 0.08), transparent 72%),
+    radial-gradient(320px 160px at 100% 0%, rgb(47 125 131 / 0.1), transparent 68%),
+    rgb(255 255 255 / 0.78);
+}
+
+.memory-neighborhood-head {
+  display: grid;
+  gap: 8px;
+}
+
+.memory-neighborhood-head h5 {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.memory-neighborhood-hint {
+  margin: 0.2rem 0 0;
+  color: var(--text-1);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.memory-neighborhood-controls {
+  display: grid;
+  gap: 8px;
+}
+
+.memory-neighborhood-control {
+  display: grid;
+  gap: 0.35rem;
+  font-family: "Courier New", Courier, monospace;
+}
+
+.memory-neighborhood-control span {
+  font-size: 0.67rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-1);
+}
+
+.memory-neighborhood-toggle {
+  min-height: 44px;
+}
+
+.memory-neighborhood-meta {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--text-1);
 }
 
 .graph-link {
@@ -1578,6 +1656,16 @@ body.simple-mode .wizard-danger-zone {
   stroke-width: 2.2;
 }
 
+.graph-node.is-root circle {
+  fill: rgb(255 246 229 / 0.98);
+  stroke: rgb(201 122 50 / 0.92);
+  stroke-width: 2.6;
+}
+
+.graph-node.distance-2 circle {
+  stroke-dasharray: 4 2;
+}
+
 .graph-node text {
   fill: #14232b;
   font-family: "Courier New", Courier, monospace;
@@ -1603,6 +1691,87 @@ body.simple-mode .wizard-danger-zone {
   margin-top: 4px;
   font-family: "Courier New", Courier, monospace;
   font-size: 0.72rem;
+  color: var(--text-1);
+}
+
+.memory-neighborhood-list {
+  border: 1px solid rgb(32 45 52 / 0.14);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.84);
+  padding: 8px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.memory-neighborhood-list.empty {
+  color: var(--text-1);
+}
+
+.memory-neighborhood-root {
+  display: grid;
+  gap: 0.35rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px dashed rgb(32 45 52 / 0.18);
+}
+
+.memory-neighborhood-root-label {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.67rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-1);
+}
+
+.memory-neighborhood-list-head {
+  margin-top: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.71rem;
+  color: var(--text-1);
+}
+
+.memory-neighborhood-row {
+  margin-top: 0.6rem;
+  width: 100%;
+  min-height: 44px;
+  cursor: pointer;
+  border: 1px solid rgb(32 45 52 / 0.14);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.96);
+  padding: 0.7rem;
+  display: grid;
+  gap: 0.35rem;
+  text-align: left;
+}
+
+.memory-neighborhood-row:hover,
+.memory-neighborhood-row:focus-visible {
+  cursor: pointer;
+  border-color: rgb(47 125 131 / 0.62);
+  outline: 0;
+}
+
+.memory-neighborhood-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.72rem;
+}
+
+.memory-neighborhood-row-body {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--text-0);
+}
+
+.memory-neighborhood-row-meta {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.69rem;
   color: var(--text-1);
 }
 
@@ -1769,6 +1938,15 @@ body.simple-mode .wizard-danger-zone {
     justify-content: flex-end;
   }
 
+  .memory-neighborhood-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .memory-neighborhood-row-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .composer-actions {
     flex-direction: column;
     align-items: stretch;
@@ -1823,6 +2001,16 @@ body.simple-mode .wizard-danger-zone {
 
   .settings-grid {
     grid-template-columns: 180px minmax(0, 1fr) 160px;
+    align-items: end;
+  }
+
+  .memory-graph-grid {
+    grid-template-columns: minmax(0, 1.12fr) minmax(300px, 0.88fr);
+    align-items: start;
+  }
+
+  .memory-neighborhood-controls {
+    grid-template-columns: 140px minmax(0, 1fr) auto;
     align-items: end;
   }
 

@@ -12,6 +12,21 @@ const state = {
   memoryGraph: { nodes: [], links: [], total: 0, truncated: false, snapshotAvailable: true },
   memoryGraphRequestSeq: 0,
   selectedGraphAtomId: null,
+  memoryNeighborhood: {
+    root: null,
+    neighbors: [],
+    links: [],
+    depth: 1,
+    includeSharedLanguage: false,
+    nodeLimit: 18,
+    linkLimit: 36,
+    requestsUsed: 0,
+    truncated: false,
+    truncation: null,
+    loading: false,
+    error: null,
+  },
+  memoryNeighborhoodRequestSeq: 0,
   proposals: [],
   proposalsStatus: "ok",
   proposalBusyId: null,
@@ -102,8 +117,14 @@ const els = {
   memoryGraphMeta: document.getElementById("memoryGraphMeta"),
   memoryGraphSvg: document.getElementById("memoryGraphSvg"),
   memoryGraphDetail: document.getElementById("memoryGraphDetail"),
+  memoryNeighborhoodMeta: document.getElementById("memoryNeighborhoodMeta"),
+  memoryNeighborhoodSvg: document.getElementById("memoryNeighborhoodSvg"),
+  memoryNeighborhoodList: document.getElementById("memoryNeighborhoodList"),
+  memoryNeighborhoodDepth: document.getElementById("memoryNeighborhoodDepth"),
+  memoryNeighborhoodShared: document.getElementById("memoryNeighborhoodShared"),
   btnMemoryGraphRefresh: document.getElementById("btnMemoryGraphRefresh"),
   btnMemoryGraphFocus: document.getElementById("btnMemoryGraphFocus"),
+  btnMemoryNeighborhoodRefresh: document.getElementById("btnMemoryNeighborhoodRefresh"),
   proposalList: document.getElementById("proposalList"),
   btnMemoryRefresh: document.getElementById("btnMemoryRefresh"),
   btnProposalRefresh: document.getElementById("btnProposalRefresh"),
@@ -928,6 +949,21 @@ function summarizeGraphNode(node) {
   return text.length > 20 ? `${text.slice(0, 20).trim()}…` : text;
 }
 
+function graphCssToken(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replaceAll("_", "-")
+    .replace(/[^a-z0-9-]/g, "-");
+}
+
+function graphEdgeLabel(value) {
+  const raw = String(value || "link").trim();
+  if (!raw) {
+    return "link";
+  }
+  return raw.replaceAll("_", " ");
+}
+
 function splitGraphComponents(nodes, links) {
   const adjacency = new Map();
   for (const node of nodes) {
@@ -1001,6 +1037,36 @@ function computeGraphLayout(nodes, links, width, height) {
   return layout;
 }
 
+function computeNeighborhoodLayout(rootId, nodes, width, height) {
+  const safeWidth = Math.max(320, Number(width || 1000));
+  const safeHeight = Math.max(260, Number(height || 540));
+  const centerX = safeWidth * 0.5;
+  const centerY = safeHeight * 0.48;
+  const layout = new Map();
+  if (!nodes.length) {
+    return layout;
+  }
+  layout.set(String(rootId), { x: centerX, y: centerY });
+  const depthOne = nodes.filter((node) => Number(node.distance || 1) <= 1 && String(node.atom_id) !== String(rootId));
+  const depthTwo = nodes.filter((node) => Number(node.distance || 1) > 1 && String(node.atom_id) !== String(rootId));
+  const rings = [
+    { rows: depthOne, radius: Math.max(68, Math.min(safeWidth, safeHeight) * 0.24) },
+    { rows: depthTwo, radius: Math.max(120, Math.min(safeWidth, safeHeight) * 0.38) },
+  ];
+  for (const ring of rings) {
+    ring.rows.forEach((node, index) => {
+      const angle = (-Math.PI / 2) + ((Math.PI * 2 * index) / Math.max(1, ring.rows.length));
+      const x = centerX + ring.radius * Math.cos(angle);
+      const y = centerY + ring.radius * Math.sin(angle);
+      layout.set(String(node.atom_id), {
+        x: Math.max(18, Math.min(safeWidth - 18, x)),
+        y: Math.max(18, Math.min(safeHeight - 18, y)),
+      });
+    });
+  }
+  return layout;
+}
+
 function renderMemoryGraphDetail() {
   if (!els.memoryGraphDetail) {
     return;
@@ -1027,6 +1093,170 @@ function renderMemoryGraphDetail() {
     `<div>${escapeHtml(String(node.summary || ""))}</div>` +
     `<div class="meta">kind=${escapeHtml(String(node.kind || "-"))} status=${escapeHtml(String(node.status || "-"))} confidence=${Number(node.confidence || 0).toFixed(2)}</div>` +
     `<div class="meta">degree=${Number(node.degree || linked.length)} links=${linked.length} link_types=${escapeHtml(kinds.join(", ") || "none")}</div>`;
+}
+
+function neighborhoodGraphNodes() {
+  const payload = state.memoryNeighborhood || {};
+  const root = payload.root && typeof payload.root === "object" ? payload.root : null;
+  const neighbors = Array.isArray(payload.neighbors) ? payload.neighbors : [];
+  if (!root) {
+    return [];
+  }
+  return [{ ...root, distance: 0 }, ...neighbors];
+}
+
+function renderMemoryNeighborhood() {
+  if (!els.memoryNeighborhoodMeta || !els.memoryNeighborhoodSvg || !els.memoryNeighborhoodList) {
+    return;
+  }
+  const selectedId = String(state.selectedGraphAtomId || "").trim();
+  const payload = state.memoryNeighborhood || {};
+  const root = payload.root && typeof payload.root === "object" ? payload.root : null;
+  const neighbors = Array.isArray(payload.neighbors) ? payload.neighbors : [];
+  const links = Array.isArray(payload.links) ? payload.links : [];
+  const truncation = payload.truncation && typeof payload.truncation === "object" ? payload.truncation : {};
+  const truncationFlags = [
+    truncation.node_limit_hit ? "node limit" : "",
+    truncation.link_limit_hit ? "link limit" : "",
+    truncation.request_budget_hit ? "request budget" : "",
+    truncation.dropped_shared_language ? "shared language dropped" : "",
+  ].filter(Boolean);
+
+  if (!selectedId) {
+    els.memoryNeighborhoodMeta.textContent = "Pick a node or card to load a bounded local graph.";
+    els.memoryNeighborhoodSvg.innerHTML =
+      '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#5a6972" font-family="Courier New, Courier, monospace" font-size="13">No local graph root selected yet.</text>';
+    els.memoryNeighborhoodList.classList.add("empty");
+    els.memoryNeighborhoodList.textContent = "Select a card or map node to inspect local neighbors.";
+    return;
+  }
+  if (payload.loading) {
+    els.memoryNeighborhoodMeta.textContent = "Loading local graph around the selected node.";
+    els.memoryNeighborhoodSvg.innerHTML =
+      '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#5a6972" font-family="Courier New, Courier, monospace" font-size="13">Loading bounded neighborhood…</text>';
+    els.memoryNeighborhoodList.classList.add("empty");
+    els.memoryNeighborhoodList.textContent = "Pulling local graph details from the native endpoint.";
+    return;
+  }
+  if (payload.error) {
+    els.memoryNeighborhoodMeta.textContent = "Local graph could not be loaded.";
+    els.memoryNeighborhoodSvg.innerHTML =
+      '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#9b3a2f" font-family="Courier New, Courier, monospace" font-size="13">Local graph unavailable for the current selection.</text>';
+    els.memoryNeighborhoodList.classList.add("empty");
+    els.memoryNeighborhoodList.textContent = String(payload.error);
+    return;
+  }
+  if (!root) {
+    els.memoryNeighborhoodMeta.textContent = "Select a graph node to inspect local links.";
+    els.memoryNeighborhoodSvg.innerHTML =
+      '<text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#5a6972" font-family="Courier New, Courier, monospace" font-size="13">No local graph payload available.</text>';
+    els.memoryNeighborhoodList.classList.add("empty");
+    els.memoryNeighborhoodList.textContent = "Select a graph node to load bounded neighborhood results.";
+    return;
+  }
+
+  const nodes = neighborhoodGraphNodes();
+  const viewBox = els.memoryNeighborhoodSvg.viewBox.baseVal;
+  const width = Number(viewBox?.width || 1000);
+  const height = Number(viewBox?.height || 540);
+  const rootId = String(root.atom_id || selectedId);
+  const layout = computeNeighborhoodLayout(rootId, nodes, width, height);
+  const nodeById = new Map(nodes.map((item) => [String(item.atom_id), item]));
+
+  els.memoryNeighborhoodMeta.textContent =
+    `${neighbors.length} local nodes • ${links.length} links • depth ${Number(payload.depth || 1)} • requests ${Number(payload.requestsUsed || 0)}` +
+    `${payload.truncated ? ` • truncated: ${truncationFlags.join(", ") || "yes"}` : ""}`;
+
+  const linkSvg = links
+    .map((link) => {
+      const source = layout.get(String(link.source || ""));
+      const target = layout.get(String(link.target || ""));
+      if (!source || !target) {
+        return "";
+      }
+      return `<line class="graph-link kind-${escapeHtml(graphCssToken(link.kind || "link"))}" x1="${source.x.toFixed(2)}" y1="${source.y.toFixed(2)}" x2="${target.x.toFixed(2)}" y2="${target.y.toFixed(2)}"></line>`;
+    })
+    .join("");
+
+  const nodeSvg = nodes
+    .map((node) => {
+      const atomId = String(node.atom_id || "");
+      const point = layout.get(atomId);
+      if (!point) {
+        return "";
+      }
+      const radius = atomId === rootId ? 16 : 7 + Math.min(5, Number(node.distance || 1));
+      const classes = [
+        "graph-node",
+        atomId === rootId ? "is-root" : "",
+        atomId === selectedId ? "selected" : "",
+        `kind-${graphCssToken(node.kind || "")}`,
+        `status-${graphCssToken(node.status || "")}`,
+        atomId === rootId ? "" : `distance-${Math.min(2, Math.max(1, Number(node.distance || 1)))}`,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const label = atomId === rootId ? "root" : summarizeGraphNode(node);
+      return (
+        `<g class="${classes}" data-neighbor-atom-id="${escapeHtml(atomId)}">` +
+        `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="${radius.toFixed(2)}"></circle>` +
+        `<text x="${(point.x + radius + 5).toFixed(2)}" y="${(point.y + 3).toFixed(2)}">${escapeHtml(label)}</text>` +
+        `</g>`
+      );
+    })
+    .join("");
+  els.memoryNeighborhoodSvg.innerHTML = `${linkSvg}${nodeSvg}`;
+  for (const item of els.memoryNeighborhoodSvg.querySelectorAll("[data-neighbor-atom-id]")) {
+    item.addEventListener("click", () => {
+      const atomId = String(item.getAttribute("data-neighbor-atom-id") || "").trim();
+      const node = nodeById.get(atomId);
+      if (!atomId || !node) {
+        return;
+      }
+      selectGraphNode(atomId, node.card_id || "");
+    });
+  }
+
+  const rootSummary = trimDisplay(root.summary || "", 180);
+  const neighborRows = neighbors.length
+    ? neighbors
+        .map((node) => {
+          const atomId = String(node.atom_id || "");
+          return (
+            `<button type="button" class="memory-neighborhood-row" data-neighbor-row-id="${escapeHtml(atomId)}">` +
+            `<div class="memory-neighborhood-row-head">` +
+            `<strong>${escapeHtml(String(node.card_id || atomId))}</strong>` +
+            `<span>depth ${Number(node.distance || 1)} • ${escapeHtml(graphEdgeLabel(node.via_edge_kind || "link"))}</span>` +
+            `</div>` +
+            `<div class="memory-neighborhood-row-body">${escapeHtml(trimDisplay(node.summary || "", 160))}</div>` +
+            `<div class="memory-neighborhood-row-meta">kind=${escapeHtml(String(node.kind || "-"))} status=${escapeHtml(String(node.status || "-"))}</div>` +
+            `</button>`
+          );
+        })
+        .join("")
+    : '<div class="memory-empty">No additional neighbors inside the current bounds.</div>';
+  els.memoryNeighborhoodList.classList.remove("empty");
+  els.memoryNeighborhoodList.innerHTML =
+    `<div class="memory-neighborhood-root">` +
+    `<div class="memory-neighborhood-root-label">Root</div>` +
+    `<strong>${escapeHtml(String(root.card_id || rootId))}</strong>` +
+    `<div>${escapeHtml(rootSummary || "No root summary available.")}</div>` +
+    `</div>` +
+    `<div class="memory-neighborhood-list-head">` +
+    `<strong>Neighbor paths</strong>` +
+    `<span>${neighbors.length} visible</span>` +
+    `</div>` +
+    neighborRows;
+  for (const item of els.memoryNeighborhoodList.querySelectorAll("[data-neighbor-row-id]")) {
+    item.addEventListener("click", () => {
+      const atomId = String(item.getAttribute("data-neighbor-row-id") || "").trim();
+      const node = nodeById.get(atomId);
+      if (!atomId || !node) {
+        return;
+      }
+      selectGraphNode(atomId, node.card_id || "");
+    });
+  }
 }
 
 function renderMemoryGraph() {
@@ -1063,8 +1293,7 @@ function renderMemoryGraph() {
       if (!source || !target) {
         return "";
       }
-      const kind = String(link.kind || "link");
-      const kindClass = kind.toLowerCase().replaceAll("_", "-").replace(/[^a-z0-9-]/g, "-");
+      const kindClass = graphCssToken(String(link.kind || "link"));
       return `<line class="graph-link kind-${escapeHtml(kindClass)}" x1="${source.x.toFixed(2)}" y1="${source.y.toFixed(2)}" x2="${target.x.toFixed(2)}" y2="${target.y.toFixed(2)}"></line>`;
     })
     .join("");
@@ -1077,8 +1306,8 @@ function renderMemoryGraph() {
         return "";
       }
       const selectedClass = selectedId === atomId ? " selected" : "";
-      const kindClass = ` kind-${String(node.kind || "").toLowerCase().replaceAll("_", "-").replace(/[^a-z0-9-]/g, "-")}`;
-      const statusClass = ` status-${String(node.status || "").toLowerCase().replaceAll("_", "-").replace(/[^a-z0-9-]/g, "-")}`;
+      const kindClass = ` kind-${graphCssToken(String(node.kind || ""))}`;
+      const statusClass = ` status-${graphCssToken(String(node.status || ""))}`;
       const radius = 6 + Math.min(8, Number(node.degree || 0));
       const label = summarizeGraphNode(node);
       return (
@@ -1103,7 +1332,9 @@ function renderMemoryGraph() {
       const cardId = nodeById.get(atomId)?.card_id;
       if (cardId) {
         loadCardDetail(cardId).catch((error) => renderMemoryError(error.message));
+        return;
       }
+      refreshMemoryNeighborhood().catch((error) => renderMemoryError(error.message));
     });
   }
   renderMemoryGraphDetail();
@@ -1184,6 +1415,30 @@ async function refreshMemory() {
   await refreshMemoryGraph();
 }
 
+function syncMemoryNeighborhoodInputs() {
+  if (els.memoryNeighborhoodDepth) {
+    els.memoryNeighborhoodDepth.value = String(Number(state.memoryNeighborhood.depth || 1));
+  }
+  if (els.memoryNeighborhoodShared) {
+    els.memoryNeighborhoodShared.checked = !!state.memoryNeighborhood.includeSharedLanguage;
+  }
+}
+
+function selectGraphNode(atomId, cardId = "") {
+  const normalized = String(atomId || "").trim();
+  if (!normalized) {
+    return;
+  }
+  if (cardId) {
+    loadCardDetail(String(cardId)).catch((error) => renderMemoryError(error.message));
+    return;
+  }
+  state.selectedGraphAtomId = normalized;
+  renderMemoryGraph();
+  renderMemoryGraphDetail();
+  refreshMemoryNeighborhood().catch((error) => renderMemoryError(error.message));
+}
+
 async function loadCardDetail(cardId) {
   const requestSeq = state.cardDetailRequestSeq + 1;
   state.cardDetailRequestSeq = requestSeq;
@@ -1199,6 +1454,7 @@ async function loadCardDetail(cardId) {
   state.selectedGraphAtomId = atomIdFromCardId(cardId);
   renderMemoryGraph();
   renderMemoryGraphDetail();
+  await refreshMemoryNeighborhood();
   renderMemoryDetail();
 }
 
@@ -1274,6 +1530,78 @@ async function refreshMemoryGraph() {
     state.selectedGraphAtomId = String(state.memoryGraph.nodes[0].atom_id);
   }
   renderMemoryGraph();
+  await refreshMemoryNeighborhood();
+}
+
+async function refreshMemoryNeighborhood() {
+  const selectedId = String(state.selectedGraphAtomId || "").trim();
+  if (!selectedId) {
+    state.memoryNeighborhood = {
+      ...state.memoryNeighborhood,
+      root: null,
+      neighbors: [],
+      links: [],
+      requestsUsed: 0,
+      truncated: false,
+      truncation: null,
+      loading: false,
+      error: null,
+    };
+    renderMemoryNeighborhood();
+    return;
+  }
+  const requestSeq = state.memoryNeighborhoodRequestSeq + 1;
+  state.memoryNeighborhoodRequestSeq = requestSeq;
+  state.memoryNeighborhood = {
+    ...state.memoryNeighborhood,
+    loading: true,
+    error: null,
+  };
+  syncMemoryNeighborhoodInputs();
+  renderMemoryNeighborhood();
+  const params = new URLSearchParams();
+  params.set("atom_id", selectedId);
+  params.set("depth", String(Math.max(1, Math.min(2, Number(state.memoryNeighborhood.depth || 1)))));
+  params.set("node_limit", String(Math.max(6, Number(state.memoryNeighborhood.nodeLimit || 18))));
+  params.set("link_limit", String(Math.max(8, Number(state.memoryNeighborhood.linkLimit || 36))));
+  params.set("include_shared_language", state.memoryNeighborhood.includeSharedLanguage ? "true" : "false");
+  params.set("include_root_detail", "true");
+  try {
+    const payload = await jsonFetch(`/api/memory/graph/neighbors?${params.toString()}`);
+    if (requestSeq !== state.memoryNeighborhoodRequestSeq || String(state.selectedGraphAtomId || "").trim() !== selectedId) {
+      return;
+    }
+    state.memoryNeighborhood = {
+      ...state.memoryNeighborhood,
+      root: payload.node || null,
+      neighbors: payload.neighbors || [],
+      links: payload.links || [],
+      depth: Number(payload.depth || state.memoryNeighborhood.depth || 1),
+      nodeLimit: Number(payload.node_limit || state.memoryNeighborhood.nodeLimit || 18),
+      linkLimit: Number(payload.link_limit || state.memoryNeighborhood.linkLimit || 36),
+      requestsUsed: Number(payload.requests_used || 0),
+      truncated: !!payload.truncated,
+      truncation: payload.truncation || null,
+      loading: false,
+      error: null,
+    };
+  } catch (error) {
+    if (requestSeq !== state.memoryNeighborhoodRequestSeq) {
+      return;
+    }
+    state.memoryNeighborhood = {
+      ...state.memoryNeighborhood,
+      root: null,
+      neighbors: [],
+      links: [],
+      requestsUsed: 0,
+      truncated: false,
+      truncation: null,
+      loading: false,
+      error: error.message || "Local graph request failed.",
+    };
+  }
+  renderMemoryNeighborhood();
 }
 
 async function refreshProposals() {
@@ -3299,11 +3627,29 @@ function bindEvents() {
   });
   els.btnMemoryGraphFocus?.addEventListener("click", () => {
     if (state.selectedCardId) {
-      state.selectedGraphAtomId = atomIdFromCardId(state.selectedCardId);
+      loadCardDetail(state.selectedCardId).catch((error) => renderMemoryError(error.message));
+      return;
+    }
+    if (state.selectedGraphAtomId) {
+      refreshMemoryNeighborhood().catch((error) => renderMemoryError(error.message));
+      return;
     } else if (state.memoryGraph.nodes.length) {
       state.selectedGraphAtomId = String(state.memoryGraph.nodes[0].atom_id);
     }
     renderMemoryGraph();
+    renderMemoryGraphDetail();
+    refreshMemoryNeighborhood().catch((error) => renderMemoryError(error.message));
+  });
+  els.btnMemoryNeighborhoodRefresh?.addEventListener("click", () => {
+    refreshMemoryNeighborhood().catch((error) => renderMemoryError(error.message));
+  });
+  els.memoryNeighborhoodDepth?.addEventListener("change", () => {
+    state.memoryNeighborhood.depth = Math.max(1, Math.min(2, Number(els.memoryNeighborhoodDepth?.value || 1)));
+    refreshMemoryNeighborhood().catch((error) => renderMemoryError(error.message));
+  });
+  els.memoryNeighborhoodShared?.addEventListener("change", () => {
+    state.memoryNeighborhood.includeSharedLanguage = !!els.memoryNeighborhoodShared?.checked;
+    refreshMemoryNeighborhood().catch((error) => renderMemoryError(error.message));
   });
   els.btnProposalRefresh?.addEventListener("click", () => {
     refreshProposals().catch((error) => renderMemoryError(error.message));
@@ -3547,12 +3893,14 @@ function bindEvents() {
 async function bootstrap() {
   loadSettings();
   applySettingsToInputs();
+  syncMemoryNeighborhoodInputs();
   updateAutoRefresh();
   setMemoryScope("atoms");
   renderArchiveViewer();
   renderWhyPanel();
   renderPackagingPanel();
   renderHealthPanel();
+  renderMemoryNeighborhood();
   bindEvents();
   clearContextPreview();
   await refreshDecisionCatalog();

@@ -33,6 +33,7 @@ let runtimeChild = null;
 let shuttingDown = false;
 let launchPlan = null;
 let expectedRuntimeExit = false;
+let restartPromise = null;
 
 function logDir() {
   const dir = shellPaths.desktopShellRoot;
@@ -110,21 +111,34 @@ function registerIpc() {
 }
 
 function attachRuntimeLogging(child) {
+  let stdoutBuffer = '';
+  let resolveSpawnError = () => {};
+  const spawnErrorPromise = new Promise((resolve) => {
+    resolveSpawnError = resolve;
+  });
+
+  function handleStdoutLine(line) {
+    const parsed = parseRuntimeStdoutLine(line);
+    if (!parsed) {
+      return;
+    }
+    if (parsed.key === 'runtime_url') {
+      emitState({ runtimeUrl: parsed.value, bootStage: 'probing runtime health' });
+    } else if (parsed.key === 'memories_path') {
+      emitState({ storePath: parsed.value });
+    } else if (parsed.key === 'episode_cards_path') {
+      emitState({ episodeCardsPath: parsed.value });
+    }
+  }
+
   child.stdout.on('data', (chunk) => {
     const text = String(chunk || '');
     writeShellLog(`[stdout] ${text.trimEnd()}`);
-    for (const line of text.split(/\r?\n/)) {
-      const parsed = parseRuntimeStdoutLine(line);
-      if (!parsed) {
-        continue;
-      }
-      if (parsed.key === 'runtime_url') {
-        emitState({ runtimeUrl: parsed.value, bootStage: 'probing runtime health' });
-      } else if (parsed.key === 'memories_path') {
-        emitState({ storePath: parsed.value });
-      } else if (parsed.key === 'episode_cards_path') {
-        emitState({ episodeCardsPath: parsed.value });
-      }
+    stdoutBuffer += text;
+    const lines = stdoutBuffer.split(/\r?\n/);
+    stdoutBuffer = lines.pop() || '';
+    for (const line of lines) {
+      handleStdoutLine(line);
     }
   });
   child.stderr.on('data', (chunk) => {
@@ -135,7 +149,26 @@ function attachRuntimeLogging(child) {
     writeShellLog(`[stderr] ${text}`);
     emitState({ lastError: text });
   });
+  child.on('error', (error) => {
+    runtimeChild = null;
+    expectedRuntimeExit = false;
+    const message = `Failed to start the local runtime: ${error?.message || error}`;
+    writeShellLog(`[error] ${message}`);
+    emitState({
+      status: 'error',
+      bootStage: 'runtime launch failed',
+      lastError: message,
+    });
+    resolveSpawnError(error);
+    if (cli.smokeExitWhenReady) {
+      quitForSmoke(1);
+    }
+  });
   child.on('exit', (code, signal) => {
+    if (stdoutBuffer.trim()) {
+      handleStdoutLine(stdoutBuffer.trim());
+      stdoutBuffer = '';
+    }
     if (shuttingDown || expectedRuntimeExit) {
       return;
     }
@@ -149,6 +182,7 @@ function attachRuntimeLogging(child) {
       mainWindow.loadFile(path.join(__dirname, 'boot.html')).catch(() => {});
     }
   });
+  return { spawnErrorPromise };
 }
 
 async function stopRuntime() {
@@ -233,12 +267,18 @@ async function startRuntime() {
     env: { ...process.env, PYTHONUNBUFFERED: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  attachRuntimeLogging(runtimeChild);
-  const ready = await waitForRuntimeReady({
-    runtimeHealthUrl: launchPlan.runtimeHealthUrl,
-    timeoutMs: Number(cli.bootTimeoutMs || 30000),
-  });
-  if (!ready) {
+  const { spawnErrorPromise } = attachRuntimeLogging(runtimeChild);
+  const bootResult = await Promise.race([
+    waitForRuntimeReady({
+      runtimeHealthUrl: launchPlan.runtimeHealthUrl,
+      timeoutMs: Number(cli.bootTimeoutMs || 30000),
+    }).then((ready) => ({ type: 'health', ready })),
+    spawnErrorPromise.then((error) => ({ type: 'spawn_error', error })),
+  ]);
+  if (bootResult.type === 'spawn_error') {
+    return;
+  }
+  if (!bootResult.ready) {
     await stopRuntime();
     emitState({
       status: 'error',
@@ -260,9 +300,19 @@ async function startRuntime() {
 }
 
 async function restartRuntime() {
-  await loadBootPage().catch(() => {});
-  await stopRuntime();
-  await startRuntime();
+  if (restartPromise) {
+    return restartPromise;
+  }
+  restartPromise = (async () => {
+    await loadBootPage().catch(() => {});
+    await stopRuntime();
+    await startRuntime();
+  })();
+  try {
+    await restartPromise;
+  } finally {
+    restartPromise = null;
+  }
 }
 
 app.whenReady().then(async () => {
@@ -272,6 +322,9 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
+      if (process.platform === 'darwin' && !runtimeChild) {
+        void restartRuntime();
+      }
     }
   });
 });

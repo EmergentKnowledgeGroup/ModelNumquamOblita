@@ -47,6 +47,10 @@ def _build_store(path: Path) -> None:
 
 
 def test_desktop_shell_node_suite_runs() -> None:
+    if shutil.which("npm") is None:
+        pytest.skip("npm is required for the desktop shell node test suite")
+    if not (DESKTOP_ROOT / "package.json").exists():
+        pytest.skip("desktop shell package.json is not present in this worktree")
     result = subprocess.run(
         ["npm", "run", "desktop:test"],
         cwd=DESKTOP_ROOT,
@@ -61,11 +65,14 @@ def test_desktop_shell_node_suite_runs() -> None:
 def test_desktop_shell_electron_smoke(tmp_path: Path) -> None:
     electron_bin = DESKTOP_ROOT / "node_modules" / ".bin" / "electron"
     if sys.platform.startswith("win"):
-      electron_bin = DESKTOP_ROOT / "node_modules" / ".bin" / "electron.cmd"
+        electron_bin = DESKTOP_ROOT / "node_modules" / ".bin" / "electron.cmd"
     if not electron_bin.exists():
         pytest.skip("electron is not installed locally")
-    if shutil.which("xvfb-run") is None:
-        pytest.skip("xvfb-run is required for the local Electron smoke test")
+    command = [str(electron_bin), "."]
+    if sys.platform.startswith("linux"):
+        if shutil.which("xvfb-run") is None:
+            pytest.skip("xvfb-run is required for the local Electron smoke test")
+        command = ["xvfb-run", "-a", *command]
 
     sqlite_path = tmp_path / "atoms.sqlite3"
     _build_store(sqlite_path)
@@ -74,10 +81,7 @@ def test_desktop_shell_electron_smoke(tmp_path: Path) -> None:
 
     result = subprocess.run(
         [
-            "xvfb-run",
-            "-a",
-            str(electron_bin),
-            ".",
+            *command,
             "--repo-root",
             str(REPO_ROOT),
             "--memories",

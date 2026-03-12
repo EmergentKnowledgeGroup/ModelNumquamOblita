@@ -17,17 +17,24 @@
     els.status.textContent = status === 'ready' ? 'Runtime ready' : status === 'error' ? 'Needs attention' : 'Booting';
     els.status.className = `boot-status ${status === 'ready' ? 'ready' : status === 'error' ? 'error' : 'booting'}`;
     els.stage.textContent = state.bootStage || 'Preparing runtime startup.';
-    els.paths.innerHTML = [
+    const rows = [
       `runtime=${state.runtimeUrl || 'pending'}`,
       `store=${state.storePath || 'auto-detecting'}`,
       `episodes=${state.episodeCardsPath || 'latest published or none'}`,
       `state=${state.wizardRunsPath || 'pending'}`,
       `published=${state.publishedSetsPath || 'pending'}`,
       `logs=${state.logPath || 'pending'}`,
-    ].map((row) => `<div>${row}</div>`).join('');
+    ];
+    els.paths.replaceChildren(
+      ...rows.map((row) => {
+        const item = document.createElement('div');
+        item.textContent = row;
+        return item;
+      }),
+    );
     const errorText = String(state.lastError || '').trim();
     els.error.textContent = errorText;
-    els.error.classList.toggle('hidden', !errorText);
+    els.error.classList.toggle('visually-hidden', !errorText);
     els.openUi.disabled = !state.runtimeUrl;
   }
 

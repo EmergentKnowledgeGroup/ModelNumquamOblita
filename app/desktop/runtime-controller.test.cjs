@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 const {
   buildRuntimeLaunchPlan,
   parseRuntimeStdoutLine,
@@ -23,11 +24,15 @@ test('parseShellCliArgs reads explicit shell overrides', () => {
 
 test('buildRuntimeLaunchPlan keeps runtime launcher bounded and explicit', () => {
   const plan = buildRuntimeLaunchPlan({ repoRoot: '/repo', pythonCommand: 'python3', host: '127.0.0.1', port: 8123, memories: '/tmp/store.sqlite3', episodes: '/tmp/cards.json' });
+  const expectedCwd = path.resolve('/repo');
+  const expectedLauncher = path.join(expectedCwd, 'tools', 'run_live_runtime.py');
+  const expectedStore = path.resolve('/tmp/store.sqlite3');
+  const expectedEpisodes = path.resolve('/tmp/cards.json');
   assert.equal(plan.command, 'python3');
-  assert.equal(plan.cwd, '/repo');
-  assert.deepEqual(plan.args.slice(0, 5), ['/repo/tools/run_live_runtime.py', '--host', '127.0.0.1', '--port', '8123']);
-  assert.ok(plan.args.includes('/tmp/store.sqlite3'));
-  assert.ok(plan.args.includes('/tmp/cards.json'));
+  assert.equal(plan.cwd, expectedCwd);
+  assert.deepEqual(plan.args.slice(0, 5), [expectedLauncher, '--host', '127.0.0.1', '--port', '8123']);
+  assert.ok(plan.args.includes(expectedStore));
+  assert.ok(plan.args.includes(expectedEpisodes));
   assert.equal(plan.runtimeHealthUrl, 'http://127.0.0.1:8123/api/runtime/health');
 });
 

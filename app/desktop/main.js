@@ -34,6 +34,7 @@ let shuttingDown = false;
 let launchPlan = null;
 let expectedRuntimeExit = false;
 let restartPromise = null;
+let quitAfterCleanup = false;
 
 function logDir() {
   const dir = shellPaths.desktopShellRoot;
@@ -336,6 +337,17 @@ app.on('window-all-closed', async () => {
   }
 });
 
-app.on('before-quit', async () => {
-  await stopRuntime();
+app.on('before-quit', (event) => {
+  if (quitAfterCleanup || !runtimeChild) {
+    return;
+  }
+  event.preventDefault();
+  quitAfterCleanup = true;
+  stopRuntime()
+    .catch((error) => {
+      writeShellLog(`[before-quit] stopRuntime failed: ${error?.message || error}`);
+    })
+    .finally(() => {
+      app.quit();
+    });
 });

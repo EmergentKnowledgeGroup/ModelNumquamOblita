@@ -2,16 +2,87 @@
   "name": "modelnumquamoblita-desktop-shell",
   "version": "0.1.0",
   "private": true,
+  "author": "ProfessahX",
   "description": "Electron shell for the standalone ModelNumquamOblita runtime UI",
   "main": "main.js",
   "scripts": {
     "desktop:dev": "electron .",
-    "desktop:test": "node --test *.test.cjs"
+    "desktop:test": "node --test *.test.cjs",
+    "desktop:bundle-runtime": "python3 build_managed_runtime.py",
+    "desktop:pack:dir": "npm run desktop:bundle-runtime && electron-builder --dir --publish never",
+    "desktop:pack:linux": "npm run desktop:bundle-runtime && electron-builder --linux AppImage --publish never"
   },
   "engines": {
     "node": ">=22"
   },
+  "build": {
+    "appId": "com.professahx.modelnumquamoblita.desktop",
+    "productName": "ModelNumquamOblita",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "boot.html",
+      "boot.css",
+      "boot.js",
+      "runtime-controller.cjs",
+      "tray-controller.cjs",
+      "runtime-bundle.manifest.json",
+      "package.json",
+      "!*.test.cjs"
+    ],
+    "extraResources": [
+      {
+        "from": "../../engine",
+        "to": "mno_bundle/engine"
+      },
+      {
+        "from": "../../tools",
+        "to": "mno_bundle/tools"
+      },
+      {
+        "from": "../../runtime",
+        "to": "mno_bundle/runtime"
+      },
+      {
+        "from": "build/runtime/python",
+        "to": "mno_bundle/runtime/python"
+      },
+      {
+        "from": "../../pyproject.toml",
+        "to": "mno_bundle/pyproject.toml"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
   "devDependencies": {
-    "electron": "41.0.0"
+    "electron": "41.0.0",
+    "electron-builder": "26.8.1"
   }
 }

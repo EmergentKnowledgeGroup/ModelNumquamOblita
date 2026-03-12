@@ -9,20 +9,62 @@
   <body>
     <main class="boot-shell">
       <section class="boot-card">
-        <div class="boot-eyebrow">ModelNumquamOblita Desktop</div>
-        <h1>Starting your local memory appliance</h1>
-        <p class="boot-lead">The desktop shell is bringing the Python runtime online, then it will hand control to the main MNO app.</p>
-        <div id="bootStatus" class="boot-status booting" role="status" aria-live="polite">Booting</div>
-        <div id="bootStage" class="boot-stage" role="status" aria-live="polite">Preparing runtime startup.</div>
-        <div id="bootPaths" class="boot-paths" role="status" aria-live="polite"></div>
-        <div id="bootError" class="boot-error visually-hidden" role="alert" aria-live="assertive"></div>
-        <div class="boot-actions">
-          <button id="btnBootRetry" type="button">Retry runtime</button>
-          <button id="btnBootOpenUi" type="button" class="ghost">Open browser fallback</button>
-          <button id="btnBootOpenState" type="button" class="ghost">Open state folder</button>
-          <button id="btnBootOpenPublished" type="button" class="ghost">Open published sets</button>
-          <button id="btnBootOpenRuntime" type="button" class="ghost">Open runtime folder</button>
-          <button id="btnBootOpenLogs" type="button" class="ghost">Open logs</button>
+        <div class="boot-grid">
+          <div class="boot-primary">
+            <div class="boot-eyebrow">ModelNumquamOblita Desktop</div>
+            <h1>One app. One hidden runtime.</h1>
+            <p class="boot-lead">This desktop shell keeps MNO local, background-safe, and terminal-free. It only starts the live runtime when the current store, reviewed set, and activation state are actually trustworthy.</p>
+            <div class="boot-status-row">
+              <div id="bootStatus" class="boot-status booting" role="status" aria-live="polite">Starting</div>
+              <div id="bootStatusReason" class="boot-status-reason"></div>
+            </div>
+            <div id="bootStage" class="boot-stage" role="status" aria-live="polite">Preparing desktop shell.</div>
+            <div id="bootError" class="boot-error visually-hidden" role="alert" aria-live="assertive"></div>
+            <div class="boot-actions">
+              <button id="btnBootPrimaryAction" type="button">Open setup</button>
+              <button id="btnBootRestart" type="button" class="ghost">Restart runtime</button>
+              <button id="btnBootStop" type="button" class="ghost">Stop runtime</button>
+              <button id="btnBootOpenUi" type="button" class="ghost">Open browser fallback</button>
+              <button id="btnBootOpenLogs" type="button" class="ghost">Open logs</button>
+            </div>
+            <div id="bootTrayFallback" class="boot-warning visually-hidden" role="status" aria-live="polite"></div>
+            <div id="bootBackgroundNote" class="boot-background-note visually-hidden">
+              <div class="boot-background-note-title">Background behavior</div>
+              <p>Closing the main window can hide MNO to the tray instead of quitting it. That keeps your local runtime available without showing a separate console window.</p>
+              <button id="btnBootAcknowledgeBackground" type="button" class="ghost">Got it</button>
+            </div>
+          </div>
+          <aside class="boot-sidepanel">
+            <section class="boot-panel">
+              <div class="boot-panel-title">Desktop behavior</div>
+              <label class="boot-field">
+                <span>Close button</span>
+                <select id="prefCloseBehavior">
+                  <option value="hide_to_tray">Hide to tray</option>
+                  <option value="quit_on_close">Quit app</option>
+                </select>
+              </label>
+              <label class="boot-field">
+                <span>Runtime startup</span>
+                <select id="prefAutoStart">
+                  <option value="auto_start_if_ready">Auto-start if ready</option>
+                  <option value="manual_start_only">Manual start only</option>
+                </select>
+              </label>
+            </section>
+            <section class="boot-panel">
+              <div class="boot-panel-title">Current paths</div>
+              <div id="bootPaths" class="boot-paths" role="status" aria-live="polite"></div>
+            </section>
+            <section class="boot-panel">
+              <div class="boot-panel-title">Helpful shortcuts</div>
+              <div class="boot-link-row">
+                <button id="btnBootOpenState" type="button" class="ghost">Open state folder</button>
+                <button id="btnBootOpenPublished" type="button" class="ghost">Open published sets</button>
+                <button id="btnBootOpenRuntime" type="button" class="ghost">Open runtime folder</button>
+              </div>
+            </section>
+          </aside>
         </div>
       </section>
     </main>

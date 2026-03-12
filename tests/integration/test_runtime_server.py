@@ -181,6 +181,53 @@ def test_runtime_http_server_uses_non_daemon_server_thread_defaults() -> None:
         stop_runtime_server(server, thread, runtime=runtime)
 
 
+def test_runtime_health_exposes_binding_and_desktop_shutdown(tmp_path: Path) -> None:
+    store = AtomStore()
+    store.add_candidate(_candidate("h1", "Desktop shell runtime should report its binding cleanly.", "conv_h1"))
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity)
+    runtime.episode_cards_path = str((tmp_path / "episode_cards.reviewed.json").resolve())
+    Path(runtime.episode_cards_path).write_text(json.dumps({"schema": "numquamoblita.episode_cards.reviewed.v1", "cards": []}) + "\n", encoding="utf-8")
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    server.runtime_version = "0.1.0-test"
+    server.runtime_launch_mode = "setup_mode"
+    server.active_runtime_binding = {
+        "store_path": str((tmp_path / "atoms.sqlite3").resolve()),
+        "store_fingerprint": "runtime_store_sig",
+        "episodes_path": runtime.episode_cards_path,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "backend": "sqlite",
+        "artifact_mode": "setup",
+        "build_id": "",
+    }
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    try:
+        health = _json_get(f"{base}/api/runtime/health")
+        assert health["ok"] is True
+        assert health["service"] == "modelnumquamoblita-runtime"
+        assert health["runtime_version"] == "0.1.0-test"
+        assert health["launch_mode"] == "setup_mode"
+        assert health["runtime_url"] == base
+        assert health["binding"]["store_fingerprint"] == "runtime_store_sig"
+
+        shutdown = _json_post(f"{base}/api/runtime/desktop/shutdown", {})
+        assert shutdown["ok"] is True
+        assert shutdown["status"] == "stopping"
+
+        for _ in range(40):
+            if thread.is_alive():
+                time.sleep(0.05)
+                continue
+            break
+        assert thread.is_alive() is False
+        assert server.desktop_shutdown_requested is True
+        assert server.socket.fileno() == -1
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
 def test_runtime_http_server_session_endpoints_roundtrip() -> None:
     store = AtomStore()
     store.add_candidate(_candidate("c1", "You prefer tea in late sessions.", "conv_1"))

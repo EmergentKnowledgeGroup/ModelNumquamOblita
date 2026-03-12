@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+import tomllib
 import unicodedata
 import zipfile
 from dataclasses import asdict
@@ -21,6 +22,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
+import ipaddress
 import hmac
 from pathlib import Path
 from typing import Any, Mapping
@@ -52,10 +54,12 @@ from .live_eval import load_inmemory_store_from_json
 
 UI_ROOT = Path(__file__).resolve().parent / "ui"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RUNTIME_ROOT = REPO_ROOT / "runtime"
+_RUNTIME_STATE_ROOT_ENV = str(os.environ.get("MNO_RUNTIME_STATE_ROOT") or "").strip()
+RUNTIME_ROOT = Path(_RUNTIME_STATE_ROOT_ENV).expanduser().resolve() if _RUNTIME_STATE_ROOT_ENV else (REPO_ROOT / "runtime")
 WIZARD_RUNS_ROOT = RUNTIME_ROOT / "wizard_runs"
 WIZARD_LATEST_PATH = WIZARD_RUNS_ROOT / "LATEST.json"
 BUILDER_PROFILES_ROOT = RUNTIME_ROOT / "builder_profiles"
+IMPORTS_ROOT = RUNTIME_ROOT / "imports"
 EPISODES_ROOT = RUNTIME_ROOT / "episodes"
 BACKUPS_ROOT = RUNTIME_ROOT / "backups"
 DIAGNOSTICS_ROOT = RUNTIME_ROOT / "diagnostics"
@@ -76,6 +80,49 @@ GRAPH_NEIGHBOR_MAX_LINK_LIMIT = 240
 GRAPH_NEIGHBOR_REQUEST_BUDGET = 12
 GRAPH_NEIGHBOR_EXPANDABLE_EDGE_ORDER = ("conflict", "constellation", "narrative_arc")
 GRAPH_NEIGHBOR_RECORD_ONLY_EDGE_ORDER = ("shared_language",)
+
+
+def _host_is_loopback(host: str) -> bool:
+    candidate = str(host or '').strip()
+    if not candidate:
+        return False
+    if candidate.lower() == 'localhost':
+        return True
+    try:
+        parsed = ipaddress.ip_address(candidate)
+    except ValueError:
+        return False
+    if parsed.is_loopback:
+        return True
+    mapped = getattr(parsed, 'ipv4_mapped', None)
+    return bool(mapped and mapped.is_loopback)
+
+
+def _project_version() -> str:
+    pyproject_path = REPO_ROOT / "pyproject.toml"
+    try:
+        payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return "0.0.0"
+    project = payload.get("project") if isinstance(payload, dict) else {}
+    version = str((project or {}).get("version") or "").strip()
+    return version or "0.0.0"
+
+
+def _runtime_state_root_path(server: "RuntimeHTTPServer") -> Path:
+    candidate = getattr(server, "runtime_root", None)
+    if candidate:
+        return Path(str(candidate)).expanduser().resolve()
+    return RUNTIME_ROOT
+
+
+def _existing_runtime_probe_root(server: "RuntimeHTTPServer") -> Path:
+    current = _runtime_state_root_path(server)
+    for candidate in (current, *current.parents):
+        if candidate.exists():
+            return candidate
+    anchor = Path(current.anchor) if current.anchor else Path("/")
+    return anchor
 
 
 def _canonical_graph_link_key(source: str, target: str, kind: str) -> tuple[str, str, str]:
@@ -1219,7 +1266,7 @@ def _wizard_state_defaults(run_id: str) -> dict[str, Any]:
         "current_stage": "import",
         "completed_stages": [],
         "selected_input_archive_path": "",
-        "store_path": str((REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3").resolve()),
+        "store_path": str((IMPORTS_ROOT / "atoms.sqlite3").resolve()),
         "last_built_episode_draft_path": "",
         "last_built_episode_rejects_path": "",
         "last_built_episode_readout_path": "",
@@ -2563,7 +2610,7 @@ def _wizard_reset_state_to_stage(state: dict[str, Any], *, stage: str, reason: s
         state["selected_input_archive_path"] = ""
         state["selected_input"] = _wizard_empty_input_selection()
         state["store_validation"] = _wizard_empty_store_validation()
-        state["store_path"] = str((REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3").resolve())
+        state["store_path"] = str((IMPORTS_ROOT / "atoms.sqlite3").resolve())
     _wizard_reset_downstream_state(state, from_stage=clean_stage)
     _wizard_reset_to_stage(state, stage=clean_stage, note=reason)
     return state
@@ -3843,7 +3890,7 @@ def _runtime_health(server: "RuntimeHTTPServer") -> dict[str, Any]:
         checks.append({"id": "provider_reachable", "status": "fail", "detail": str(exc)})
 
     try:
-        usage = shutil.disk_usage(str(REPO_ROOT))
+        usage = shutil.disk_usage(str(_existing_runtime_probe_root(server)))
         free_gb = float(usage.free) / float(1024**3)
         status = "ok" if free_gb >= 1.0 else "warn"
         warned = warned or status == "warn"
@@ -3875,10 +3922,17 @@ def _runtime_health(server: "RuntimeHTTPServer") -> dict[str, Any]:
     elif warned:
         status = "watch"
 
+    host, port = server.server_address
+
     return {
+        "service": "modelnumquamoblita-runtime",
         "status": status,
         "checked_at": _utc_iso(),
         "checks": checks,
+        "runtime_url": f"http://{host}:{port}",
+        "runtime_version": str(getattr(server, "runtime_version", "") or _project_version()),
+        "launch_mode": str(getattr(server, "runtime_launch_mode", "normal") or "normal"),
+        "binding": dict(getattr(server, "active_runtime_binding", {}) or {}),
         "writeback_policy": dict(server.writeback_policy),
     }
 
@@ -8359,9 +8413,9 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 if selected_kind == "ia_archive":
                     archive_path = Path(str(classification.get("path") or "")).expanduser().resolve()
                     store_path = Path(
-                        str(data.get("store_path") or state.get("store_path") or "").strip() or (REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3")
+                        str(data.get("store_path") or state.get("store_path") or "").strip() or (IMPORTS_ROOT / "atoms.sqlite3")
                     ).expanduser().resolve()
-                    out_dir = Path(str(data.get("out_dir") or (REPO_ROOT / ".runtime" / "imports"))).expanduser().resolve()
+                    out_dir = Path(str(data.get("out_dir") or IMPORTS_ROOT)).expanduser().resolve()
                     cmd = [
                         sys.executable,
                         str((REPO_ROOT / "tools" / "import_ia_db.py").resolve()),
@@ -8860,6 +8914,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     build_id=str((state.get("published_set") or {}).get("build_id") or ""),
                 )
                 provider_config = _provider_model_config(self.server)
+                self.server.runtime_launch_mode = "normal"
                 state["activation"] = {
                     **_wizard_empty_activation_state(),
                     "direct": {
@@ -8954,6 +9009,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     build_id=str(build_info.get("build_id") or ""),
                 )
                 provider_config = _provider_model_config(self.server)
+                self.server.runtime_launch_mode = "draft"
                 draft_override = {
                     "active": True,
                     "label": "Unreviewed draft",
@@ -9293,6 +9349,35 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 return _json_response(self, HTTPStatus.OK, {"ok": True, "policy": dict(self.server.writeback_policy)})
             except Exception as exc:
                 return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"writeback policy update failed: {exc}"})
+        if path == "/api/runtime/desktop/shutdown":
+            client_host = str((self.client_address or ("", 0))[0] or "").strip()
+            if not _host_is_loopback(client_host):
+                return _json_response(self, HTTPStatus.FORBIDDEN, {"error": "desktop shutdown is local-only"})
+            self.server.desktop_shutdown_requested = True
+            self.server.desktop_shutdown_error = ""
+
+            def _shutdown_worker() -> None:
+                time.sleep(0.05)
+                try:
+                    stop_runtime_server(
+                        self.server,
+                        getattr(self.server, "runtime_thread", None),
+                        runtime=getattr(self.server, "runtime", None),
+                    )
+                except Exception as exc:
+                    self.server.desktop_shutdown_error = str(exc)
+                    LOGGER.exception("desktop shutdown worker failed")
+
+            threading.Thread(target=_shutdown_worker, daemon=True, name="runtime-desktop-shutdown").start()
+            return _json_response(
+                self,
+                HTTPStatus.OK,
+                {
+                    "ok": True,
+                    "status": "stopping",
+                    "checked_at": _utc_iso(),
+                },
+            )
         if path == "/api/runtime/health/export":
             try:
                 health_payload = _runtime_health(self.server)
@@ -9868,7 +9953,18 @@ class RuntimeHTTPServer(ThreadingHTTPServer):
             "store_fingerprint": _wizard_runtime_store_fingerprint(runtime),
             "episodes_path": str(getattr(runtime, "episode_cards_path", "") or ""),
             "checked_at": _utc_iso(),
+            "backend": "",
+            "artifact_mode": "",
+            "build_id": "",
         }
+        self.runtime_version = _project_version()
+        self.runtime_launch_mode = "normal"
+        self.runtime_root = str(RUNTIME_ROOT)
+        self.desktop_shutdown_requested = False
+        self.desktop_shutdown_error = ""
+        self.runtime_thread: threading.Thread | None = None
+
+
 def start_runtime_server(
     runtime: RuntimeSession,
     *,
@@ -9880,6 +9976,7 @@ def start_runtime_server(
 ) -> tuple[RuntimeHTTPServer, threading.Thread]:
     server = RuntimeHTTPServer((host, port), runtime, adapter_registry=adapter_registry, review_queue=review_queue)
     thread = threading.Thread(target=server.serve_forever, daemon=bool(daemon), name="runtime-http")
+    server.runtime_thread = thread
     thread.start()
     return server, thread
 

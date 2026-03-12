@@ -5,6 +5,8 @@ import argparse
 import json
 import sys
 import time
+import tomllib
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +45,23 @@ def _default_episode_cards_path() -> Path | None:
     return None
 
 
+def _project_version() -> str:
+    pyproject_path = REPO_ROOT / "pyproject.toml"
+    try:
+        payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return "0.0.0"
+    project = payload.get("project") if isinstance(payload, dict) else {}
+    version = str((project or {}).get("version") or "").strip()
+    return version or "0.0.0"
+
+
+def _setup_mode_store_path(explicit: str = "") -> Path:
+    if str(explicit or "").strip():
+        return Path(explicit).expanduser().resolve()
+    return (REPO_ROOT / "runtime" / "desktop_shell" / "setup_mode.sqlite3").resolve()
+
+
 def _load_manifest(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -78,6 +97,15 @@ def _open_store(path: Path):
     raise ValueError(f"unsupported memories path: {path}")
 
 
+def _store_backend_label(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".sqlite3", ".sqlite", ".db"}:
+        return "sqlite"
+    if suffix == ".json":
+        return "json"
+    raise ValueError(f"unsupported memories path: {path}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Launch local runtime server against a real memory store.")
     parser.add_argument("--memories", default="", help="Path to sqlite store (.sqlite3/.db) or memories.json.")
@@ -90,23 +118,55 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=7340)
     parser.add_argument("--model-name", default="numquam-oblita-runtime")
     parser.add_argument("--episodes", default="", help="Optional path to episode_cards JSON artifact.")
+    parser.add_argument("--setup-mode", action="store_true", help="Start the runtime only for setup/wizard flows.")
+    parser.add_argument("--setup-store", default="", help="Optional sqlite path to use for setup-mode runtime state.")
     parser.add_argument("--max-seconds", type=float, default=0.0, help="Auto-stop after N seconds (0 = run until Ctrl+C).")
     parser.add_argument("--plan-only", action="store_true", help="Validate inputs and print resolved launch config.")
     args = parser.parse_args()
 
-    try:
-        memories_path = _resolve_memories_path(memories=args.memories, from_live_manifest=args.from_live_manifest)
-    except ValueError as exc:
-        print(f"error={exc}")
+    launch_mode = "setup_mode" if bool(args.setup_mode) else "normal"
+    if args.setup_mode and (str(args.memories).strip() or str(args.from_live_manifest).strip()):
+        print("error=--setup-mode cannot be combined with --memories or --from-live-manifest")
         return 2
-    if not memories_path.exists():
-        print(f"error=memories path not found: {memories_path}")
+    if args.setup_mode and str(args.episodes).strip():
+        print("error=--setup-mode cannot be combined with --episodes")
         return 2
 
-    episode_cards_path = Path(args.episodes).expanduser().resolve() if str(args.episodes).strip() else _default_episode_cards_path()
+    if args.setup_mode:
+        memories_path = _setup_mode_store_path(args.setup_store)
+    else:
+        try:
+            memories_path = _resolve_memories_path(memories=args.memories, from_live_manifest=args.from_live_manifest)
+        except ValueError as exc:
+            print(f"error={exc}")
+            return 2
+        if not memories_path.exists():
+            print(f"error=memories path not found: {memories_path}")
+            return 2
+
+    episode_cards_path = None if args.setup_mode else (Path(args.episodes).expanduser().resolve() if str(args.episodes).strip() else _default_episode_cards_path())
     if episode_cards_path is not None and not episode_cards_path.exists():
         print(f"error=episode cards path not found: {episode_cards_path}")
         return 2
+
+    runtime_url = f"http://{args.host}:{int(args.port)}"
+    if args.plan_only and args.setup_mode:
+        try:
+            setup_backend = _store_backend_label(memories_path)
+        except ValueError as exc:
+            print(f"error={exc}")
+            return 2
+        print("mode=plan_only")
+        print(f"launch_mode={launch_mode}")
+        print(f"memories_path={memories_path}")
+        print(f"store_backend={setup_backend}")
+        print("atom_count=0")
+        print(f"episode_cards_path={episode_cards_path if episode_cards_path is not None else ''}")
+        print(f"runtime_url={runtime_url}")
+        return 0
+
+    if args.setup_mode:
+        memories_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
         store, backend_name, close_store = _open_store(memories_path)
@@ -117,9 +177,9 @@ def main() -> int:
     try:
         atoms = store.list_atoms()
         atom_count = len(atoms)
-        runtime_url = f"http://{args.host}:{int(args.port)}"
         if args.plan_only:
             print("mode=plan_only")
+            print(f"launch_mode={launch_mode}")
             print(f"memories_path={memories_path}")
             print(f"store_backend={backend_name}")
             print(f"atom_count={atom_count}")
@@ -146,8 +206,21 @@ def main() -> int:
             port=int(args.port),
             review_queue=review_queue,
         )
+        server.runtime_version = _project_version()
+        server.runtime_launch_mode = launch_mode
+        server.desktop_shutdown_requested = False
+        server.active_runtime_binding = {
+            **dict(getattr(server, "active_runtime_binding", {}) or {}),
+            "store_path": str(memories_path.resolve()),
+            "episodes_path": str(episode_cards_path.resolve()) if episode_cards_path is not None else "",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "backend": backend_name,
+            "artifact_mode": "setup" if args.setup_mode else ("published" if episode_cards_path is not None else ""),
+            "build_id": "",
+        }
         host, port = server.server_address
         print(f"runtime_url=http://{host}:{port}")
+        print(f"launch_mode={launch_mode}")
         print(f"memories_path={memories_path}")
         print(f"store_backend={backend_name}")
         print(f"atom_count={atom_count}")
@@ -159,6 +232,8 @@ def main() -> int:
         started = time.monotonic()
         try:
             while True:
+                if bool(getattr(server, "desktop_shutdown_requested", False)):
+                    break
                 if max_seconds > 0.0 and (time.monotonic() - started) >= max_seconds:
                     break
                 time.sleep(0.5)

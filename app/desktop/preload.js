@@ -5,7 +5,14 @@ const isTrustedBootPage = window.location.protocol === 'file:' && window.locatio
 if (isTrustedBootPage) {
   contextBridge.exposeInMainWorld('desktopShell', {
     getState: () => ipcRenderer.invoke('desktop-shell:get-state'),
+    getPreferences: () => ipcRenderer.invoke('desktop-shell:get-preferences'),
+    setPreferences: (patch) => ipcRenderer.invoke('desktop-shell:set-preferences', patch),
+    startRuntime: () => ipcRenderer.invoke('desktop-shell:start-runtime'),
+    startSetup: () => ipcRenderer.invoke('desktop-shell:start-setup'),
+    repairRuntime: () => ipcRenderer.invoke('desktop-shell:repair-runtime'),
     restartRuntime: () => ipcRenderer.invoke('desktop-shell:restart-runtime'),
+    stopRuntime: () => ipcRenderer.invoke('desktop-shell:stop-runtime'),
+    acknowledgeBackgroundExplainer: () => ipcRenderer.invoke('desktop-shell:acknowledge-background-explainer'),
     openRuntimeFolder: () => ipcRenderer.invoke('desktop-shell:open-runtime-folder'),
     openStateFolder: () => ipcRenderer.invoke('desktop-shell:open-state-folder'),
     openPublishedSets: () => ipcRenderer.invoke('desktop-shell:open-published-sets'),

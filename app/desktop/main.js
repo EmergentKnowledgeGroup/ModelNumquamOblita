@@ -102,7 +102,10 @@ function registerIpc() {
   ipcMain.handle('desktop-shell:open-runtime-folder', async () => shell.openPath(path.join(state.repoRoot, 'runtime')));
   ipcMain.handle('desktop-shell:open-state-folder', async () => shell.openPath(state.wizardRunsPath));
   ipcMain.handle('desktop-shell:open-published-sets', async () => shell.openPath(state.publishedSetsPath));
-  ipcMain.handle('desktop-shell:open-runtime-logs', async () => shell.openPath(path.dirname(state.logPath || logDir())));
+  ipcMain.handle('desktop-shell:open-runtime-logs', async () => {
+    const target = state.logPath ? path.dirname(state.logPath) : logDir();
+    return shell.openPath(target);
+  });
   ipcMain.handle('desktop-shell:open-external-ui', async () => {
     if (!state.runtimeUrl) {
       return false;
@@ -115,8 +118,12 @@ function registerIpc() {
 function attachRuntimeLogging(child) {
   let stdoutBuffer = '';
   let resolveSpawnError = () => {};
+  let resolveEarlyExit = () => {};
   const spawnErrorPromise = new Promise((resolve) => {
     resolveSpawnError = resolve;
+  });
+  const earlyExitPromise = new Promise((resolve) => {
+    resolveEarlyExit = resolve;
   });
 
   function handleStdoutLine(line) {
@@ -171,6 +178,7 @@ function attachRuntimeLogging(child) {
       handleStdoutLine(stdoutBuffer.trim());
       stdoutBuffer = '';
     }
+    resolveEarlyExit({ code, signal });
     if (shuttingDown || expectedRuntimeExit) {
       return;
     }
@@ -184,7 +192,7 @@ function attachRuntimeLogging(child) {
       mainWindow.loadFile(path.join(__dirname, 'boot.html')).catch(() => {});
     }
   });
-  return { spawnErrorPromise };
+  return { spawnErrorPromise, earlyExitPromise };
 }
 
 async function stopRuntime() {
@@ -246,6 +254,15 @@ function quitForSmoke(code) {
   }, 250);
 }
 
+function reportShellError(stage, error) {
+  const message = error?.message || String(error || 'unknown error');
+  emitState({
+    status: 'error',
+    bootStage: stage,
+    lastError: message,
+  });
+}
+
 async function startRuntime() {
   launchPlan = buildRuntimeLaunchPlan({
     repoRoot: state.repoRoot,
@@ -269,15 +286,19 @@ async function startRuntime() {
     env: { ...process.env, PYTHONUNBUFFERED: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  const { spawnErrorPromise } = attachRuntimeLogging(runtimeChild);
+  const { spawnErrorPromise, earlyExitPromise } = attachRuntimeLogging(runtimeChild);
   const bootResult = await Promise.race([
     waitForRuntimeReady({
       runtimeHealthUrl: launchPlan.runtimeHealthUrl,
       timeoutMs: Number(cli.bootTimeoutMs || 30000),
     }).then((ready) => ({ type: 'health', ready })),
     spawnErrorPromise.then((error) => ({ type: 'spawn_error', error })),
+    earlyExitPromise.then((payload) => ({ type: 'early_exit', payload })),
   ]);
   if (bootResult.type === 'spawn_error') {
+    return;
+  }
+  if (bootResult.type === 'early_exit') {
     return;
   }
   if (!bootResult.ready) {
@@ -318,19 +339,23 @@ async function restartRuntime() {
   }
 }
 
-app.whenReady().then(async () => {
-  registerIpc();
-  createWindow();
-  await startRuntime();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-      if (process.platform === 'darwin' && !runtimeChild) {
-        void restartRuntime();
+app.whenReady()
+  .then(async () => {
+    registerIpc();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+        if (process.platform === 'darwin' && !runtimeChild) {
+          restartRuntime().catch((error) => reportShellError('runtime restart failed', error));
+        }
       }
-    }
+    });
+    createWindow();
+    await startRuntime();
+  })
+  .catch((error) => {
+    reportShellError('desktop shell startup failed', error);
   });
-});
 
 app.on('window-all-closed', async () => {
   await stopRuntime();

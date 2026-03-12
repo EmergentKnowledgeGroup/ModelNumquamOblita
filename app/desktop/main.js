@@ -173,8 +173,8 @@ function updateTrayMenu() {
     }
     const handlerMap = {
       'open-app': () => showMainWindow(),
-      'start-runtime': () => startRuntime({ setupMode: false, requestedByUser: true }).catch((error) => reportShellError('start runtime failed', error)),
-      'open-setup': () => startRuntime({ setupMode: true, requestedByUser: false }).catch((error) => reportShellError('open setup failed', error)),
+      'start-runtime': () => startRuntime({ setupMode: false }).catch((error) => reportShellError('start runtime failed', error)),
+      'open-setup': () => startRuntime({ setupMode: true }).catch((error) => reportShellError('open setup failed', error)),
       'repair-runtime': () => repairRuntimeClaim().catch((error) => reportShellError('repair runtime failed', error)),
       'restart-runtime': () => restartRuntime().catch((error) => reportShellError('restart runtime failed', error)),
       'stop-runtime': () => stopRuntime({ explicitUserStop: true, reloadBootUi: true }).catch((error) => reportShellError('stop runtime failed', error)),
@@ -373,11 +373,11 @@ function registerIpc() {
     return { ...state };
   });
   ipcMain.handle('desktop-shell:start-runtime', async () => {
-    await startRuntime({ setupMode: false, requestedByUser: true });
+    await startRuntime({ setupMode: false });
     return { ...state };
   });
   ipcMain.handle('desktop-shell:start-setup', async () => {
-    await startRuntime({ setupMode: true, requestedByUser: false });
+    await startRuntime({ setupMode: true });
     return { ...state };
   });
   ipcMain.handle('desktop-shell:repair-runtime', async () => {
@@ -524,7 +524,7 @@ async function handleUnexpectedRuntimeExit({ code, signal }) {
     label: 'Starting',
     bootStage: `Runtime exited unexpectedly. Restarting automatically (${attempts}/${MAX_AUTOMATIC_RESTARTS}).`,
   });
-  await startRuntime({ setupMode: false, requestedByUser: false });
+  await startRuntime({ setupMode: false });
 }
 
 async function waitForRuntimeDown(runtimeHealthUrl, timeoutMs = 8000) {
@@ -661,7 +661,7 @@ async function reattachOrRecoverExistingRuntime(launchPlan) {
   return false;
 }
 
-async function startRuntime({ setupMode = false, requestedByUser = false } = {}) {
+async function startRuntime({ setupMode = false } = {}) {
   if (restartPromise) {
     return restartPromise;
   }
@@ -823,7 +823,7 @@ async function restartRuntime() {
   await loadBootPage().catch(() => {});
   persistPreferences({ runtime_desired_state: 'running' });
   await stopRuntime({ explicitUserStop: false, reloadBootUi: false });
-  return startRuntime({ setupMode: !state.readyConfiguration, requestedByUser: true });
+  return startRuntime({ setupMode: !state.readyConfiguration });
 }
 
 async function repairRuntimeClaim() {
@@ -838,10 +838,10 @@ async function repairRuntimeClaim() {
     hydrateStateFromDisk({ lastError: '' });
   }
   if (state.readyConfiguration) {
-    await startRuntime({ setupMode: false, requestedByUser: true });
+    await startRuntime({ setupMode: false });
     return;
   }
-  await startRuntime({ setupMode: true, requestedByUser: false });
+  await startRuntime({ setupMode: true });
 }
 
 async function performInitialLaunch() {
@@ -850,11 +850,11 @@ async function performInitialLaunch() {
     return;
   }
   if (state.status === 'setup_required') {
-    await startRuntime({ setupMode: true, requestedByUser: false });
+    await startRuntime({ setupMode: true });
     return;
   }
   if (state.autoStartAllowed) {
-    await startRuntime({ setupMode: false, requestedByUser: false });
+    await startRuntime({ setupMode: false });
     return;
   }
   if (state.status === 'setup_required' || state.status === 'stopped' || state.status === 'degraded') {

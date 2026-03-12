@@ -156,6 +156,28 @@ def test_run_live_runtime_plan_only_setup_mode(tmp_path: Path) -> None:
     assert setup_store.parent.exists() is False
 
 
+def test_run_live_runtime_plan_only_setup_mode_rejects_invalid_store_suffix(tmp_path: Path) -> None:
+    setup_store = tmp_path / "desktop_shell" / "setup_mode.txt"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/run_live_runtime.py",
+            "--setup-mode",
+            "--setup-store",
+            str(setup_store),
+            "--plan-only",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert result.returncode == 2
+    assert "error=unsupported memories path" in result.stdout
+
+
 def test_run_live_runtime_setup_mode_rejects_live_store_flags(tmp_path: Path) -> None:
     sqlite_path = tmp_path / "atoms.sqlite3"
     _build_store(sqlite_path)

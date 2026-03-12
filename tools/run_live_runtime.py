@@ -49,7 +49,7 @@ def _project_version() -> str:
     pyproject_path = REPO_ROOT / "pyproject.toml"
     try:
         payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
         return "0.0.0"
     project = payload.get("project") if isinstance(payload, dict) else {}
     version = str((project or {}).get("version") or "").strip()
@@ -151,10 +151,15 @@ def main() -> int:
 
     runtime_url = f"http://{args.host}:{int(args.port)}"
     if args.plan_only and args.setup_mode:
+        try:
+            setup_backend = _store_backend_label(memories_path)
+        except ValueError as exc:
+            print(f"error={exc}")
+            return 2
         print("mode=plan_only")
         print(f"launch_mode={launch_mode}")
         print(f"memories_path={memories_path}")
-        print(f"store_backend={_store_backend_label(memories_path)}")
+        print(f"store_backend={setup_backend}")
         print("atom_count=0")
         print(f"episode_cards_path={episode_cards_path if episode_cards_path is not None else ''}")
         print(f"runtime_url={runtime_url}")

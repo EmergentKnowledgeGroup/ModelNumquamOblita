@@ -252,15 +252,21 @@ function sanitizeRuntimeBundleManifest(raw, { manifestPath = '', appVersion = ''
   if (appVersion && !allowedAppVersions.includes(appVersion)) {
     throw new Error(`desktop app version ${appVersion} is not compatible with runtime bundle ${runtimeVersion}`);
   }
-  const entrypoint = String(payload.entrypoint || 'tools/run_live_runtime.py').trim();
+  const entrypoint = String(payload.entrypoint || '').trim();
   const executablePath = String(payload.executable_path || '').trim();
   const pythonCommands = payload.python_commands && typeof payload.python_commands === 'object' ? payload.python_commands : {};
+  if (bundleMode === 'python_entrypoint' && !entrypoint) {
+    throw new Error('runtime bundle manifest missing entrypoint for python_entrypoint bundle_mode');
+  }
+  if (bundleMode === 'executable' && !executablePath) {
+    throw new Error('runtime bundle manifest missing executable_path for executable bundle_mode');
+  }
   return {
     schema,
     bundleMode,
     runtimeVersion,
     allowedAppVersions,
-    entrypoint,
+    entrypoint: bundleMode === 'python_entrypoint' ? entrypoint : '',
     executablePath,
     pythonCommands,
     manifestPath,
@@ -607,8 +613,8 @@ function buildRuntimeLaunchPlan({
     : sanitizeRuntimeBundleManifest(runtimeManifest, { manifestPath: runtimeManifest?.manifestPath || '', appVersion: '' });
   let command = '';
   let args = [];
-  const entrypointPath = path.resolve(resolvedRoot, manifest.entrypoint);
-  if (requireBundledRuntime) {
+  const entrypointPath = manifest.bundleMode === 'python_entrypoint' ? path.resolve(resolvedRoot, manifest.entrypoint) : '';
+  if (manifest.bundleMode !== 'executable' && requireBundledRuntime) {
     if (!pathWithinRoot(entrypointPath, resolvedRoot)) {
       throw new Error(`bundled runtime entrypoint escapes repo root: ${entrypointPath}`);
     }
@@ -736,7 +742,7 @@ function runtimeHealthMatchesExpected(healthPayload, { expectedBinding = {}, exp
   if (expectedRuntimeVersion && runtimeVersion !== expectedRuntimeVersion) {
     return false;
   }
-  if (expectedRuntimeUrl && runtimeUrl && runtimeUrl !== expectedRuntimeUrl) {
+  if (expectedRuntimeUrl && runtimeUrl !== expectedRuntimeUrl) {
     return false;
   }
   if (!hasExpectedBinding) {

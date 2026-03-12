@@ -86,7 +86,10 @@ def _write_ready_wizard_state(wizard_runs_root: Path, sqlite_path: Path, cards_p
 
 def _expected_runtime_version() -> str:
     payload = json.loads(RUNTIME_MANIFEST_PATH.read_text(encoding="utf-8"))
-    return str(payload.get("runtime_version") or "").strip()
+    runtime_version = str(payload.get("runtime_version") or "").strip()
+    if not runtime_version:
+        raise AssertionError(f"missing runtime_version in {RUNTIME_MANIFEST_PATH}")
+    return runtime_version
 
 
 def test_desktop_shell_node_suite_runs() -> None:
@@ -145,6 +148,10 @@ def test_desktop_shell_electron_smoke(tmp_path: Path) -> None:
 
 
 def test_desktop_shell_packaged_dir_smoke_uses_bundled_repo_root(tmp_path: Path) -> None:
+    if sys.platform.startswith("win"):
+        pytest.skip("Windows packaged smoke is not run from this Linux lane")
+    if sys.platform == "darwin":
+        pytest.skip("macOS packaged smoke is not run from this Linux lane")
     if shutil.which("npm") is None:
         pytest.skip("npm is required for the packaged desktop shell smoke test")
     if sys.platform.startswith("linux") and shutil.which("xvfb-run") is None:
@@ -162,10 +169,6 @@ def test_desktop_shell_packaged_dir_smoke_uses_bundled_repo_root(tmp_path: Path)
 
     packaged_root = DESKTOP_ROOT / "dist" / "linux-unpacked"
     executable = packaged_root / "modelnumquamoblita-desktop-shell"
-    if sys.platform.startswith("win"):
-        pytest.skip("Windows packaged smoke is not run from this Linux lane")
-    if sys.platform == "darwin":
-        pytest.skip("macOS packaged smoke is not run from this Linux lane")
     if not executable.exists():
         pytest.skip("packaged Linux executable is not present")
     bundled_python = packaged_root / "resources" / "mno_bundle" / "runtime" / "python" / "bin" / "python3"
@@ -208,5 +211,6 @@ def test_desktop_shell_packaged_dir_smoke_uses_bundled_repo_root(tmp_path: Path)
     assert shell_logs, "desktop shell did not emit a runtime log"
     latest_log = shell_logs[0].read_text(encoding="utf-8")
     assert f"launch command={bundled_python}" in latest_log
+    expected_runtime_version = _expected_runtime_version()
     last_known_good = json.loads((desktop_shell_root / "runtime_bundle.last_known_good.json").read_text(encoding="utf-8"))
-    assert last_known_good["runtime_version"] == _expected_runtime_version()
+    assert last_known_good["runtime_version"] == expected_runtime_version

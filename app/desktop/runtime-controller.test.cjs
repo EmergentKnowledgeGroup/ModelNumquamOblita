@@ -192,6 +192,19 @@ test('buildRuntimeLaunchPlan refuses packaged startup when entrypoint escapes re
   );
 });
 
+test('sanitizeRuntimeBundleManifest enforces executable bundle metadata', () => {
+  assert.throws(
+    () => sanitizeRuntimeBundleManifest({
+      schema: 'modelnumquamoblita.desktop.runtime_bundle.v1',
+      bundle_mode: 'executable',
+      runtime_version: '0.1.0',
+      allowed_app_versions: ['0.1.0'],
+      executable_path: '',
+    }, { appVersion: '0.1.0' }),
+    /missing executable_path/,
+  );
+});
+
 test('buildRuntimeSpawnOptions enforces no-shell launch and windows hide on win32', () => {
   const options = buildRuntimeSpawnOptions({ cwd: '/repo', env: { BASE: '1' }, platform: 'win32' });
   assert.equal(options.cwd, '/repo');
@@ -410,6 +423,16 @@ test('runtimeHealthMatchesExpected requires runtime identity, version, and bindi
   assert.equal(ok, true);
   const bad = runtimeHealthMatchesExpected({ service: 'other', binding: expected }, { expectedBinding: expected });
   assert.equal(bad, false);
+  const missingRuntimeUrl = runtimeHealthMatchesExpected({
+    service: 'modelnumquamoblita-runtime',
+    runtime_version: '0.1.0',
+    binding: expected,
+  }, {
+    expectedBinding: expected,
+    expectedRuntimeVersion: '0.1.0',
+    expectedRuntimeUrl: 'http://127.0.0.1:7340',
+  });
+  assert.equal(missingRuntimeUrl, false);
   const setupMatch = runtimeHealthMatchesExpected({
     service: 'modelnumquamoblita-runtime',
     runtime_version: '0.1.0',

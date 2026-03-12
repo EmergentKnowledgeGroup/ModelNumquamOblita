@@ -84,7 +84,7 @@ def _project_version() -> str:
     pyproject_path = REPO_ROOT / "pyproject.toml"
     try:
         payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError):
         return "0.0.0"
     project = payload.get("project") if isinstance(payload, dict) else {}
     version = str((project or {}).get("version") or "").strip()
@@ -9320,6 +9320,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             if client_host not in {"127.0.0.1", "::1", "localhost"}:
                 return _json_response(self, HTTPStatus.FORBIDDEN, {"error": "desktop shutdown is local-only"})
             self.server.desktop_shutdown_requested = True
+            self.server.desktop_shutdown_error = ""
 
             def _shutdown_worker() -> None:
                 time.sleep(0.05)
@@ -9329,8 +9330,9 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         getattr(self.server, "runtime_thread", None),
                         runtime=getattr(self.server, "runtime", None),
                     )
-                except Exception:
-                    return
+                except Exception as exc:
+                    self.server.desktop_shutdown_error = str(exc)
+                    LOGGER.exception("desktop shutdown worker failed")
 
             threading.Thread(target=_shutdown_worker, daemon=True, name="runtime-desktop-shutdown").start()
             return _json_response(
@@ -9924,6 +9926,7 @@ class RuntimeHTTPServer(ThreadingHTTPServer):
         self.runtime_version = _project_version()
         self.runtime_launch_mode = "normal"
         self.desktop_shutdown_requested = False
+        self.desktop_shutdown_error = ""
         self.runtime_thread: threading.Thread | None = None
 
 

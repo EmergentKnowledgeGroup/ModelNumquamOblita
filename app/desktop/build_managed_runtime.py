@@ -25,6 +25,13 @@ ASSET_MAP = {
     "win32-x64": "cpython-3.12.13+20260303-x86_64-pc-windows-msvc-install_only.tar.gz",
 }
 
+ASSET_SHA256 = {
+    "cpython-3.12.13+20260303-x86_64-unknown-linux-gnu-install_only.tar.gz": "4e5ac5a04afc4fe164e92e3844d6dbda03b33baeb62e032b5c9a8198280221e2",
+    "cpython-3.12.13+20260303-x86_64-apple-darwin-install_only.tar.gz": "8ad52a15de26e67d53f5c14f338433c59d5a2711852adc59043a20ec8da71a52",
+    "cpython-3.12.13+20260303-aarch64-apple-darwin-install_only.tar.gz": "2c01f29e9e4ddbd57e0319fedecf1f3e222558fce394a3ed4e39d0f750c11988",
+    "cpython-3.12.13+20260303-x86_64-pc-windows-msvc-install_only.tar.gz": "43990976c8de6b72a7525cb509eedaf869a8dd116167e708af08bca50cd8ef00",
+}
+
 
 def _target_key() -> str:
     platform_key = platform.system().lower()
@@ -80,6 +87,19 @@ def _safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
     archive.extractall(root)
 
 
+def _verify_archive(asset_name: str, archive_path: Path) -> None:
+    expected = str(ASSET_SHA256.get(asset_name) or "").strip().lower()
+    if not expected:
+        raise SystemExit(f"missing expected SHA-256 for asset: {asset_name}")
+    actual = _sha256_file(archive_path).lower()
+    if actual == expected:
+        return
+    archive_path.unlink(missing_ok=True)
+    raise SystemExit(
+        f"managed runtime archive checksum mismatch for {asset_name}: expected {expected}, got {actual}"
+    )
+
+
 def _extract_to_output(archive_path: Path, destination: Path) -> None:
     temp_root = Path(tempfile.mkdtemp(prefix="mno-managed-runtime-"))
     if destination.exists():
@@ -131,6 +151,7 @@ def main() -> int:
         return 0
 
     archive_path = _download(asset_name)
+    _verify_archive(asset_name, archive_path)
     _extract_to_output(archive_path, OUTPUT_ROOT)
 
     metadata_path = DESKTOP_ROOT / "build" / "runtime" / "metadata.json"

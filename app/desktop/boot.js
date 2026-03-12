@@ -22,6 +22,14 @@
 
   let currentState = null;
   let savingPreferences = false;
+  let pendingPreferences = null;
+
+  function preferencePayload() {
+    return {
+      close_behavior: els.closeBehavior.value,
+      auto_start: els.autoStart.value,
+    };
+  }
 
   function primaryActionForState(state) {
     const status = String(state.status || 'setup_required');
@@ -88,15 +96,20 @@
   }
 
   async function savePreferences() {
-    if (!window.desktopShell || savingPreferences) {
+    if (!window.desktopShell) {
+      return;
+    }
+    pendingPreferences = preferencePayload();
+    if (savingPreferences) {
       return;
     }
     savingPreferences = true;
     try {
-      render(await window.desktopShell.setPreferences({
-        close_behavior: els.closeBehavior.value,
-        auto_start: els.autoStart.value,
-      }));
+      while (pendingPreferences) {
+        const nextPreferences = pendingPreferences;
+        pendingPreferences = null;
+        render(await window.desktopShell.setPreferences(nextPreferences));
+      }
     } finally {
       savingPreferences = false;
     }

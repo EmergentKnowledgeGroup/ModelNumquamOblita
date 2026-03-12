@@ -1310,6 +1310,9 @@ def _wizard_empty_review_state() -> dict[str, Any]:
         "store_fingerprint": "",
         "reviewable_count": 0,
         "pending_count": 0,
+        "approved_count": 0,
+        "edited_count": 0,
+        "rejected_count": 0,
         "complete": False,
         "decision_count": 0,
         "source_cards_path": "",
@@ -1540,6 +1543,9 @@ def _wizard_review_counts(source_payload: dict[str, Any], review_decisions: Mapp
     total = 0
     explicit = 0
     pending = 0
+    approved = 0
+    edited = 0
+    rejected = 0
     for row in list(source_payload.get("cards") or []):
         if not isinstance(row, dict):
             continue
@@ -1549,11 +1555,25 @@ def _wizard_review_counts(source_payload: dict[str, Any], review_decisions: Mapp
         total += 1
         decision_payload = review_decisions.get(episode_id)
         decision = str((decision_payload or {}).get("decision") or "pending").strip().lower()
-        if decision in {"approved", "edited", "rejected"}:
+        if decision == "approved":
             explicit += 1
+            approved += 1
+        elif decision == "edited":
+            explicit += 1
+            edited += 1
+        elif decision == "rejected":
+            explicit += 1
+            rejected += 1
         else:
             pending += 1
-    return {"reviewable_count": total, "decision_count": explicit, "pending_count": pending}
+    return {
+        "reviewable_count": total,
+        "decision_count": explicit,
+        "pending_count": pending,
+        "approved_count": approved,
+        "edited_count": edited,
+        "rejected_count": rejected,
+    }
 
 
 def _wizard_stage_state_payload(state: dict[str, Any]) -> dict[str, Any]:
@@ -6229,6 +6249,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             if not isinstance(decisions, dict):
                 decisions = {}
             raw_cards = list(payload.get("cards") or [])
+            reviewable_total = 0
             all_cards: list[dict[str, Any]] = []
             for row in raw_cards:
                 if not isinstance(row, dict):
@@ -6237,6 +6258,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 episode_id = str(card.get("episode_id") or "").strip()
                 if not episode_id:
                     continue
+                reviewable_total += 1
                 decision_payload = decisions.get(episode_id) if isinstance(decisions, dict) else None
                 decision = "pending"
                 if isinstance(decision_payload, dict):
@@ -6265,7 +6287,6 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             end_index = start_index + page_size
             cards = all_cards[start_index:end_index]
             _wizard_sync_review_state(wizard_state, source_payload=payload, source_cards_path=source_path)
-            _save_wizard_state(wizard_state)
             return _json_response(
                 self,
                 HTTPStatus.OK,
@@ -6274,7 +6295,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     "run_id": wizard_state.get("run_id"),
                     "source_cards_path": str(source_path),
                     "cards": cards,
-                    "total": len(raw_cards),
+                    "total": reviewable_total,
                     "filtered_total": filtered_total,
                     "page": page,
                     "page_size": page_size,

@@ -695,13 +695,37 @@ def test_wizard_review_cards_supports_pagination_and_inline_edit_batches(tmp_pat
             "store_fingerprint": "store_fp_review",
         }
         state["last_built_episode_draft_path"] = str(draft_path)
-        state["review_decisions"] = {
-            "ep_001": {"decision": "approved", "title": "", "summary": "", "actors": [], "topic_tags": [], "cue_terms": []},
-            "ep_002": {"decision": "edited", "title": "Edited title", "summary": "Edited summary", "actors": ["user"], "topic_tags": ["testing"], "cue_terms": []},
-            "ep_003": {"decision": "rejected", "title": "", "summary": "", "actors": [], "topic_tags": [], "cue_terms": []},
-        }
         runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
         runtime_server_module._save_wizard_state(state)
+
+        _json_post(
+            f"{base}/api/wizard/review/update",
+            {"run_id": run_id, "episode_id": "ep_001", "decision": "approved"},
+        )
+        _json_post(
+            f"{base}/api/wizard/review/update",
+            {
+                "run_id": run_id,
+                "episode_id": "ep_002",
+                "decision": "edited",
+                "title": "Edited title",
+                "summary": "Edited summary",
+                "actors": ["user"],
+                "topic_tags": ["testing"],
+            },
+        )
+        _json_post(
+            f"{base}/api/wizard/review/update",
+            {"run_id": run_id, "episode_id": "ep_003", "decision": "rejected"},
+        )
+
+        wizard_state = _json_get(f"{base}/api/wizard/state?run_id={quote(run_id)}")
+        review_state = wizard_state["state"]["review_state"]
+        assert review_state["reviewable_count"] == 31
+        assert review_state["pending_count"] == 28
+        assert review_state["approved_count"] == 1
+        assert review_state["edited_count"] == 1
+        assert review_state["rejected_count"] == 1
 
         first_page = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&page=1&page_size=12")
         assert first_page["ok"] is True

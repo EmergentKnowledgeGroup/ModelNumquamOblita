@@ -31,6 +31,7 @@ const state = {
     totalPages: 1,
   },
   wizardReviewRequestSeq: 0,
+  wizardReviewSummaryRequestSeq: 0,
   wizardReviewEditingId: null,
   wizardInputOptions: null,
   wizardInputMode: "archive",
@@ -1793,14 +1794,14 @@ function renderWizardReviewList() {
       const decision = String(card.review_decision || "pending");
       const editing = state.wizardReviewEditingId === episodeId;
       const reviewPayload = card.review_payload || {};
-      const titleValue = String(reviewPayload.title || card.title || "");
-      const summaryValue = String(reviewPayload.summary || card.summary || "");
-      const actorsValue = Array.isArray(reviewPayload.actors) && reviewPayload.actors.length
+      const titleValue = String(reviewPayload.title ?? card.title ?? "");
+      const summaryValue = String(reviewPayload.summary ?? card.summary ?? "");
+      const actorsValue = Array.isArray(reviewPayload.actors)
         ? reviewPayload.actors.join(", ")
         : Array.isArray(card.actors)
           ? card.actors.join(", ")
           : "";
-      const topicsValue = Array.isArray(reviewPayload.topic_tags) && reviewPayload.topic_tags.length
+      const topicsValue = Array.isArray(reviewPayload.topic_tags)
         ? reviewPayload.topic_tags.join(", ")
         : Array.isArray(card.topic_tags)
           ? card.topic_tags.join(", ")
@@ -2040,8 +2041,13 @@ async function refreshWizardState(runId) {
 }
 
 async function refreshWizardReviewSummary(runId) {
+  const requestSeq = state.wizardReviewSummaryRequestSeq + 1;
+  state.wizardReviewSummaryRequestSeq = requestSeq;
   const query = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
   const payload = await jsonFetch(`/api/wizard/state${query}`);
+  if (requestSeq !== state.wizardReviewSummaryRequestSeq) {
+    return;
+  }
   state.wizardState = payload.state || null;
   state.wizardRunId = payload.current_run_id || payload.latest_run_id || state.wizardRunId || null;
   renderWizardState();
@@ -2236,8 +2242,7 @@ async function updateWizardReviewDecision(episodeId, decision, edits = {}) {
     }),
   });
   wizardResult(els.wizardReviewResult, `${episodeId}: ${friendlyReviewDecision(decision)}.`);
-  await loadWizardReviewCards();
-  await refreshWizardReviewSummary(state.wizardRunId || undefined);
+  await Promise.all([loadWizardReviewCards(), refreshWizardReviewSummary(state.wizardRunId || undefined)]);
 }
 
 async function compileWizardReview() {

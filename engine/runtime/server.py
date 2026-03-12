@@ -54,7 +54,8 @@ from .live_eval import load_inmemory_store_from_json
 
 UI_ROOT = Path(__file__).resolve().parent / "ui"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RUNTIME_ROOT = Path(str(os.environ.get("MNO_RUNTIME_STATE_ROOT") or "").strip()).expanduser().resolve() if str(os.environ.get("MNO_RUNTIME_STATE_ROOT") or "").strip() else (REPO_ROOT / "runtime")
+_RUNTIME_STATE_ROOT_ENV = str(os.environ.get("MNO_RUNTIME_STATE_ROOT") or "").strip()
+RUNTIME_ROOT = Path(_RUNTIME_STATE_ROOT_ENV).expanduser().resolve() if _RUNTIME_STATE_ROOT_ENV else (REPO_ROOT / "runtime")
 WIZARD_RUNS_ROOT = RUNTIME_ROOT / "wizard_runs"
 WIZARD_LATEST_PATH = WIZARD_RUNS_ROOT / "LATEST.json"
 BUILDER_PROFILES_ROOT = RUNTIME_ROOT / "builder_profiles"
@@ -106,6 +107,13 @@ def _project_version() -> str:
     project = payload.get("project") if isinstance(payload, dict) else {}
     version = str((project or {}).get("version") or "").strip()
     return version or "0.0.0"
+
+
+def _runtime_state_root_path(server: "RuntimeHTTPServer") -> Path:
+    candidate = getattr(server, "runtime_root", None)
+    if candidate:
+        return Path(str(candidate)).expanduser().resolve()
+    return RUNTIME_ROOT
 
 
 def _canonical_graph_link_key(source: str, target: str, kind: str) -> tuple[str, str, str]:
@@ -3873,7 +3881,7 @@ def _runtime_health(server: "RuntimeHTTPServer") -> dict[str, Any]:
         checks.append({"id": "provider_reachable", "status": "fail", "detail": str(exc)})
 
     try:
-        usage = shutil.disk_usage(str(REPO_ROOT))
+        usage = shutil.disk_usage(str(_runtime_state_root_path(server)))
         free_gb = float(usage.free) / float(1024**3)
         status = "ok" if free_gb >= 1.0 else "warn"
         warned = warned or status == "warn"
@@ -9942,6 +9950,7 @@ class RuntimeHTTPServer(ThreadingHTTPServer):
         }
         self.runtime_version = _project_version()
         self.runtime_launch_mode = "normal"
+        self.runtime_root = str(RUNTIME_ROOT)
         self.desktop_shutdown_requested = False
         self.desktop_shutdown_error = ""
         self.runtime_thread: threading.Thread | None = None

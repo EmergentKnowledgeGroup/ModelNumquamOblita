@@ -801,7 +801,10 @@ async function stopRuntime({ explicitUserStop = false, reloadBootUi = true } = {
           await waitForChildExit(child, { timeoutMs: 1000 });
         }
       }
-    } else if (runtimeAttachmentMode === 'reattached' || state.runtimeUrl) {
+    } else if (
+      runtimeAttachmentMode === 'reattached'
+      || (state.runtimeUrl && state.runtimeHealth && state.runtimeHealth.service === 'modelnumquamoblita-runtime')
+    ) {
       try {
         await requestRuntimeShutdown({ runtimeShutdownUrl: `${String(state.runtimeUrl || '').replace(/\/$/, '')}/api/runtime/desktop/shutdown` });
         await waitForRuntimeDown(`${String(state.runtimeUrl || '').replace(/\/$/, '')}/api/runtime/health`);
@@ -859,7 +862,7 @@ async function performInitialLaunch() {
     await startRuntime({ setupMode: false });
     return;
   }
-  if (state.status === 'setup_required' || state.status === 'stopped' || state.status === 'degraded') {
+  if (state.status === 'stopped' || state.status === 'degraded') {
     await loadBootPage().catch(() => {});
   }
 }

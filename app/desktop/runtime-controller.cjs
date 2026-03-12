@@ -8,7 +8,7 @@ const DESKTOP_STATUS_LABELS = Object.freeze({
   booting: 'Starting',
   ready: 'Ready',
   degraded: 'Needs attention',
-  stopping: 'Stopped',
+  stopping: 'Stopping',
   error: 'Error',
 });
 

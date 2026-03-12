@@ -559,10 +559,11 @@ test('loadLatestWizardState resolves latest wizard run from disk', () => {
 });
 
 test('collectMissingArtifacts lists missing published artifacts without lying about existing ones', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mno-missing-artifacts-'));
   const rows = collectMissingArtifacts(makeWizardState({
-    selected_input: { kind: 'ia_archive', is_valid: true, path: '/tmp/missing_archive.json' },
-    store_validation: { kind: 'sqlite_store', is_valid: true, path: '/tmp/missing_store.sqlite3', store_fingerprint: 'store_fingerprint_v1' },
-    published_set: { episodes_path: '/tmp/missing.reviewed.json', build_id: 'build_123' },
+    selected_input: { kind: 'ia_archive', is_valid: true, path: path.join(tmpDir, 'missing_archive.json') },
+    store_validation: { kind: 'sqlite_store', is_valid: true, path: path.join(tmpDir, 'missing_store.sqlite3'), store_fingerprint: 'store_fingerprint_v1' },
+    published_set: { episodes_path: path.join(tmpDir, 'missing.reviewed.json'), build_id: 'build_123' },
   }));
   assert.deepEqual(rows.map((row) => row.target).sort(), ['published_set', 'selected_input', 'store_validation']);
 });
@@ -631,12 +632,12 @@ test('formatTimeoutLabel renders configured timeout text', () => {
 
 test('loadDesktopAppVersion reads the desktop package version', () => {
   const version = loadDesktopAppVersion(path.resolve(__dirname, '..', '..'));
-  assert.match(version, /^\d+\.\d+\.\d+$/);
+  assert.match(version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
 });
 
 test('stateLabel uses the locked user-facing status names only', () => {
   assert.equal(stateLabel('setup_required'), 'Setup required');
-  assert.equal(stateLabel('stopping'), 'Stopped');
+  assert.equal(stateLabel('stopping'), 'Stopping');
   assert.equal(stateLabel('error'), 'Error');
 });
 

@@ -5,6 +5,7 @@ const { spawn } = require('node:child_process');
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const {
   buildRuntimeLaunchPlan,
+  formatTimeoutLabel,
   parseRuntimeStdoutLine,
   parseShellCliArgs,
   resolveShellPaths,
@@ -281,10 +282,11 @@ async function startRuntime() {
   }
   if (!bootResult.ready) {
     await stopRuntime();
+    const timeoutLabel = formatTimeoutLabel(Number(cli.bootTimeoutMs || 30000));
     emitState({
       status: 'error',
       bootStage: 'runtime boot timeout',
-      lastError: 'The local runtime did not become healthy within 30 seconds.',
+      lastError: `The local runtime did not become healthy within ${timeoutLabel}.`,
     });
     if (cli.smokeExitWhenReady) {
       quitForSmoke(1);

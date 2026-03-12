@@ -130,6 +130,13 @@ function parseRuntimeStdoutLine(line) {
   return { key: match[1], value: match[2] };
 }
 
+function formatTimeoutLabel(timeoutMs) {
+  const safeTimeoutMs = Math.max(0, Number(timeoutMs) || 0);
+  const wholeSeconds = safeTimeoutMs / 1000;
+  const seconds = Number.isInteger(wholeSeconds) ? String(wholeSeconds) : wholeSeconds.toFixed(1);
+  return `${seconds} ${Number(wholeSeconds) === 1 ? 'second' : 'seconds'}`;
+}
+
 async function waitForRuntimeReady({
   runtimeHealthUrl,
   timeoutMs = 30000,
@@ -176,6 +183,7 @@ async function waitForChildExit(child, { timeoutMs = 2500 } = {}) {
 module.exports = {
   buildRuntimeLaunchPlan,
   defaultPythonCommand,
+  formatTimeoutLabel,
   parseRuntimeStdoutLine,
   parseShellCliArgs,
   resolveRepoRoot,

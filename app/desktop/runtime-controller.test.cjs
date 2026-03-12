@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const {
   buildRuntimeLaunchPlan,
+  formatTimeoutLabel,
   parseRuntimeStdoutLine,
   parseShellCliArgs,
   resolveShellPaths,
@@ -104,4 +105,10 @@ test('waitForChildExit resolves false on timeout', async () => {
   child.exitCode = null;
   const exited = await waitForChildExit(child, { timeoutMs: 10 });
   assert.equal(exited, false);
+});
+
+test('formatTimeoutLabel renders configured timeout text', () => {
+  assert.equal(formatTimeoutLabel(30000), '30 seconds');
+  assert.equal(formatTimeoutLabel(1000), '1 second');
+  assert.equal(formatTimeoutLabel(1250), '1.3 seconds');
 });

@@ -1,0 +1,17 @@
+{
+  "name": "modelnumquamoblita-desktop-shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron shell for the standalone ModelNumquamOblita runtime UI",
+  "main": "main.js",
+  "scripts": {
+    "desktop:dev": "electron .",
+    "desktop:test": "node --test *.test.cjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "electron": "41.0.0"
+  }
+}

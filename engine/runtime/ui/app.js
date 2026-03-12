@@ -23,6 +23,14 @@ const state = {
   wizardState: null,
   wizardRunId: null,
   wizardReviewCards: [],
+  wizardReviewMeta: {
+    total: 0,
+    filteredTotal: 0,
+    page: 1,
+    pageSize: 12,
+    totalPages: 1,
+  },
+  wizardReviewEditingId: null,
   wizardInputOptions: null,
   wizardInputMode: "archive",
   wizardActivation: null,
@@ -139,8 +147,13 @@ const els = {
   wizardBuilderResult: document.getElementById("wizardBuilderResult"),
   wizardReviewSearch: document.getElementById("wizardReviewSearch"),
   wizardReviewStatus: document.getElementById("wizardReviewStatus"),
+  wizardReviewPageSize: document.getElementById("wizardReviewPageSize"),
   btnWizardReviewRefresh: document.getElementById("btnWizardReviewRefresh"),
+  wizardReviewMeta: document.getElementById("wizardReviewMeta"),
   wizardReviewList: document.getElementById("wizardReviewList"),
+  btnWizardReviewPrev: document.getElementById("btnWizardReviewPrev"),
+  wizardReviewPager: document.getElementById("wizardReviewPager"),
+  btnWizardReviewNext: document.getElementById("btnWizardReviewNext"),
   btnWizardPublish: document.getElementById("btnWizardPublish"),
   wizardReviewResult: document.getElementById("wizardReviewResult"),
   wizardPublishResult: document.getElementById("wizardPublishResult"),
@@ -155,6 +168,7 @@ const els = {
   btnWizardExportMcp: document.getElementById("btnWizardExportMcp"),
   wizardActivationStatus: document.getElementById("wizardActivationStatus"),
   wizardMcpTargets: document.getElementById("wizardMcpTargets"),
+  wizardDeveloperTools: document.getElementById("wizardDeveloperTools"),
   wizardDeveloperMode: document.getElementById("wizardDeveloperMode"),
   wizardDraftReason: document.getElementById("wizardDraftReason"),
   btnWizardDraftGoLive: document.getElementById("btnWizardDraftGoLive"),
@@ -302,8 +316,8 @@ function applyUIMode() {
   if (els.modeHint) {
     els.modeHint.textContent =
       mode === "simple"
-        ? "Simple mode keeps essentials visible and hides advanced controls."
-        : "Advanced mode shows full telemetry, context package, and proposal controls.";
+        ? "Simple mode keeps setup and everyday memory use visible while hiding operator-heavy controls."
+        : "Advanced mode shows operator diagnostics, developer tools, and full runtime detail.";
   }
 }
 
@@ -1673,7 +1687,7 @@ function renderWizardState() {
   const runId = String(payload.run_id || state.wizardRunId || "");
   if (els.wizardRunMeta) {
     if (!runId) {
-      els.wizardRunMeta.textContent = "No wizard run loaded.";
+      els.wizardRunMeta.textContent = "No run loaded yet. Start fresh to import a file, or resume the last run.";
     } else {
       const stage = stageLabel(payload.current_stage || "import");
       const updated = formatDate(payload.updated_at || "");
@@ -1718,14 +1732,24 @@ function renderWizardState() {
     const history = Array.isArray(payload.published_history) ? payload.published_history : [];
     const versionId = String(publishedSet.version_id || "").trim();
     if (!versionId) {
-      els.wizardPublishedHistory.textContent = history.length
-        ? `Published history available (${history.length} snapshots). Use Restore Last Published if you need to recover an older reviewed set.`
-        : "No published set yet.";
+      els.wizardPublishedHistory.innerHTML = history.length
+        ? `<div><strong>No live published set right now.</strong></div><div>You still have ${history.length} older snapshot${history.length === 1 ? "" : "s"}. Use Restore Last Good Copy if you need to recover one.</div>`
+        : "No published set yet. Freeze one reviewed set to create a restorable copy.";
     } else {
+      const historyRows = history
+        .slice(-3)
+        .reverse()
+        .map((row) => {
+          const snapshot = row?.published_set || {};
+          return `<div class="wizard-history-item"><strong>${escapeHtml(String(snapshot.version_id || "older_snapshot"))}</strong><span>${escapeHtml(formatDate(row.at || snapshot.published_at || ""))}</span></div>`;
+        })
+        .join("");
       els.wizardPublishedHistory.innerHTML =
+        `<div><strong>Current frozen set</strong></div>` +
         `<div>version=<strong>${escapeHtml(versionId)}</strong></div>` +
         `<div>episodes=${escapeHtml(String(publishedSet.episode_count || 0))} | build=${escapeHtml(String(publishedSet.build_id || "-"))}</div>` +
-        `<div>history snapshots=${escapeHtml(String(history.length || 0))}</div>`;
+        `<div>older snapshots=${escapeHtml(String(history.length || 0))}</div>` +
+        (historyRows ? `<div class="wizard-history-list">${historyRows}</div>` : "");
     }
   }
   const verifyPayload = payload.verify || {};
@@ -1736,26 +1760,71 @@ function renderWizardState() {
 }
 
 function renderWizardReviewList() {
+  renderWizardReviewMeta();
   if (!els.wizardReviewList) {
     return;
   }
+  const meta = state.wizardReviewMeta || {};
+  const reviewState = state.wizardState?.review_state || {};
+  if (!state.wizardRunId) {
+    els.wizardReviewList.innerHTML = '<div class="memory-empty">Start or resume a run first, then build a draft before you review cards.</div>';
+    renderWizardReviewPager();
+    return;
+  }
   if (!state.wizardReviewCards.length) {
-    els.wizardReviewList.innerHTML = '<div class="memory-empty">No draft episode cards found for review.</div>';
+    if (Number(meta.filteredTotal || 0) > 0) {
+      els.wizardReviewList.innerHTML = '<div class="memory-empty">This page has no cards. Move to another page or change the filter.</div>';
+    } else if (Number(reviewState.reviewable_count || 0) > 0 && Number(reviewState.pending_count || 0) === 0) {
+      els.wizardReviewList.innerHTML =
+        '<div class="memory-empty">All draft cards already have a decision. Freeze the reviewed set when you are ready.</div>';
+    } else if (Number(reviewState.reviewable_count || 0) > 0) {
+      els.wizardReviewList.innerHTML =
+        '<div class="memory-empty">No draft cards match this filter. Clear the search or choose a different review status.</div>';
+    } else {
+      els.wizardReviewList.innerHTML = '<div class="memory-empty">Build draft episode cards first. Review only appears after a draft exists.</div>';
+    }
+    renderWizardReviewPager();
     return;
   }
   els.wizardReviewList.innerHTML = state.wizardReviewCards
     .map((card) => {
       const episodeId = String(card.episode_id || "");
       const decision = String(card.review_decision || "pending");
+      const editing = state.wizardReviewEditingId === episodeId;
+      const reviewPayload = card.review_payload || {};
+      const titleValue = String(reviewPayload.title || card.title || "");
+      const summaryValue = String(reviewPayload.summary || card.summary || "");
+      const actorsValue = Array.isArray(reviewPayload.actors) && reviewPayload.actors.length
+        ? reviewPayload.actors.join(", ")
+        : Array.isArray(card.actors)
+          ? card.actors.join(", ")
+          : "";
+      const topicsValue = Array.isArray(reviewPayload.topic_tags) && reviewPayload.topic_tags.length
+        ? reviewPayload.topic_tags.join(", ")
+        : Array.isArray(card.topic_tags)
+          ? card.topic_tags.join(", ")
+          : "";
       return (
-        `<article class="wizard-review-item" data-episode-id="${escapeHtml(episodeId)}">` +
-        `<div class="wizard-review-top"><strong>${escapeHtml(episodeId)}</strong><span>${escapeHtml(decision)}</span></div>` +
+        `<article class="wizard-review-item ${escapeHtml(decision)}${editing ? " editing" : ""}" data-episode-id="${escapeHtml(episodeId)}">` +
+        `<div class="wizard-review-top"><strong>${escapeHtml(episodeId)}</strong><span>${escapeHtml(friendlyReviewDecision(decision))}</span></div>` +
         `<div class="wizard-review-title">${escapeHtml(card.title || "(untitled episode)")}</div>` +
         `<div class="wizard-review-summary">${escapeHtml(trimDisplay(card.summary || "", 180))}</div>` +
+        `<div class="wizard-review-meta">${escapeHtml(reviewCardMeta(card))}</div>` +
         `<div class="wizard-review-actions">` +
-        `<button type="button" class="btn ghost review-approve">Approve</button>` +
-        `<button type="button" class="btn ghost review-edit">Edit</button>` +
+        `<button type="button" class="btn ghost review-approve">Approve As-Is</button>` +
+        `<button type="button" class="btn ghost review-edit">${editing ? "Close Quick Edit" : "Quick Edit"}</button>` +
         `<button type="button" class="btn ghost review-reject">Reject</button>` +
+        `${decision !== "pending" ? '<button type="button" class="btn ghost review-pending">Mark Pending</button>' : ""}` +
+        `</div>` +
+        `<div class="wizard-review-editor"${editing ? "" : ' hidden="hidden"'}>` +
+        `<label class="wizard-review-field"><span>Title</span><input type="text" class="input review-edit-title" value="${escapeHtml(titleValue)}" /></label>` +
+        `<label class="wizard-review-field"><span>Summary</span><textarea class="input review-edit-summary" rows="4">${escapeHtml(summaryValue)}</textarea></label>` +
+        `<label class="wizard-review-field"><span>Actors</span><input type="text" class="input review-edit-actors" value="${escapeHtml(actorsValue)}" /></label>` +
+        `<label class="wizard-review-field"><span>Topic tags</span><input type="text" class="input review-edit-topics" value="${escapeHtml(topicsValue)}" /></label>` +
+        `<div class="wizard-inline-actions wizard-inline-actions-tight">` +
+        `<button type="button" class="btn review-save-edit">Save Edit + Approve</button>` +
+        `<button type="button" class="btn ghost review-cancel-edit">Cancel</button>` +
+        `</div>` +
         `</div>` +
         `</article>`
       );
@@ -1764,25 +1833,184 @@ function renderWizardReviewList() {
   for (const node of els.wizardReviewList.querySelectorAll(".wizard-review-item")) {
     const episodeId = node.getAttribute("data-episode-id") || "";
     node.querySelector(".review-approve")?.addEventListener("click", () => {
+      state.wizardReviewEditingId = null;
       updateWizardReviewDecision(episodeId, "approved").catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
     });
     node.querySelector(".review-reject")?.addEventListener("click", () => {
+      state.wizardReviewEditingId = null;
       updateWizardReviewDecision(episodeId, "rejected").catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
     });
+    node.querySelector(".review-pending")?.addEventListener("click", () => {
+      state.wizardReviewEditingId = null;
+      updateWizardReviewDecision(episodeId, "pending").catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
+    });
     node.querySelector(".review-edit")?.addEventListener("click", () => {
-      const promptResult = window.prompt("Edited summary (leave blank to keep current):", "");
-      if (promptResult === null) {
-        return;
-      }
-      const editedSummary = String(promptResult || "").trim();
-      if (!editedSummary) {
-        return;
-      }
-      updateWizardReviewDecision(episodeId, "edited", { summary: editedSummary }).catch((error) =>
+      state.wizardReviewEditingId = state.wizardReviewEditingId === episodeId ? null : episodeId;
+      renderWizardReviewList();
+    });
+    node.querySelector(".review-cancel-edit")?.addEventListener("click", () => {
+      state.wizardReviewEditingId = null;
+      renderWizardReviewList();
+    });
+    node.querySelector(".review-save-edit")?.addEventListener("click", () => {
+      const title = String(node.querySelector(".review-edit-title")?.value || "").trim();
+      const summary = String(node.querySelector(".review-edit-summary")?.value || "").trim();
+      const actors = String(node.querySelector(".review-edit-actors")?.value || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const topic_tags = String(node.querySelector(".review-edit-topics")?.value || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      state.wizardReviewEditingId = null;
+      updateWizardReviewDecision(episodeId, "edited", { title, summary, actors, topic_tags }).catch((error) =>
         wizardResult(els.wizardReviewResult, error.message, true)
       );
     });
   }
+  renderWizardReviewPager();
+}
+
+function renderWizardReviewMeta() {
+  if (!els.wizardReviewMeta) {
+    return;
+  }
+  const meta = state.wizardReviewMeta || {};
+  const reviewState = state.wizardState?.review_state || {};
+  const total = Number(meta.total || reviewState.reviewable_count || 0);
+  const filteredTotal = Number(meta.filteredTotal || 0);
+  const page = Math.max(1, Number(meta.page || 1));
+  const pageSize = Math.max(1, Number(meta.pageSize || 12));
+  const first = filteredTotal ? ((page - 1) * pageSize) + 1 : 0;
+  const last = filteredTotal ? first + Math.max(0, state.wizardReviewCards.length - 1) : 0;
+  const pending = Number(reviewState.pending_count || 0);
+  const approved = Number(reviewState.approved_count || 0);
+  const edited = Number(reviewState.edited_count || 0);
+  const rejected = Number(reviewState.rejected_count || 0);
+  els.wizardReviewMeta.innerHTML =
+    `<div><strong>${escapeHtml(filteredTotal ? `Showing ${first}-${last} of ${filteredTotal}` : "No matching draft cards")}</strong></div>` +
+    `<div>all draft cards=${escapeHtml(String(total))} | pending=${escapeHtml(String(pending))} | approved=${escapeHtml(String(approved))} | edited=${escapeHtml(String(edited))} | rejected=${escapeHtml(String(rejected))}</div>`;
+}
+
+function renderWizardReviewPager() {
+  const meta = state.wizardReviewMeta || {};
+  const page = Math.max(1, Number(meta.page || 1));
+  const totalPages = Math.max(1, Number(meta.totalPages || 1));
+  if (els.wizardReviewPager) {
+    els.wizardReviewPager.textContent = `Page ${page} of ${totalPages}`;
+  }
+  if (els.btnWizardReviewPrev) {
+    els.btnWizardReviewPrev.disabled = page <= 1;
+  }
+  if (els.btnWizardReviewNext) {
+    els.btnWizardReviewNext.disabled = page >= totalPages;
+  }
+}
+
+function setWizardReviewPage(page) {
+  const totalPages = Math.max(1, Number(state.wizardReviewMeta?.totalPages || 1));
+  state.wizardReviewMeta = {
+    ...(state.wizardReviewMeta || {}),
+    page: Math.min(totalPages, Math.max(1, Number(page || 1))),
+  };
+}
+
+function resetWizardReviewPaging() {
+  state.wizardReviewMeta = {
+    ...(state.wizardReviewMeta || {}),
+    page: 1,
+  };
+}
+
+function reviewCardMeta(card) {
+  const actors = Array.isArray(card.actors) && card.actors.length ? `actors: ${card.actors.slice(0, 3).join(", ")}` : "actors: none";
+  const topics = Array.isArray(card.topic_tags) && card.topic_tags.length ? `topics: ${card.topic_tags.slice(0, 3).join(", ")}` : "topics: none";
+  return `${actors} | ${topics}`;
+}
+
+function friendlyReviewDecision(value) {
+  const normalized = String(value || "pending").trim().toLowerCase();
+  if (normalized === "approved") {
+    return "Approved";
+  }
+  if (normalized === "edited") {
+    return "Edited + approved";
+  }
+  if (normalized === "rejected") {
+    return "Rejected";
+  }
+  return "Needs review";
+}
+
+function friendlyActivationStatus(value) {
+  const normalized = String(value || "not_active").trim().toLowerCase();
+  if (normalized === "running") {
+    return "Running";
+  }
+  if (normalized === "draft_active") {
+    return "Unsafe local draft";
+  }
+  if (normalized === "needs_attention") {
+    return "Needs attention";
+  }
+  if (normalized === "stale_config") {
+    return "Needs repair";
+  }
+  return "Not active";
+}
+
+function friendlyArtifactMode(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "published") {
+    return "Frozen reviewed set";
+  }
+  if (normalized === "draft") {
+    return "Unreviewed draft";
+  }
+  return normalized || "-";
+}
+
+function friendlyLockStatus(value) {
+  const normalized = String(value || "missing").trim().toLowerCase();
+  if (normalized === "owned") {
+    return "owned by this runtime";
+  }
+  if (normalized === "foreign_live") {
+    return "owned by another live runtime";
+  }
+  if (normalized === "stale") {
+    return "stale lock";
+  }
+  if (normalized === "missing") {
+    return "missing";
+  }
+  return normalized || "-";
+}
+
+function friendlyMcpStatus(value) {
+  const normalized = String(value || "not_installed").trim().toLowerCase();
+  if (normalized === "installed") {
+    return "Installed";
+  }
+  if (normalized === "stale_config") {
+    return "Needs repair";
+  }
+  return "Not installed";
+}
+
+function friendlyMcpOwnership(value) {
+  const normalized = String(value || "absent").trim().toLowerCase();
+  if (normalized === "owned") {
+    return "owned by this app";
+  }
+  if (normalized === "adopted") {
+    return "adopted by this app";
+  }
+  if (normalized === "unknown") {
+    return "belongs to something else or cannot be verified";
+  }
+  return "no existing entry";
 }
 
 async function refreshWizardState(runId) {
@@ -1790,6 +2018,7 @@ async function refreshWizardState(runId) {
   const payload = await jsonFetch(`/api/wizard/state${query}`);
   state.wizardState = payload.state || null;
   state.wizardRunId = payload.current_run_id || payload.latest_run_id || null;
+  state.wizardReviewEditingId = null;
   renderWizardState();
   await Promise.all([
     loadWizardReviewCards(),
@@ -1806,6 +2035,8 @@ async function startWizard(mode) {
   });
   state.wizardState = payload.state || null;
   state.wizardRunId = payload.run_id || null;
+  state.wizardReviewEditingId = null;
+  resetWizardReviewPaging();
   renderWizardState();
   wizardResult(els.wizardImportResult, `Wizard ${mode === "new" ? "started" : "resumed"}: ${state.wizardRunId || "-"}`);
   await Promise.all([
@@ -1861,7 +2092,7 @@ async function validateWizardImport() {
   const issueSummary = wizardIssueSummary(payload.issues || []);
   wizardResult(
     els.wizardImportResult,
-    `Validation: ${payload.kind || "unknown"} | status=${payload.status} | ${issueSummary}`,
+    `Check result: ${payload.kind || "unknown"} | status=${payload.status} | ${issueSummary}`,
     payload.status !== "safe"
   );
   await refreshWizardState(state.wizardRunId || undefined);
@@ -1878,7 +2109,7 @@ async function runWizardImport() {
   });
   wizardResult(
     els.wizardImportResult,
-    `Store ready. kind=${payload.input_kind || "-"} | store=${payload.store_path} | report=${payload.reports?.json || "-"}`,
+    `MNO store ready. kind=${payload.input_kind || "-"} | store=${payload.store_path} | report=${payload.reports?.json || "-"}`,
     false
   );
   await refreshWizardState(state.wizardRunId || undefined);
@@ -1897,7 +2128,7 @@ async function runWizardBuild() {
   const counts = payload.counts || {};
   wizardResult(
     els.wizardBuildResult,
-    `Build complete (${policyPreset}). promoted=${counts.promoted_count || 0} candidate=${counts.candidate_count || 0} rejected=${counts.rejected_count || 0}`
+    `Draft ready (${policyPreset}). promoted=${counts.promoted_count || 0} candidate=${counts.candidate_count || 0} rejected=${counts.rejected_count || 0}`
   );
   await refreshWizardState(state.wizardRunId || undefined);
   await refreshEpisodes();
@@ -1939,6 +2170,7 @@ async function loadWizardReviewCards() {
   const status = (els.wizardReviewStatus?.value || "all").trim();
   if (!runId) {
     state.wizardReviewCards = [];
+    state.wizardReviewMeta = { total: 0, filteredTotal: 0, page: 1, pageSize: Number(els.wizardReviewPageSize?.value || 12), totalPages: 1 };
     renderWizardReviewList();
     return;
   }
@@ -1950,8 +2182,20 @@ async function loadWizardReviewCards() {
   if (status && status !== "all") {
     params.set("status", status);
   }
+  params.set("page", String(Math.max(1, Number(state.wizardReviewMeta?.page || 1))));
+  params.set("page_size", String(Math.max(1, Number(els.wizardReviewPageSize?.value || state.wizardReviewMeta?.pageSize || 12))));
   const payload = await jsonFetch(`/api/wizard/review/cards?${params.toString()}`);
   state.wizardReviewCards = payload.cards || [];
+  state.wizardReviewMeta = {
+    total: Number(payload.total || 0),
+    filteredTotal: Number(payload.filtered_total || payload.total || 0),
+    page: Number(payload.page || 1),
+    pageSize: Number(payload.page_size || els.wizardReviewPageSize?.value || 12),
+    totalPages: Number(payload.total_pages || 1),
+  };
+  if (els.wizardReviewPageSize) {
+    els.wizardReviewPageSize.value = String(state.wizardReviewMeta.pageSize || 12);
+  }
   renderWizardReviewList();
 }
 
@@ -1965,7 +2209,7 @@ async function updateWizardReviewDecision(episodeId, decision, edits = {}) {
       ...edits,
     }),
   });
-  wizardResult(els.wizardReviewResult, `Updated ${episodeId} -> ${decision}`);
+  wizardResult(els.wizardReviewResult, `${episodeId}: ${friendlyReviewDecision(decision)}.`);
   await loadWizardReviewCards();
 }
 
@@ -1979,7 +2223,7 @@ async function compileWizardReview() {
   });
   wizardResult(
     els.wizardPublishResult,
-    `Published reviewed set. version=${payload.version_id || "-"} | episodes=${payload.episode_count || 0} | path=${payload.reviewed_path || "-"}`
+    `Frozen reviewed set ready. version=${payload.version_id || "-"} | episodes=${payload.episode_count || 0} | path=${payload.reviewed_path || "-"}`
   );
   await refreshWizardState(state.wizardRunId || undefined);
   await refreshEpisodes();
@@ -1995,7 +2239,7 @@ async function restoreWizardLastPublished() {
   const pointers = payload.published_pointers || {};
   wizardResult(
     els.wizardPublishResult,
-    `Restored last published pointers. store=${pointers.store_path || "-"} episodes=${pointers.episodes_path || "-"}`
+    `Restored the last good published copy. store=${pointers.store_path || "-"} | episodes=${pointers.episodes_path || "-"}`
   );
   await refreshWizardState(state.wizardRunId || undefined);
   await Promise.all([refreshEpisodes(), refreshMemory()]);
@@ -2004,13 +2248,21 @@ async function restoreWizardLastPublished() {
 function renderWizardVerifyResult(payload) {
   const checks = Array.isArray(payload?.checks) ? payload.checks : [];
   const status = String(payload?.status || "unknown");
+  const plainStatus =
+    status === "Safe"
+      ? "Safe. Normal activation can continue."
+      : status === "Needs attention"
+        ? "Needs attention. Something should be checked before you trust this build."
+        : status === "Blocked"
+          ? "Blocked. Activation is stopped until you fix the listed problem."
+          : "Verification has not run yet.";
   const checkSummary = checks
     .slice(0, 4)
     .map((item) => `${String(item.id || "-")}:${String(item.status || "-")}`)
     .join(" | ");
   wizardResult(
     els.wizardVerifyResult,
-    `Verify status: ${status} (${checks.length} checks)${checkSummary ? ` | ${checkSummary}` : ""}`,
+    `${plainStatus}${checks.length ? ` | checks=${checks.length}` : ""}${checkSummary ? ` | ${checkSummary}` : ""}`,
     status !== "Safe"
   );
   wizardLinks(els.wizardVerifyLinks, payload?.actionable_links || []);
@@ -2025,7 +2277,7 @@ function renderWizardRemapStatus(payload) {
   const rows = Array.isArray(remap.missing_artifacts) ? remap.missing_artifacts : [];
   if (!rows.length) {
     els.wizardRemapStatus.innerHTML =
-      '<div class="wizard-card-result">No missing artifacts detected. If verify is blocked, fix the listed checks first.</div>';
+      '<div class="wizard-card-result">No missing artifacts detected right now. If readiness is still blocked, use the listed verify links first.</div>';
     return;
   }
   els.wizardRemapStatus.innerHTML = rows
@@ -2034,12 +2286,12 @@ function renderWizardRemapStatus(payload) {
       const resetStage = String(row.reset_stage || "import");
       return (
         `<article class="wizard-remap-item">` +
-        `<header><strong>${escapeHtml(String(row.label || target || "Missing artifact"))}</strong><span>${escapeHtml(resetStage)}</span></header>` +
-        `<div>missing=${escapeHtml(String(row.missing_path || "-"))}</div>` +
-        `<div>${escapeHtml(String(row.recommendation || "Pick a replacement or reset the stale state."))}</div>` +
+        `<header><strong>${escapeHtml(String(row.label || target || "Missing artifact"))}</strong><span>${escapeHtml(stageLabel(resetStage))}</span></header>` +
+        `<div>missing file: ${escapeHtml(String(row.missing_path || "-"))}</div>` +
+        `<div>${escapeHtml(String(row.recommendation || "Pick the missing file again or reset the stale state."))}</div>` +
         `<div class="wizard-inline-actions wizard-inline-actions-tight">` +
-        `<button type="button" class="btn ghost wizard-remap-action" data-target="${escapeHtml(target)}" data-action="pick">Pick Replacement</button>` +
-        `<button type="button" class="btn ghost wizard-remap-action" data-target="${escapeHtml(target)}" data-action="reset" data-stage="${escapeHtml(resetStage)}">Reset to ${escapeHtml(stageLabel(resetStage))}</button>` +
+        `<button type="button" class="btn ghost wizard-remap-action" data-target="${escapeHtml(target)}" data-action="pick">Pick Replacement File</button>` +
+        `<button type="button" class="btn ghost wizard-remap-action" data-target="${escapeHtml(target)}" data-action="reset" data-stage="${escapeHtml(resetStage)}">Go Back To ${escapeHtml(stageLabel(resetStage))}</button>` +
         `</div>` +
         `</article>`
       );
@@ -2082,15 +2334,15 @@ function renderWizardActivation(payload) {
   if (els.wizardActivationStatus) {
     const issues = Array.isArray(direct.issues) ? direct.issues : [];
     const lockStatus = String(directLock.status || "missing");
-    const directLabel = String(direct.status || "not_active") === "draft_active" ? "Unreviewed draft" : String(direct.status || "not_active");
+    const directLabel = friendlyActivationStatus(String(direct.status || "not_active"));
     els.wizardActivationStatus.innerHTML =
       `<article class="wizard-activation-card ${escapeHtml(String(direct.status || "not_active"))}">` +
       `<header><strong>Direct runtime</strong><span>${escapeHtml(directLabel)}</span></header>` +
-      `<div>store=${escapeHtml(String(direct.store_fingerprint || "-"))}</div>` +
-      `<div>episodes=${escapeHtml(String(direct.episodes_path || "-"))}</div>` +
-      `<div>artifact=${escapeHtml(String(direct.artifact_mode || "-"))}</div>` +
-      `<div>lock=${escapeHtml(lockStatus)}</div>` +
-      `<div>checked=${escapeHtml(formatDate(direct.checked_at || ""))}</div>` +
+      `<div>store fingerprint=${escapeHtml(String(direct.store_fingerprint || "-"))}</div>` +
+      `<div>episode source=${escapeHtml(String(direct.episodes_path || "-"))}</div>` +
+      `<div>artifact mode=${escapeHtml(friendlyArtifactMode(String(direct.artifact_mode || "-")))}</div>` +
+      `<div>lock=${escapeHtml(friendlyLockStatus(lockStatus))}</div>` +
+      `<div>last checked=${escapeHtml(formatDate(direct.checked_at || ""))}</div>` +
       `<div>${escapeHtml(issues.length ? issues.join(" | ") : "Ready to serve the selected store and reviewed set.")}</div>` +
       `</article>`;
   }
@@ -2135,9 +2387,9 @@ function renderWizardActivation(payload) {
         }
         return (
           `<article class="wizard-activation-card ${escapeHtml(status)}">` +
-          `<header><strong>${escapeHtml(display)}</strong><span>${escapeHtml(status)}</span></header>` +
-          `<div>ownership=${escapeHtml(ownership)}</div>` +
-          `<div>config=${escapeHtml(String(target.config_path || "-"))}</div>` +
+          `<header><strong>${escapeHtml(display)}</strong><span>${escapeHtml(friendlyMcpStatus(status))}</span></header>` +
+          `<div>ownership=${escapeHtml(friendlyMcpOwnership(ownership))}</div>` +
+          `<div>config path=${escapeHtml(String(target.config_path || "-"))}</div>` +
           `<div>${escapeHtml(issues || "Ready.")}</div>` +
           `<div class="wizard-inline-actions wizard-inline-actions-tight">${actionButtons.join("")}</div>` +
           `</article>`
@@ -2182,7 +2434,7 @@ async function runWizardGoLive() {
     }),
   });
   const adapters = Array.isArray(payload?.adapters) ? payload.adapters : [];
-  wizardResult(els.wizardGoLiveResult, `Direct runtime active at ${payload.runtime_url} | adapters=${adapters.length}`);
+  wizardResult(els.wizardGoLiveResult, `Local runtime started at ${payload.runtime_url} | adapters=${adapters.length}`);
   const providerConfig = payload?.provider_config || {};
   const modelName = String(providerConfig.model_name || payload.model_name || "-");
   const adapterNames = Array.isArray(providerConfig.adapters) ? providerConfig.adapters.join(", ") : adapters.join(", ");
@@ -2191,7 +2443,7 @@ async function runWizardGoLive() {
     els.wizardGoLiveConfig.innerHTML =
       `<div>model=<strong>${escapeHtml(modelName)}</strong></div>` +
       `<div>adapters=${escapeHtml(adapterNames || "-")}</div>` +
-      `<div><a class="wizard-action-link" href="${escapeHtml(configPath)}" target="_blank" rel="noopener noreferrer">Open provider/model config</a></div>`;
+      `<div><a class="wizard-action-link" href="${escapeHtml(configPath)}" target="_blank" rel="noopener noreferrer">View runtime settings (read-only)</a></div>`;
   }
   await refreshWizardState(state.wizardRunId || undefined);
 }
@@ -2219,7 +2471,7 @@ async function runWizardDraftGoLive() {
       operator: "runtime_ui",
     }),
   });
-  wizardResult(els.wizardGoLiveResult, `Unsafe local draft runtime active at ${payload.runtime_url}. This is not normal success.`);
+  wizardResult(els.wizardGoLiveResult, `Unsafe local draft runtime started at ${payload.runtime_url}. This does not count as normal success.`);
   renderWizardActivation(payload);
   await refreshWizardState(state.wizardRunId || undefined);
 }
@@ -2231,7 +2483,7 @@ async function runWizardDirectCleanup() {
       run_id: state.wizardRunId || undefined,
     }),
   });
-  wizardResult(els.wizardGoLiveResult, `Direct runtime cleanup: ${payload.cleanup?.action || "noop"}.`);
+  wizardResult(els.wizardGoLiveResult, `Local runtime lock fix: ${payload.cleanup?.action || "noop"}.`);
   renderWizardActivation(payload);
   await refreshWizardState(state.wizardRunId || undefined);
 }
@@ -2319,7 +2571,7 @@ async function exportWizardMcp() {
       run_id: state.wizardRunId || undefined,
     }),
   });
-  wizardResult(els.wizardGoLiveResult, `MCP bundle ready for export. server=${payload.export?.server_name || "-"}`);
+  wizardResult(els.wizardGoLiveResult, `MCP bundle is ready. server=${payload.export?.server_name || "-"}`);
   await refreshWizardActivationStatus(state.wizardRunId || undefined);
 }
 
@@ -2328,7 +2580,7 @@ async function openWizardArtifacts() {
   const query = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
   const payload = await jsonFetch(`/api/wizard/artifacts${query}`);
   const folder = payload.open_output_folder_hint || payload.artifacts?.run_folder || "-";
-  wizardResult(els.wizardGoLiveResult, `Output folder: ${folder}`);
+  wizardResult(els.wizardGoLiveResult, `Run folder: ${folder}`);
 }
 
 function renderEpisodeList() {
@@ -3124,9 +3376,23 @@ function bindEvents() {
     loadWizardReviewCards().catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
   });
   els.wizardReviewSearch?.addEventListener("input", () => {
+    resetWizardReviewPaging();
     loadWizardReviewCards().catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
   });
   els.wizardReviewStatus?.addEventListener("change", () => {
+    resetWizardReviewPaging();
+    loadWizardReviewCards().catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
+  });
+  els.wizardReviewPageSize?.addEventListener("change", () => {
+    resetWizardReviewPaging();
+    loadWizardReviewCards().catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
+  });
+  els.btnWizardReviewPrev?.addEventListener("click", () => {
+    setWizardReviewPage(Number(state.wizardReviewMeta?.page || 1) - 1);
+    loadWizardReviewCards().catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
+  });
+  els.btnWizardReviewNext?.addEventListener("click", () => {
+    setWizardReviewPage(Number(state.wizardReviewMeta?.page || 1) + 1);
     loadWizardReviewCards().catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
   });
   els.btnWizardPublish?.addEventListener("click", () => {

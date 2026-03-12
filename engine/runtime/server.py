@@ -4,6 +4,7 @@ from collections import deque
 import base64
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -6171,6 +6172,8 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             run_id = str((q.get("run_id") or [""])[0]).strip() or None
             status_filter = str((q.get("status") or ["all"])[0]).strip().lower()
             search = str((q.get("q") or [""])[0]).strip().lower()
+            page = _as_int(str((q.get("page") or ["1"])[0]), default=1, min_value=1, max_value=10_000)
+            page_size = _as_int(str((q.get("page_size") or ["12"])[0]), default=12, min_value=1, max_value=100)
             try:
                 wizard_state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
             except FileNotFoundError:
@@ -6203,7 +6206,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             decisions = wizard_state.get("review_decisions")
             if not isinstance(decisions, dict):
                 decisions = {}
-            cards: list[dict[str, Any]] = []
+            all_cards: list[dict[str, Any]] = []
             for row in list(payload.get("cards") or []):
                 if not isinstance(row, dict):
                     continue
@@ -6231,7 +6234,13 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     ).lower()
                     if search not in hay:
                         continue
-                cards.append(card)
+                all_cards.append(card)
+            filtered_total = len(all_cards)
+            total_pages = max(1, math.ceil(filtered_total / page_size)) if filtered_total else 1
+            page = min(page, total_pages)
+            start_index = (page - 1) * page_size
+            end_index = start_index + page_size
+            cards = all_cards[start_index:end_index]
             _wizard_sync_review_state(wizard_state, source_payload=payload, source_cards_path=source_path)
             _save_wizard_state(wizard_state)
             return _json_response(
@@ -6242,7 +6251,13 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     "run_id": wizard_state.get("run_id"),
                     "source_cards_path": str(source_path),
                     "cards": cards,
-                    "total": len(cards),
+                    "total": len(list(payload.get("cards") or [])),
+                    "filtered_total": filtered_total,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": total_pages,
+                    "has_prev": page > 1,
+                    "has_next": page < total_pages,
                 },
             )
         if path == "/api/wizard/builder/profile":

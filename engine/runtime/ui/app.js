@@ -23,6 +23,11 @@ const state = {
   wizardState: null,
   wizardRunId: null,
   wizardReviewCards: [],
+  wizardInputOptions: null,
+  wizardInputMode: "archive",
+  wizardActivation: null,
+  wizardRemap: null,
+  wizardPendingRemapTarget: "",
   episodes: [],
   selectedEpisodeId: null,
   selectedEpisodeDetail: null,
@@ -106,6 +111,15 @@ const els = {
   btnWizardRestore: document.getElementById("btnWizardRestore"),
   btnWizardArtifacts: document.getElementById("btnWizardArtifacts"),
   wizardArchivePath: document.getElementById("wizardArchivePath"),
+  btnWizardLaneArchive: document.getElementById("btnWizardLaneArchive"),
+  btnWizardLaneStore: document.getElementById("btnWizardLaneStore"),
+  wizardArchivePanel: document.getElementById("wizardArchivePanel"),
+  wizardStorePanel: document.getElementById("wizardStorePanel"),
+  wizardArchiveFile: document.getElementById("wizardArchiveFile"),
+  wizardArchiveSummary: document.getElementById("wizardArchiveSummary"),
+  wizardStoreSelect: document.getElementById("wizardStoreSelect"),
+  btnWizardRefreshSources: document.getElementById("btnWizardRefreshSources"),
+  wizardStoreSummary: document.getElementById("wizardStoreSummary"),
   btnWizardValidate: document.getElementById("btnWizardValidate"),
   btnWizardImport: document.getElementById("btnWizardImport"),
   wizardImportResult: document.getElementById("wizardImportResult"),
@@ -127,12 +141,24 @@ const els = {
   wizardReviewStatus: document.getElementById("wizardReviewStatus"),
   btnWizardReviewRefresh: document.getElementById("btnWizardReviewRefresh"),
   wizardReviewList: document.getElementById("wizardReviewList"),
-  btnWizardCompileReview: document.getElementById("btnWizardCompileReview"),
+  btnWizardPublish: document.getElementById("btnWizardPublish"),
   wizardReviewResult: document.getElementById("wizardReviewResult"),
+  wizardPublishResult: document.getElementById("wizardPublishResult"),
+  wizardPublishedHistory: document.getElementById("wizardPublishedHistory"),
   btnWizardVerify: document.getElementById("btnWizardVerify"),
   wizardVerifyResult: document.getElementById("wizardVerifyResult"),
   wizardVerifyLinks: document.getElementById("wizardVerifyLinks"),
+  wizardRemapFile: document.getElementById("wizardRemapFile"),
+  wizardRemapStatus: document.getElementById("wizardRemapStatus"),
+  btnWizardActivateRefresh: document.getElementById("btnWizardActivateRefresh"),
   btnWizardGoLive: document.getElementById("btnWizardGoLive"),
+  btnWizardExportMcp: document.getElementById("btnWizardExportMcp"),
+  wizardActivationStatus: document.getElementById("wizardActivationStatus"),
+  wizardMcpTargets: document.getElementById("wizardMcpTargets"),
+  wizardDeveloperMode: document.getElementById("wizardDeveloperMode"),
+  wizardDraftReason: document.getElementById("wizardDraftReason"),
+  btnWizardDraftGoLive: document.getElementById("btnWizardDraftGoLive"),
+  wizardDirectCleanup: document.getElementById("btnWizardDirectCleanup"),
   wizardGoLiveResult: document.getElementById("wizardGoLiveResult"),
   wizardGoLiveConfig: document.getElementById("wizardGoLiveConfig"),
   btnMemoryScopeAtoms: document.getElementById("btnMemoryScopeAtoms"),
@@ -1572,6 +1598,76 @@ function parseAliasPairs(rawText) {
   return out;
 }
 
+function setWizardInputMode(mode) {
+  state.wizardInputMode = mode === "store" ? "store" : "archive";
+  els.btnWizardLaneArchive?.classList.toggle("active", state.wizardInputMode === "archive");
+  els.btnWizardLaneStore?.classList.toggle("active", state.wizardInputMode === "store");
+  els.wizardArchivePanel?.classList.toggle("active", state.wizardInputMode === "archive");
+  els.wizardStorePanel?.classList.toggle("active", state.wizardInputMode === "store");
+}
+
+function wizardIssueSummary(issues = []) {
+  if (!Array.isArray(issues) || !issues.length) {
+    return "No obvious issues.";
+  }
+  return issues.map((item) => String(item || "").trim()).filter(Boolean).join(" | ");
+}
+
+function currentWizardInputPayload() {
+  if (state.wizardInputMode === "store") {
+    const storePath = String(els.wizardStoreSelect?.value || "").trim();
+    return {
+      store_path: storePath || undefined,
+      input_path: storePath || undefined,
+    };
+  }
+  const selectedPath = String(state.wizardState?.selected_input?.path || els.wizardArchivePath?.value || "").trim();
+  return {
+    archive_path: selectedPath || undefined,
+    input_path: selectedPath || undefined,
+  };
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let index = 0; index < bytes.byteLength; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  return window.btoa(binary);
+}
+
+function renderWizardInputOptions() {
+  const payload = state.wizardInputOptions || {};
+  const candidates = Array.isArray(payload.memory_candidates) ? payload.memory_candidates : [];
+  const labels = Array.isArray(payload.memory_candidate_labels) ? payload.memory_candidate_labels : [];
+  if (els.wizardStoreSelect) {
+    const selectedPath = String(state.wizardState?.selected_input?.path || els.wizardStoreSelect.value || "").trim();
+    const options = ['<option value="">Pick an existing store</option>']
+      .concat(
+        candidates.map((candidate, index) => {
+          const path = String(candidate.path || "");
+          const label = labels[index] || candidate.label || path || "memory store";
+          const selected = path === selectedPath ? " selected" : "";
+          return `<option value="${escapeHtml(path)}"${selected}>${escapeHtml(label)}</option>`;
+        })
+      )
+      .join("");
+    els.wizardStoreSelect.innerHTML = options;
+  }
+  if (els.wizardStoreSummary) {
+    const selected = String(state.wizardState?.selected_input?.kind || "").trim();
+    if (selected.startsWith("mno_store")) {
+      const selection = state.wizardState?.selected_input || {};
+      wizardResult(
+        els.wizardStoreSummary,
+        `Selected store: ${selection.path || "-"} | atoms=${selection.atom_count || 0} | ${wizardIssueSummary(selection.issues || [])}`,
+        Boolean((selection.issues || []).length)
+      );
+    }
+  }
+}
+
 function renderWizardState() {
   const payload = state.wizardState || {};
   const runId = String(payload.run_id || state.wizardRunId || "");
@@ -1579,29 +1675,64 @@ function renderWizardState() {
     if (!runId) {
       els.wizardRunMeta.textContent = "No wizard run loaded.";
     } else {
-      const stage = stageLabel(payload.current_stage || "welcome_resume");
+      const stage = stageLabel(payload.current_stage || "import");
       const updated = formatDate(payload.updated_at || "");
       els.wizardRunMeta.textContent = `run=${runId} | stage=${stage} | updated=${updated}`;
     }
   }
-  if (els.wizardArchivePath && !els.wizardArchivePath.value && payload.selected_input_archive_path) {
-    els.wizardArchivePath.value = String(payload.selected_input_archive_path || "");
+  if (els.wizardArchivePath) {
+    els.wizardArchivePath.value = String(payload.selected_input?.path || payload.selected_input_archive_path || "");
+  }
+  if (String(payload.selected_input?.kind || "").startsWith("mno_store")) {
+    setWizardInputMode("store");
+  } else if (String(payload.selected_input?.kind || "").trim()) {
+    setWizardInputMode("archive");
+  }
+  if (els.wizardArchiveSummary) {
+    const selectedInput = payload.selected_input || {};
+    if (String(selectedInput.kind || "") === "ia_archive") {
+      wizardResult(
+        els.wizardArchiveSummary,
+        `Archive ready: ${selectedInput.path || "-"} | conversations=${selectedInput.conversation_count || 0} messages=${selectedInput.message_count || 0} | ${wizardIssueSummary(selectedInput.issues || [])}`,
+        Boolean((selectedInput.issues || []).length)
+      );
+    }
   }
   if (els.wizardStageRail) {
-    const completed = new Set(Array.isArray(payload.completed_stages) ? payload.completed_stages : []);
-    const current = String(payload.current_stage || "welcome_resume");
-    const stageNodes = ["welcome_resume", "import", "build_episodes", "builder_curation", "review", "verify", "go_live"];
-    els.wizardStageRail.innerHTML = stageNodes
+    const stageItems = Array.isArray(payload.stage_flow?.items)
+      ? payload.stage_flow.items
+      : ["import", "build_episodes", "review", "publish", "verify", "activate", "operate"].map((stage) => ({
+          stage,
+          status: stage === String(payload.current_stage || "import") ? "current" : "pending",
+        }));
+    els.wizardStageRail.innerHTML = stageItems
       .map((item) => {
-        const status = item === current ? "current" : completed.has(item) ? "done" : "pending";
-        return `<span class="wizard-stage ${status}">${escapeHtml(stageLabel(item))}</span>`;
+        const stage = String(item.stage || "");
+        const status = String(item.status || "pending");
+        return `<span class="wizard-stage ${status}">${escapeHtml(stageLabel(stage))}</span>`;
       })
       .join("");
+  }
+  if (els.wizardPublishedHistory) {
+    const publishedSet = payload.published_set || {};
+    const history = Array.isArray(payload.published_history) ? payload.published_history : [];
+    const versionId = String(publishedSet.version_id || "").trim();
+    if (!versionId) {
+      els.wizardPublishedHistory.textContent = history.length
+        ? `Published history available (${history.length} snapshots). Use Restore Last Published if you need to recover an older reviewed set.`
+        : "No published set yet.";
+    } else {
+      els.wizardPublishedHistory.innerHTML =
+        `<div>version=<strong>${escapeHtml(versionId)}</strong></div>` +
+        `<div>episodes=${escapeHtml(String(publishedSet.episode_count || 0))} | build=${escapeHtml(String(publishedSet.build_id || "-"))}</div>` +
+        `<div>history snapshots=${escapeHtml(String(history.length || 0))}</div>`;
+    }
   }
   const verifyPayload = payload.verify || {};
   if (els.wizardVerifyLinks && verifyPayload && Array.isArray(verifyPayload.actionable_links)) {
     wizardLinks(els.wizardVerifyLinks, verifyPayload.actionable_links);
   }
+  renderWizardInputOptions();
 }
 
 function renderWizardReviewList() {
@@ -1660,7 +1791,12 @@ async function refreshWizardState(runId) {
   state.wizardState = payload.state || null;
   state.wizardRunId = payload.current_run_id || payload.latest_run_id || null;
   renderWizardState();
-  await loadWizardReviewCards();
+  await Promise.all([
+    loadWizardReviewCards(),
+    refreshWizardInputOptions(state.wizardRunId || undefined),
+    refreshWizardActivationStatus(state.wizardRunId || undefined),
+    refreshWizardRemapStatus(state.wizardRunId || undefined),
+  ]);
 }
 
 async function startWizard(mode) {
@@ -1672,39 +1808,77 @@ async function startWizard(mode) {
   state.wizardRunId = payload.run_id || null;
   renderWizardState();
   wizardResult(els.wizardImportResult, `Wizard ${mode === "new" ? "started" : "resumed"}: ${state.wizardRunId || "-"}`);
-  await loadWizardReviewCards();
+  await Promise.all([
+    loadWizardReviewCards(),
+    refreshWizardInputOptions(state.wizardRunId || undefined),
+    refreshWizardActivationStatus(state.wizardRunId || undefined),
+    refreshWizardRemapStatus(state.wizardRunId || undefined),
+  ]);
+}
+
+async function refreshWizardInputOptions(runId) {
+  const query = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
+  const payload = await jsonFetch(`/api/wizard/input/options${query}`);
+  state.wizardInputOptions = payload;
+  renderWizardInputOptions();
+}
+
+async function uploadWizardArchive(file) {
+  if (!file) {
+    return;
+  }
+  const arrayBuffer = await file.arrayBuffer();
+  const payload = await jsonFetch("/api/wizard/input/upload", {
+    method: "POST",
+    body: JSON.stringify({
+      run_id: state.wizardRunId || undefined,
+      file_name: file.name,
+      content_base64: arrayBufferToBase64(arrayBuffer),
+    }),
+  });
+  state.wizardState = {
+    ...(state.wizardState || {}),
+    selected_input: payload.classification || {},
+  };
+  renderWizardState();
+  wizardResult(
+    els.wizardImportResult,
+    `Archive staged: ${payload.classification?.path || file.name} | ${wizardIssueSummary(payload.classification?.issues || [])}`,
+    Boolean((payload.classification?.issues || []).length)
+  );
+  await refreshWizardInputOptions(state.wizardRunId || undefined);
 }
 
 async function validateWizardImport() {
-  const archivePath = (els.wizardArchivePath?.value || "").trim();
+  const inputPayload = currentWizardInputPayload();
   const payload = await jsonFetch("/api/wizard/import/validate", {
     method: "POST",
     body: JSON.stringify({
       run_id: state.wizardRunId || undefined,
-      archive_path: archivePath || undefined,
+      ...inputPayload,
     }),
   });
-  const issueSummary = (payload.issues || []).length ? `issues=${(payload.issues || []).join("; ")}` : "no obvious issues";
+  const issueSummary = wizardIssueSummary(payload.issues || []);
   wizardResult(
     els.wizardImportResult,
-    `Validation: ${payload.status} | conversations=${payload.conversation_count} messages=${payload.message_count} | ${issueSummary}`,
+    `Validation: ${payload.kind || "unknown"} | status=${payload.status} | ${issueSummary}`,
     payload.status !== "safe"
   );
   await refreshWizardState(state.wizardRunId || undefined);
 }
 
 async function runWizardImport() {
-  const archivePath = (els.wizardArchivePath?.value || "").trim();
+  const inputPayload = currentWizardInputPayload();
   const payload = await jsonFetch("/api/wizard/import/run", {
     method: "POST",
     body: JSON.stringify({
       run_id: state.wizardRunId || undefined,
-      archive_path: archivePath || undefined,
+      ...inputPayload,
     }),
   });
   wizardResult(
     els.wizardImportResult,
-    `Import complete. store=${payload.store_path} report=${payload.reports?.json || "-"}`,
+    `Store ready. kind=${payload.input_kind || "-"} | store=${payload.store_path} | report=${payload.reports?.json || "-"}`,
     false
   );
   await refreshWizardState(state.wizardRunId || undefined);
@@ -1804,8 +1978,8 @@ async function compileWizardReview() {
     }),
   });
   wizardResult(
-    els.wizardReviewResult,
-    `Reviewed set compiled. episodes=${payload.episode_count || 0} path=${payload.reviewed_path || "-"}`
+    els.wizardPublishResult,
+    `Published reviewed set. version=${payload.version_id || "-"} | episodes=${payload.episode_count || 0} | path=${payload.reviewed_path || "-"}`
   );
   await refreshWizardState(state.wizardRunId || undefined);
   await refreshEpisodes();
@@ -1820,7 +1994,7 @@ async function restoreWizardLastPublished() {
   });
   const pointers = payload.published_pointers || {};
   wizardResult(
-    els.wizardGoLiveResult,
+    els.wizardPublishResult,
     `Restored last published pointers. store=${pointers.store_path || "-"} episodes=${pointers.episodes_path || "-"}`
   );
   await refreshWizardState(state.wizardRunId || undefined);
@@ -1842,6 +2016,50 @@ function renderWizardVerifyResult(payload) {
   wizardLinks(els.wizardVerifyLinks, payload?.actionable_links || []);
 }
 
+function renderWizardRemapStatus(payload) {
+  const remap = payload?.remap || payload || {};
+  state.wizardRemap = remap;
+  if (!els.wizardRemapStatus) {
+    return;
+  }
+  const rows = Array.isArray(remap.missing_artifacts) ? remap.missing_artifacts : [];
+  if (!rows.length) {
+    els.wizardRemapStatus.innerHTML =
+      '<div class="wizard-card-result">No missing artifacts detected. If verify is blocked, fix the listed checks first.</div>';
+    return;
+  }
+  els.wizardRemapStatus.innerHTML = rows
+    .map((row) => {
+      const target = String(row.target || "");
+      const resetStage = String(row.reset_stage || "import");
+      return (
+        `<article class="wizard-remap-item">` +
+        `<header><strong>${escapeHtml(String(row.label || target || "Missing artifact"))}</strong><span>${escapeHtml(resetStage)}</span></header>` +
+        `<div>missing=${escapeHtml(String(row.missing_path || "-"))}</div>` +
+        `<div>${escapeHtml(String(row.recommendation || "Pick a replacement or reset the stale state."))}</div>` +
+        `<div class="wizard-inline-actions wizard-inline-actions-tight">` +
+        `<button type="button" class="btn ghost wizard-remap-action" data-target="${escapeHtml(target)}" data-action="pick">Pick Replacement</button>` +
+        `<button type="button" class="btn ghost wizard-remap-action" data-target="${escapeHtml(target)}" data-action="reset" data-stage="${escapeHtml(resetStage)}">Reset to ${escapeHtml(stageLabel(resetStage))}</button>` +
+        `</div>` +
+        `</article>`
+      );
+    })
+    .join("");
+  for (const button of els.wizardRemapStatus.querySelectorAll(".wizard-remap-action")) {
+    button.addEventListener("click", () => {
+      const action = button.getAttribute("data-action") || "pick";
+      const target = button.getAttribute("data-target") || "";
+      if (action === "pick") {
+        state.wizardPendingRemapTarget = target;
+        els.wizardRemapFile?.click();
+      } else {
+        const stage = button.getAttribute("data-stage") || "import";
+        resetWizardState(stage).catch((error) => wizardResult(els.wizardVerifyResult, error.message, true));
+      }
+    });
+  }
+}
+
 async function runWizardVerify() {
   const payload = await jsonFetch("/api/wizard/verify/run", {
     method: "POST",
@@ -1850,12 +2068,121 @@ async function runWizardVerify() {
     }),
   });
   renderWizardVerifyResult(payload);
+  await refreshWizardRemapStatus(state.wizardRunId || undefined);
   await refreshWizardState(state.wizardRunId || undefined);
 }
 
-function renderWizardGoLiveResult(payload) {
+function renderWizardActivation(payload) {
+  const activation = payload?.activation || payload || {};
+  state.wizardActivation = activation;
+  const direct = activation.direct || {};
+  const mcp = activation.mcp || {};
+  const directLock = direct.lock || {};
+  const draftOverride = activation.draft_override || {};
+  if (els.wizardActivationStatus) {
+    const issues = Array.isArray(direct.issues) ? direct.issues : [];
+    const lockStatus = String(directLock.status || "missing");
+    const directLabel = String(direct.status || "not_active") === "draft_active" ? "Unreviewed draft" : String(direct.status || "not_active");
+    els.wizardActivationStatus.innerHTML =
+      `<article class="wizard-activation-card ${escapeHtml(String(direct.status || "not_active"))}">` +
+      `<header><strong>Direct runtime</strong><span>${escapeHtml(directLabel)}</span></header>` +
+      `<div>store=${escapeHtml(String(direct.store_fingerprint || "-"))}</div>` +
+      `<div>episodes=${escapeHtml(String(direct.episodes_path || "-"))}</div>` +
+      `<div>artifact=${escapeHtml(String(direct.artifact_mode || "-"))}</div>` +
+      `<div>lock=${escapeHtml(lockStatus)}</div>` +
+      `<div>checked=${escapeHtml(formatDate(direct.checked_at || ""))}</div>` +
+      `<div>${escapeHtml(issues.length ? issues.join(" | ") : "Ready to serve the selected store and reviewed set.")}</div>` +
+      `</article>`;
+  }
+  if (els.wizardDirectCleanup) {
+    els.wizardDirectCleanup.disabled = !Boolean(directLock.cleanup_allowed);
+    els.wizardDirectCleanup.title = directLock.cleanup_allowed
+      ? "Repair or clear a stale direct-runtime lock."
+      : "Cleanup is only available when the lock is missing or stale.";
+  }
+  if (els.wizardDeveloperMode) {
+    els.wizardDeveloperMode.checked = Boolean(activation.developer_mode);
+  }
+  if (els.wizardDraftReason && !String(els.wizardDraftReason.value || "").trim() && draftOverride.reason) {
+    els.wizardDraftReason.value = String(draftOverride.reason || "");
+  }
+  if (els.btnWizardDraftGoLive) {
+    const developerMode = Boolean(activation.developer_mode);
+    els.btnWizardDraftGoLive.disabled = !developerMode;
+    els.btnWizardDraftGoLive.title = developerMode
+      ? "Unsafe local testing only. This never counts as normal success."
+      : "Enable developer mode before draft activation.";
+  }
+  if (els.wizardMcpTargets) {
+    const targets = mcp.targets || {};
+    const rows = Object.entries(targets)
+      .map(([targetKey, target]) => {
+        const status = String(target.status || "not_installed");
+        const ownership = String(target.ownership || "absent");
+        const display = String(target.display || targetKey);
+        const issues = Array.isArray(target.issues) ? target.issues.join(" | ") : "";
+        const actionButtons = [];
+        if (ownership === "unknown") {
+          actionButtons.push(`<button type="button" class="btn ghost wizard-mcp-action" data-target="${escapeHtml(targetKey)}" data-action="adopt">Adopt</button>`);
+          actionButtons.push(`<button type="button" class="btn ghost wizard-mcp-action" data-target="${escapeHtml(targetKey)}" data-action="overwrite">Overwrite</button>`);
+        } else if (status === "installed" || status === "stale_config") {
+          actionButtons.push(`<button type="button" class="btn ghost wizard-mcp-action" data-target="${escapeHtml(targetKey)}" data-action="remove">Remove</button>`);
+          if (status !== "installed") {
+            actionButtons.push(`<button type="button" class="btn ghost wizard-mcp-action" data-target="${escapeHtml(targetKey)}" data-action="overwrite">Repair</button>`);
+          }
+        } else {
+          actionButtons.push(`<button type="button" class="btn ghost wizard-mcp-action" data-target="${escapeHtml(targetKey)}" data-action="install">Install</button>`);
+        }
+        return (
+          `<article class="wizard-activation-card ${escapeHtml(status)}">` +
+          `<header><strong>${escapeHtml(display)}</strong><span>${escapeHtml(status)}</span></header>` +
+          `<div>ownership=${escapeHtml(ownership)}</div>` +
+          `<div>config=${escapeHtml(String(target.config_path || "-"))}</div>` +
+          `<div>${escapeHtml(issues || "Ready.")}</div>` +
+          `<div class="wizard-inline-actions wizard-inline-actions-tight">${actionButtons.join("")}</div>` +
+          `</article>`
+        );
+      })
+      .join("");
+    els.wizardMcpTargets.innerHTML = rows || '<div class="wizard-card-result">No MCP targets detected.</div>';
+    for (const button of els.wizardMcpTargets.querySelectorAll(".wizard-mcp-action")) {
+      button.addEventListener("click", () => {
+        const target = button.getAttribute("data-target") || "claude_code";
+        const action = button.getAttribute("data-action") || "install";
+        if (action === "remove") {
+          runWizardMcpRemove(target).catch((error) => wizardResult(els.wizardGoLiveResult, error.message, true));
+        } else if (action === "adopt") {
+          runWizardMcpInstall(target, "adopt").catch((error) => wizardResult(els.wizardGoLiveResult, error.message, true));
+        } else {
+          runWizardMcpInstall(target, action === "overwrite" ? "overwrite" : "").catch((error) =>
+            wizardResult(els.wizardGoLiveResult, error.message, true)
+          );
+        }
+      });
+    }
+  }
+}
+
+async function refreshWizardActivationStatus(runId = state.wizardRunId || undefined) {
+  if (!runId) {
+    return;
+  }
+  const payload = await jsonFetch("/api/wizard/activate/status", {
+    method: "POST",
+    body: JSON.stringify({ run_id: runId }),
+  });
+  renderWizardActivation(payload);
+}
+
+async function runWizardGoLive() {
+  const payload = await jsonFetch("/api/wizard/activate/direct", {
+    method: "POST",
+    body: JSON.stringify({
+      run_id: state.wizardRunId || undefined,
+    }),
+  });
   const adapters = Array.isArray(payload?.adapters) ? payload.adapters : [];
-  wizardResult(els.wizardGoLiveResult, `Go live ready at ${payload.runtime_url} | adapters=${adapters.length}`);
+  wizardResult(els.wizardGoLiveResult, `Direct runtime active at ${payload.runtime_url} | adapters=${adapters.length}`);
   const providerConfig = payload?.provider_config || {};
   const modelName = String(providerConfig.model_name || payload.model_name || "-");
   const adapterNames = Array.isArray(providerConfig.adapters) ? providerConfig.adapters.join(", ") : adapters.join(", ");
@@ -1866,17 +2193,134 @@ function renderWizardGoLiveResult(payload) {
       `<div>adapters=${escapeHtml(adapterNames || "-")}</div>` +
       `<div><a class="wizard-action-link" href="${escapeHtml(configPath)}" target="_blank" rel="noopener noreferrer">Open provider/model config</a></div>`;
   }
+  await refreshWizardState(state.wizardRunId || undefined);
 }
 
-async function runWizardGoLive() {
-  const payload = await jsonFetch("/api/wizard/go-live", {
+async function setWizardDeveloperMode(enabled) {
+  const payload = await jsonFetch("/api/wizard/activate/developer-mode", {
+    method: "POST",
+    body: JSON.stringify({
+      run_id: state.wizardRunId || undefined,
+      enabled: Boolean(enabled),
+    }),
+  });
+  renderWizardActivation(payload);
+  await refreshWizardState(state.wizardRunId || undefined);
+}
+
+async function runWizardDraftGoLive() {
+  const reason = String(els.wizardDraftReason?.value || "").trim();
+  const payload = await jsonFetch("/api/wizard/activate/direct/draft", {
+    method: "POST",
+    body: JSON.stringify({
+      run_id: state.wizardRunId || undefined,
+      acknowledged: true,
+      reason,
+      operator: "runtime_ui",
+    }),
+  });
+  wizardResult(els.wizardGoLiveResult, `Unsafe local draft runtime active at ${payload.runtime_url}. This is not normal success.`);
+  renderWizardActivation(payload);
+  await refreshWizardState(state.wizardRunId || undefined);
+}
+
+async function runWizardDirectCleanup() {
+  const payload = await jsonFetch("/api/wizard/activate/direct/cleanup", {
     method: "POST",
     body: JSON.stringify({
       run_id: state.wizardRunId || undefined,
     }),
   });
-  renderWizardGoLiveResult(payload);
+  wizardResult(els.wizardGoLiveResult, `Direct runtime cleanup: ${payload.cleanup?.action || "noop"}.`);
+  renderWizardActivation(payload);
   await refreshWizardState(state.wizardRunId || undefined);
+}
+
+async function refreshWizardRemapStatus(runId = state.wizardRunId || undefined) {
+  if (!runId) {
+    return;
+  }
+  const payload = await jsonFetch("/api/wizard/remap/status", {
+    method: "POST",
+    body: JSON.stringify({ run_id: runId }),
+  });
+  renderWizardRemapStatus(payload);
+}
+
+async function applyWizardRemapFile(file) {
+  const target = String(state.wizardPendingRemapTarget || "").trim();
+  if (!file || !target) {
+    return;
+  }
+  const arrayBuffer = await file.arrayBuffer();
+  const payload = await jsonFetch("/api/wizard/remap/apply", {
+    method: "POST",
+    body: JSON.stringify({
+      run_id: state.wizardRunId || undefined,
+      target,
+      file_name: file.name,
+      content_base64: arrayBufferToBase64(arrayBuffer),
+    }),
+  });
+  state.wizardPendingRemapTarget = "";
+  if (els.wizardRemapFile) {
+    els.wizardRemapFile.value = "";
+  }
+  wizardResult(els.wizardVerifyResult, `Remapped ${target} to ${payload.result?.replacement?.path || file.name}.`);
+  renderWizardRemapStatus(payload);
+  await refreshWizardState(state.wizardRunId || undefined);
+}
+
+async function resetWizardState(stage) {
+  const payload = await jsonFetch("/api/wizard/reset", {
+    method: "POST",
+    body: JSON.stringify({
+      run_id: state.wizardRunId || undefined,
+      stage,
+    }),
+  });
+  wizardResult(els.wizardVerifyResult, `Reset wizard state to ${stageLabel(stage)}.`);
+  state.wizardState = payload.state || state.wizardState;
+  renderWizardState();
+  await refreshWizardState(state.wizardRunId || undefined);
+}
+
+async function runWizardMcpInstall(target, ownershipAction = "") {
+  const payload = await jsonFetch("/api/wizard/activate/mcp/install", {
+    method: "POST",
+    body: JSON.stringify({
+      run_id: state.wizardRunId || undefined,
+      target,
+      ownership_action: ownershipAction || undefined,
+    }),
+  });
+  wizardResult(els.wizardGoLiveResult, `MCP install complete for ${target}.`);
+  renderWizardActivation(payload);
+  await refreshWizardState(state.wizardRunId || undefined);
+}
+
+async function runWizardMcpRemove(target) {
+  const payload = await jsonFetch("/api/wizard/activate/mcp/remove", {
+    method: "POST",
+    body: JSON.stringify({
+      run_id: state.wizardRunId || undefined,
+      target,
+    }),
+  });
+  wizardResult(els.wizardGoLiveResult, `MCP entry removed for ${target}.`);
+  renderWizardActivation(payload);
+  await refreshWizardState(state.wizardRunId || undefined);
+}
+
+async function exportWizardMcp() {
+  const payload = await jsonFetch("/api/wizard/activate/mcp/export", {
+    method: "POST",
+    body: JSON.stringify({
+      run_id: state.wizardRunId || undefined,
+    }),
+  });
+  wizardResult(els.wizardGoLiveResult, `MCP bundle ready for export. server=${payload.export?.server_name || "-"}`);
+  await refreshWizardActivationStatus(state.wizardRunId || undefined);
 }
 
 async function openWizardArtifacts() {
@@ -2636,8 +3080,27 @@ function bindEvents() {
   els.btnWizardStartNew?.addEventListener("click", () => {
     startWizard("new").catch((error) => wizardResult(els.wizardImportResult, error.message, true));
   });
+  els.btnWizardLaneArchive?.addEventListener("click", () => {
+    setWizardInputMode("archive");
+  });
+  els.btnWizardLaneStore?.addEventListener("click", () => {
+    setWizardInputMode("store");
+  });
+  els.wizardArchiveFile?.addEventListener("change", () => {
+    const [file] = Array.from(els.wizardArchiveFile.files || []);
+    uploadWizardArchive(file).catch((error) => wizardResult(els.wizardImportResult, error.message, true));
+  });
+  els.btnWizardRefreshSources?.addEventListener("click", () => {
+    refreshWizardInputOptions(state.wizardRunId || undefined).catch((error) => wizardResult(els.wizardImportResult, error.message, true));
+  });
+  els.wizardStoreSelect?.addEventListener("change", () => {
+    if (els.wizardStoreSummary) {
+      const selected = String(els.wizardStoreSelect.value || "").trim();
+      wizardResult(els.wizardStoreSummary, selected ? `Selected store: ${selected}` : "Pick an existing store to skip archive import.");
+    }
+  });
   els.btnWizardRestore?.addEventListener("click", () => {
-    restoreWizardLastPublished().catch((error) => wizardResult(els.wizardGoLiveResult, error.message, true));
+    restoreWizardLastPublished().catch((error) => wizardResult(els.wizardPublishResult, error.message, true));
   });
   els.btnWizardArtifacts?.addEventListener("click", () => {
     openWizardArtifacts().catch((error) => wizardResult(els.wizardGoLiveResult, error.message, true));
@@ -2666,14 +3129,38 @@ function bindEvents() {
   els.wizardReviewStatus?.addEventListener("change", () => {
     loadWizardReviewCards().catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
   });
-  els.btnWizardCompileReview?.addEventListener("click", () => {
-    compileWizardReview().catch((error) => wizardResult(els.wizardReviewResult, error.message, true));
+  els.btnWizardPublish?.addEventListener("click", () => {
+    compileWizardReview().catch((error) => wizardResult(els.wizardPublishResult, error.message, true));
   });
   els.btnWizardVerify?.addEventListener("click", () => {
     runWizardVerify().catch((error) => wizardResult(els.wizardVerifyResult, error.message, true));
   });
+  els.wizardRemapFile?.addEventListener("change", () => {
+    const [file] = Array.from(els.wizardRemapFile.files || []);
+    applyWizardRemapFile(file).catch((error) => wizardResult(els.wizardVerifyResult, error.message, true));
+  });
+  els.btnWizardActivateRefresh?.addEventListener("click", () => {
+    refreshWizardActivationStatus(state.wizardRunId || undefined).catch((error) => wizardResult(els.wizardGoLiveResult, error.message, true));
+  });
+  els.wizardDeveloperMode?.addEventListener("change", () => {
+    setWizardDeveloperMode(els.wizardDeveloperMode.checked).catch((error) => {
+      if (els.wizardDeveloperMode) {
+        els.wizardDeveloperMode.checked = !els.wizardDeveloperMode.checked;
+      }
+      wizardResult(els.wizardGoLiveResult, error.message, true);
+    });
+  });
   els.btnWizardGoLive?.addEventListener("click", () => {
     runWizardGoLive().catch((error) => wizardResult(els.wizardGoLiveResult, error.message, true));
+  });
+  els.btnWizardDraftGoLive?.addEventListener("click", () => {
+    runWizardDraftGoLive().catch((error) => wizardResult(els.wizardGoLiveResult, error.message, true));
+  });
+  els.wizardDirectCleanup?.addEventListener("click", () => {
+    runWizardDirectCleanup().catch((error) => wizardResult(els.wizardGoLiveResult, error.message, true));
+  });
+  els.btnWizardExportMcp?.addEventListener("click", () => {
+    exportWizardMcp().catch((error) => wizardResult(els.wizardGoLiveResult, error.message, true));
   });
   els.btnWhyRefresh?.addEventListener("click", () => {
     refreshWhyPanel().catch((error) => showTraceError(error.message));

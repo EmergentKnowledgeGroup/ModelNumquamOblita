@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError
@@ -9,9 +11,10 @@ from urllib.request import Request, urlopen
 
 from engine.continuity import Constellation, ContinuityBuilder, ContinuitySnapshot, ContinuityStore, NarrativeArc, SharedLanguageKey
 from engine.contracts import AtomType, CandidateAtom, SourceRef
-from engine.memory import AtomStatus, AtomStore, MutationReviewQueue
+from engine.memory import AtomStatus, AtomStore, MutationReviewQueue, SqliteAtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
 from engine.runtime import RuntimeSession, start_runtime_server, stop_runtime_server
+from engine.runtime import server as runtime_server_module
 
 
 def _candidate(candidate_id: str, text: str, source_id: str, topic: str = "memory") -> CandidateAtom:
@@ -33,6 +36,16 @@ def _candidate(candidate_id: str, text: str, source_id: str, topic: str = "memor
         confidence=0.84,
         salience=0.68,
     )
+
+
+def _seed_sqlite_store(path: Path) -> None:
+    store = SqliteAtomStore(path)
+    try:
+        store.add_candidate(_candidate("s1", "We reviewed the quarterly plan and split it into three launch milestones.", "conv_seed", "planning"))
+        store.add_candidate(_candidate("s2", "You asked for a rollback procedure and I wrote a verification checklist for every milestone.", "conv_seed", "planning"))
+        store.add_candidate(_candidate("s3", "We assigned dependency owners and mitigation tracks so the launch could run safely.", "conv_seed", "operations"))
+    finally:
+        store.close()
 
 
 def _json_get(url: str) -> dict:
@@ -380,50 +393,19 @@ def test_phase5_7_wizard_episode_why_and_ops_endpoints(tmp_path: Path) -> None:
         run_id = str(started["run_id"])
         assert run_id.startswith("wizard_")
 
-        db_path = tmp_path / "db.json"
-        db_path.write_text(
-            json.dumps(
-                {
-                    "conversations": [
-                        {
-                            "id": "conv_seed",
-                            "messages": [
-                                {
-                                    "role": "user",
-                                    "text": "We should review the quarterly roadmap and lock three milestones for the launch window.",
-                                },
-                                {
-                                    "role": "assistant",
-                                    "text": "Agreed. I mapped the risks, mitigation tracks, and owners so we can sequence the work clearly.",
-                                },
-                                {
-                                    "role": "user",
-                                    "text": "Please add the rollback procedure and the verification checklist so we can run the deployment safely.",
-                                },
-                                {
-                                    "role": "assistant",
-                                    "text": "Done. I updated the plan with rollback notes and verification gates for each milestone.",
-                                },
-                            ],
-                        }
-                    ]
-                }
-            ),
-            encoding="utf-8",
-        )
+        store_path = tmp_path / "atoms.sqlite3"
+        _seed_sqlite_store(store_path)
         validation = _json_post(
             f"{base}/api/wizard/import/validate",
-            {"run_id": run_id, "archive_path": str(db_path)},
+            {"run_id": run_id, "store_path": str(store_path)},
         )
         assert validation["ok"] is True
-        assert validation["conversation_count"] == 1
-        assert validation["message_count"] == 4
+        assert validation["kind"] == "mno_store_sqlite"
+        assert validation["atom_count"] == 3
 
-        store_path = tmp_path / "atoms.sqlite3"
-        import_out_dir = tmp_path / "import_reports"
         imported = _json_post(
             f"{base}/api/wizard/import/run",
-            {"run_id": run_id, "archive_path": str(db_path), "store_path": str(store_path), "out_dir": str(import_out_dir)},
+            {"run_id": run_id, "store_path": str(store_path)},
         )
         assert imported["ok"] is True
         assert str(imported.get("store_path") or "").endswith("atoms.sqlite3")
@@ -468,7 +450,7 @@ def test_phase5_7_wizard_episode_why_and_ops_endpoints(tmp_path: Path) -> None:
 
         built = _json_post(
             f"{base}/api/wizard/build/run",
-            {"run_id": run_id, "store_path": str(store_path), "policy_preset": "balanced"},
+            {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"},
         )
         assert built["ok"] is True
         assert str(built.get("builder_profile_path") or "").strip() == str(saved_profile.get("profile_path") or "").strip()
@@ -482,6 +464,7 @@ def test_phase5_7_wizard_episode_why_and_ops_endpoints(tmp_path: Path) -> None:
         assert str(build_policy.get("builder_profile_path") or "").strip() == str(saved_profile.get("profile_path") or "").strip()
         assert str(build_policy.get("builder_profile_id") or "").strip() == str(saved_profile.get("profile_id") or "").strip()
         cards = list(draft_payload.get("cards") or [])
+        assert cards
         if cards:
             first_card = dict(cards[0])
             assert list(first_card.get("actors") or [])
@@ -492,18 +475,30 @@ def test_phase5_7_wizard_episode_why_and_ops_endpoints(tmp_path: Path) -> None:
         assert str(rejects_payload.get("schema") or "") == "numquamoblita.episode_cards.rejects.v1"
         assert isinstance(rejects_payload.get("rejected"), list)
 
+        for card in cards:
+            episode_id = str(card.get("episode_id") or "").strip()
+            if not episode_id:
+                continue
+            review_update = _json_post(
+                f"{base}/api/wizard/review/update",
+                {"run_id": run_id, "episode_id": episode_id, "decision": "approved"},
+            )
+            assert review_update["ok"] is True
+
         compiled_review = _json_post(
             f"{base}/api/wizard/review/compile",
             {"run_id": run_id, "reviewer": "runtime_ui"},
         )
         assert compiled_review["ok"] is True
         assert int(compiled_review.get("episode_count") or 0) >= 0
+        assert str((compiled_review.get("published_set") or {}).get("version_id") or "").strip()
 
         verify = _json_post(
             f"{base}/api/wizard/verify/run",
             {"run_id": run_id},
         )
         assert verify["ok"] is True
+        assert verify["status"] == "Safe"
         assert "actionable_links" in verify
         assert isinstance(verify["actionable_links"], list)
         assert any(str(item.get("api_path") or "").strip() for item in verify["actionable_links"])
@@ -513,6 +508,7 @@ def test_phase5_7_wizard_episode_why_and_ops_endpoints(tmp_path: Path) -> None:
             {"run_id": run_id},
         )
         assert go_live["ok"] is True
+        assert str(((go_live.get("activation") or {}).get("direct") or {}).get("status") or "") == "running"
         provider_config = go_live.get("provider_config") or {}
         assert str(provider_config.get("model_name") or "").strip()
         assert isinstance(provider_config.get("adapters"), list)
@@ -603,6 +599,869 @@ def test_phase5_7_wizard_episode_why_and_ops_endpoints(tmp_path: Path) -> None:
         assert restored["ok"] is True
         assert "published_pointers" in restored
         assert isinstance(restored.get("remaining_snapshots"), int)
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_publish_requires_explicit_review_decisions(tmp_path: Path) -> None:
+    store = AtomStore()
+    store.add_candidate(_candidate("p1", "You prefer tea in late sessions.", "conv_p1", "preference"))
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(store),
+        verifier=ClaimVerifier(),
+        continuity_store=continuity,
+        enable_writeback=False,
+    )
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        db_path = tmp_path / "db.json"
+        db_path.write_text(
+            json.dumps(
+                {
+                    "conversations": [
+                        {
+                            "id": "conv_publish_guard",
+                            "messages": [
+                                {"role": "user", "text": "Remember that I prefer tea at night."},
+                                {"role": "assistant", "text": "I will keep that preference grounded in direct evidence."},
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        store_path = tmp_path / "atoms.sqlite3"
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "archive_path": str(db_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "archive_path": str(db_path), "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path)})
+        assert Path(str(built.get("draft_path") or "")).exists()
+
+        status, payload = _json_post_error(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        assert status == 400
+        assert "review draft cards before publishing" in str(payload.get("error") or "").lower()
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_archive_happy_path_reaches_safe_activation(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        db_path = tmp_path / "db.json"
+        db_path.write_text(
+            json.dumps(
+                {
+                    "conversations": [
+                        {
+                            "id": "conv_archive_happy",
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "text": "I love how calm I feel when I drink tea during late planning sessions, and I want you to remember that preference.",
+                                },
+                                {
+                                    "role": "assistant",
+                                    "text": "You asked me to keep the launch rollback checklist and the tea preference anchored to direct evidence from our conversations.",
+                                },
+                                {
+                                    "role": "user",
+                                    "text": "I trust our launch process more when the rollback checklist stays attached to the milestone plan and tea helps me stay focused.",
+                                },
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        store_path = tmp_path / "archive_atoms.sqlite3"
+
+        validation = _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "archive_path": str(db_path)})
+        assert validation["ok"] is True
+        assert validation["kind"] == "ia_archive"
+
+        imported = _json_post(
+            f"{base}/api/wizard/import/run",
+            {"run_id": run_id, "archive_path": str(db_path), "store_path": str(store_path)},
+        )
+        assert imported["ok"] is True
+        assert Path(str(imported.get("store_path") or "")).exists()
+
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        draft_payload = json.loads(Path(str(built["draft_path"])).read_text(encoding="utf-8"))
+        cards = list(draft_payload.get("cards") or [])
+        assert cards
+        for card in cards:
+            _json_post(
+                f"{base}/api/wizard/review/update",
+                {"run_id": run_id, "episode_id": str(card["episode_id"]), "decision": "approved"},
+            )
+
+        published = _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        assert published["ok"] is True
+        assert str((published.get("published_set") or {}).get("version_id") or "").strip()
+
+        verify = _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
+        assert verify["ok"] is True
+        assert verify["status"] == "Safe"
+
+        activated = _json_post(f"{base}/api/wizard/go-live", {"run_id": run_id})
+        assert activated["ok"] is True
+        assert str((((activated.get("activation") or {}).get("direct") or {}).get("status") or "")) == "running"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_raw_archive_cannot_activate_happy_path(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        db_path = tmp_path / "db.json"
+        db_path.write_text(
+            json.dumps(
+                {
+                    "conversations": [
+                        {
+                            "id": "conv_archive_only",
+                            "messages": [
+                                {"role": "user", "text": "Remember that we need a rollback checklist."},
+                                {"role": "assistant", "text": "I will keep the rollback checklist anchored to direct evidence."},
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        validation = _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "archive_path": str(db_path)})
+        assert validation["ok"] is True
+        assert validation["kind"] == "ia_archive"
+
+        status, payload = _json_post_error(f"{base}/api/wizard/go-live", {"run_id": run_id})
+        assert status == 400
+        assert (
+            "verification must be safe" in str(payload.get("error") or "").lower()
+            or "published reviewed set is required" in str(payload.get("error") or "").lower()
+        )
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_input_upload_and_options_endpoint(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+
+        options = _json_get(f"{base}/api/wizard/input/options?run_id={quote(run_id)}")
+        assert options["ok"] is True
+        assert isinstance(options["memory_candidates"], list)
+
+        archive_bytes = json.dumps(
+            {
+                "conversations": [
+                    {
+                        "id": "conv_uploaded",
+                        "messages": [
+                            {"role": "user", "text": "Remember the rollback checklist."},
+                            {"role": "assistant", "text": "I will keep the checklist grounded in cited evidence."},
+                        ],
+                    }
+                ]
+            }
+        ).encode("utf-8")
+        uploaded = _json_post(
+            f"{base}/api/wizard/input/upload",
+            {
+                "run_id": run_id,
+                "file_name": "db.json",
+                "content_base64": base64.b64encode(archive_bytes).decode("ascii"),
+            },
+        )
+        assert uploaded["ok"] is True
+        assert uploaded["classification"]["kind"] == "ia_archive"
+        assert Path(str(uploaded["uploaded_path"])).exists()
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_resume_recovers_published_safe_state(tmp_path: Path, monkeypatch) -> None:
+    original_runs_root = runtime_server_module.WIZARD_RUNS_ROOT
+    original_latest_path = runtime_server_module.WIZARD_LATEST_PATH
+    runtime_server_module.WIZARD_RUNS_ROOT = tmp_path / "wizard_runs"
+    runtime_server_module.WIZARD_LATEST_PATH = runtime_server_module.WIZARD_RUNS_ROOT / "LATEST.json"
+
+    def _make_runtime() -> RuntimeSession:
+        store = AtomStore()
+        continuity = ContinuityStore()
+        continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+        return RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+
+    runtime = _make_runtime()
+    queue = MutationReviewQueue(runtime.retriever.store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "resume_atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        draft_payload = json.loads(Path(str(built["draft_path"])).read_text(encoding="utf-8"))
+        for card in list(draft_payload.get("cards") or []):
+            _json_post(
+                f"{base}/api/wizard/review/update",
+                {"run_id": run_id, "episode_id": str(card["episode_id"]), "decision": "approved"},
+            )
+        _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        verify = _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
+        assert verify["ok"] is True
+        assert verify["status"] == "Safe"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+    resumed_runtime = _make_runtime()
+    resumed_queue = MutationReviewQueue(resumed_runtime.retriever.store)
+    resumed_server, resumed_thread = start_runtime_server(resumed_runtime, host="127.0.0.1", port=0, review_queue=resumed_queue)
+    resumed_host, resumed_port = resumed_server.server_address
+    resumed_base = f"http://{resumed_host}:{resumed_port}"
+    try:
+        resumed = _json_post(f"{resumed_base}/api/wizard/start", {"mode": "resume"})
+        assert resumed["ok"] is True
+        assert str(resumed.get("run_id") or "") == run_id
+        state_payload = resumed.get("state") or {}
+        assert str((state_payload.get("verify") or {}).get("status") or "") == "Safe"
+        assert str((state_payload.get("published_set") or {}).get("episodes_path") or "").strip()
+        wizard_state = _json_get(f"{resumed_base}/api/wizard/state")
+        assert wizard_state["ok"] is True
+        assert str(wizard_state.get("latest_run_id") or "") == run_id
+        assert bool(wizard_state.get("resume_available")) is True
+    finally:
+        stop_runtime_server(resumed_server, resumed_thread, runtime=resumed_runtime)
+        runtime_server_module.WIZARD_RUNS_ROOT = original_runs_root
+        runtime_server_module.WIZARD_LATEST_PATH = original_latest_path
+
+
+def test_wizard_activation_status_tracks_direct_runtime_binding(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    original_lock_path = runtime_server_module.LIVE_RUNTIME_LOCK_PATH
+    runtime_server_module.LIVE_RUNTIME_LOCK_PATH = tmp_path / "live_runtime.lock.json"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        draft_payload = json.loads(Path(str(built["draft_path"])).read_text(encoding="utf-8"))
+        for card in list(draft_payload.get("cards") or []):
+            _json_post(
+                f"{base}/api/wizard/review/update",
+                {"run_id": run_id, "episode_id": str(card["episode_id"]), "decision": "approved"},
+            )
+        _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
+        _json_post(f"{base}/api/wizard/go-live", {"run_id": run_id})
+
+        status = _json_post(f"{base}/api/wizard/activate/status", {"run_id": run_id})
+        assert status["ok"] is True
+        assert str(((status.get("activation") or {}).get("direct") or {}).get("status") or "") == "running"
+        direct = (status.get("activation") or {}).get("direct") or {}
+        lock = direct.get("lock") or {}
+        assert str(lock.get("status") or "") == "owned"
+        assert bool((runtime_server_module.LIVE_RUNTIME_LOCK_PATH).exists()) is True
+        assert "mcp" in dict(status.get("activation") or {})
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+        runtime_server_module.LIVE_RUNTIME_LOCK_PATH = original_lock_path
+
+
+def test_wizard_direct_runtime_cleanup_repairs_stale_lock(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    original_lock_path = runtime_server_module.LIVE_RUNTIME_LOCK_PATH
+    runtime_server_module.LIVE_RUNTIME_LOCK_PATH = tmp_path / "live_runtime.lock.json"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        draft_payload = json.loads(Path(str(built["draft_path"])).read_text(encoding="utf-8"))
+        for card in list(draft_payload.get("cards") or []):
+            _json_post(f"{base}/api/wizard/review/update", {"run_id": run_id, "episode_id": str(card["episode_id"]), "decision": "approved"})
+        _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
+        _json_post(f"{base}/api/wizard/go-live", {"run_id": run_id})
+
+        stale_payload = {
+            "pid": 999999,
+            "host": host,
+            "port": int(port),
+            "token": "stale-lock",
+            "store_path": str(store_path.resolve()),
+            "store_fingerprint": "stale",
+            "episodes_path": "stale-reviewed.json",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }
+        runtime_server_module.LIVE_RUNTIME_LOCK_PATH.write_text(json.dumps(stale_payload, indent=2), encoding="utf-8")
+
+        status = _json_post(f"{base}/api/wizard/activate/status", {"run_id": run_id})
+        direct = (status.get("activation") or {}).get("direct") or {}
+        assert str(direct.get("status") or "") == "needs_attention"
+        lock = direct.get("lock") or {}
+        assert str(lock.get("status") or "") == "stale"
+        assert bool(lock.get("cleanup_allowed")) is True
+
+        cleanup = _json_post(f"{base}/api/wizard/activate/direct/cleanup", {"run_id": run_id})
+        assert cleanup["ok"] is True
+        assert str((cleanup.get("cleanup") or {}).get("action") or "") == "repaired"
+        direct_after = (cleanup.get("activation") or {}).get("direct") or {}
+        assert str(direct_after.get("status") or "") == "running"
+        repaired_lock = direct_after.get("lock") or {}
+        assert str(repaired_lock.get("status") or "") == "owned"
+        saved_lock = json.loads(runtime_server_module.LIVE_RUNTIME_LOCK_PATH.read_text(encoding="utf-8"))
+        assert int(saved_lock.get("pid") or 0) == os.getpid()
+        assert str(saved_lock.get("token") or "") != "stale-lock"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+        runtime_server_module.LIVE_RUNTIME_LOCK_PATH = original_lock_path
+
+
+def test_wizard_direct_runtime_foreign_lock_blocks_activation(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    original_lock_path = runtime_server_module.LIVE_RUNTIME_LOCK_PATH
+    runtime_server_module.LIVE_RUNTIME_LOCK_PATH = tmp_path / "live_runtime.lock.json"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        draft_payload = json.loads(Path(str(built["draft_path"])).read_text(encoding="utf-8"))
+        for card in list(draft_payload.get("cards") or []):
+            _json_post(f"{base}/api/wizard/review/update", {"run_id": run_id, "episode_id": str(card["episode_id"]), "decision": "approved"})
+        _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
+
+        foreign_payload = {
+            "pid": os.getpid(),
+            "host": "127.0.0.1",
+            "port": 42424,
+            "token": "foreign-live-lock",
+            "store_path": str(store_path.resolve()),
+            "store_fingerprint": "foreign",
+            "episodes_path": "foreign-reviewed.json",
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }
+        runtime_server_module.LIVE_RUNTIME_LOCK_PATH.write_text(json.dumps(foreign_payload, indent=2), encoding="utf-8")
+
+        status_code, payload = _json_post_error(f"{base}/api/wizard/go-live", {"run_id": run_id})
+        assert status_code == 400
+        assert "already owned by pid" in str(payload.get("error") or "").lower()
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+        runtime_server_module.LIVE_RUNTIME_LOCK_PATH = original_lock_path
+
+
+def test_wizard_developer_mode_allows_local_draft_activation_only(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    original_lock_path = runtime_server_module.LIVE_RUNTIME_LOCK_PATH
+    runtime_server_module.LIVE_RUNTIME_LOCK_PATH = tmp_path / "live_runtime.lock.json"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        assert Path(str(built.get("draft_path") or "")).exists()
+
+        blocked_code, blocked_payload = _json_post_error(
+            f"{base}/api/wizard/activate/direct/draft",
+            {"run_id": run_id, "acknowledged": True, "reason": "local smoke test"},
+        )
+        assert blocked_code == 409
+        assert "enable developer mode" in str(blocked_payload.get("error") or "").lower()
+
+        mode_enabled = _json_post(f"{base}/api/wizard/activate/developer-mode", {"run_id": run_id, "enabled": True})
+        assert mode_enabled["ok"] is True
+        assert bool((mode_enabled.get("activation") or {}).get("developer_mode")) is True
+
+        draft_live = _json_post(
+            f"{base}/api/wizard/activate/direct/draft",
+            {"run_id": run_id, "acknowledged": True, "reason": "local smoke test", "operator": "runtime_ui"},
+        )
+        assert draft_live["ok"] is True
+        activation = draft_live.get("activation") or {}
+        direct = activation.get("direct") or {}
+        assert str(direct.get("status") or "") == "draft_active"
+        assert str(direct.get("artifact_mode") or "") == "draft"
+        draft_override = activation.get("draft_override") or {}
+        assert bool(draft_override.get("active")) is True
+        assert str(draft_override.get("reason") or "") == "local smoke test"
+        assert str(draft_override.get("label") or "") == "Unreviewed draft"
+
+        status = _json_post(f"{base}/api/wizard/activate/status", {"run_id": run_id})
+        direct_status = ((status.get("activation") or {}).get("direct") or {})
+        assert str(direct_status.get("status") or "") == "draft_active"
+
+        mcp_code, mcp_payload = _json_post_error(
+            f"{base}/api/wizard/activate/mcp/export",
+            {"run_id": run_id},
+        )
+        assert mcp_code == 400
+        assert "verification must be safe" in str(mcp_payload.get("error") or "").lower()
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+        runtime_server_module.LIVE_RUNTIME_LOCK_PATH = original_lock_path
+
+
+def test_wizard_mcp_install_endpoint_updates_activation_state(tmp_path: Path, monkeypatch) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    class FakePanel:
+        def build_preview(self, payload):
+            return {
+                "server_name": payload["server_name"],
+                "claude_code_scope": payload["claude_code_scope"],
+                "default_role": payload["default_role"],
+                "compat_mode": payload["compat_mode"],
+                "claude_code_entry": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]},
+                "windows_entry": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]},
+                "windows_claude_code_config": str(tmp_path / "claude_code.json"),
+                "windows_claude_desktop_config": str(tmp_path / "claude_desktop.json"),
+                "claude_code_install_context": "native-windows-claude",
+                "claude_code_display": "Claude Code",
+            }
+
+        def install_claude_code(self, _payload):
+            config_path = tmp_path / "claude_code.json"
+            config_path.write_text(
+                json.dumps({"mcpServers": {"numquamoblita-live": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]}}}, indent=2),
+                encoding="utf-8",
+            )
+            return {"ok": True, "target": "claude_code"}
+
+        def remove_claude_code(self, _payload):
+            config_path = tmp_path / "claude_code.json"
+            if config_path.exists():
+                config_path.unlink()
+            return {"ok": True, "removed": True}
+
+        def install_claude_desktop(self, _payload):
+            return {"ok": True, "target": "claude_desktop"}
+
+        def remove_claude_desktop(self, _payload):
+            return {"ok": True, "removed": True}
+
+        def export_bundle(self, _payload):
+            return {"server_name": "numquamoblita-live"}
+
+        def save_export_bundle(self, _payload, *, export_path):
+            return {"server_name": "numquamoblita-live", "export_path": str(export_path)}
+
+    monkeypatch.setattr(runtime_server_module, "_wizard_connector_panel", lambda: FakePanel())
+    monkeypatch.setattr(runtime_server_module, "_wizard_mcp_handshake", lambda entry: {"ok": True, "entry": dict(entry)})
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        draft_payload = json.loads(Path(str(built["draft_path"])).read_text(encoding="utf-8"))
+        for card in list(draft_payload.get("cards") or []):
+            _json_post(
+                f"{base}/api/wizard/review/update",
+                {"run_id": run_id, "episode_id": str(card["episode_id"]), "decision": "approved"},
+            )
+        _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
+
+        installed = _json_post(f"{base}/api/wizard/activate/mcp/install", {"run_id": run_id, "target": "claude_code"})
+        assert installed["ok"] is True
+        assert str(((installed.get("activation") or {}).get("mcp") or {}).get("status") or "") == "installed"
+
+        removed = _json_post(f"{base}/api/wizard/activate/mcp/remove", {"run_id": run_id, "target": "claude_code"})
+        assert removed["ok"] is True
+        assert str(((removed.get("activation") or {}).get("mcp") or {}).get("status") or "") == "not_installed"
+
+        reinstalled = _json_post(
+            f"{base}/api/wizard/activate/mcp/install",
+            {"run_id": run_id, "target": "claude_code"},
+        )
+        assert reinstalled["ok"] is True
+        assert str(((reinstalled.get("activation") or {}).get("mcp") or {}).get("status") or "") == "installed"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_remap_can_restore_missing_published_set(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        draft_payload = json.loads(Path(str(built["draft_path"])).read_text(encoding="utf-8"))
+        for card in list(draft_payload.get("cards") or []):
+            _json_post(f"{base}/api/wizard/review/update", {"run_id": run_id, "episode_id": str(card["episode_id"]), "decision": "approved"})
+        compiled = _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        reviewed_path = Path(str(compiled.get("reviewed_path") or ""))
+        reviewed_bytes = reviewed_path.read_bytes()
+        reviewed_path.unlink()
+
+        verify = _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
+        assert verify["ok"] is True
+        assert verify["status"] == "Blocked"
+        assert bool(verify.get("remap_required")) is True
+
+        remap_status = _json_post(f"{base}/api/wizard/remap/status", {"run_id": run_id})
+        rows = list(((remap_status.get("remap") or {}).get("missing_artifacts") or []))
+        assert any(str(row.get("target") or "") == "published_set" for row in rows)
+
+        remapped = _json_post(
+            f"{base}/api/wizard/remap/apply",
+            {
+                "run_id": run_id,
+                "target": "published_set",
+                "file_name": "episode_cards.reviewed.json",
+                "content_base64": base64.b64encode(reviewed_bytes).decode("ascii"),
+            },
+        )
+        assert remapped["ok"] is True
+        restored_path = Path(str(((remapped.get("result") or {}).get("replacement") or {}).get("path") or ""))
+        assert restored_path.exists()
+
+        verify_after = _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
+        assert verify_after["ok"] is True
+        assert verify_after["status"] == "Safe"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_reset_can_back_out_stale_published_state(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        draft_payload = json.loads(Path(str(built["draft_path"])).read_text(encoding="utf-8"))
+        for card in list(draft_payload.get("cards") or []):
+            _json_post(f"{base}/api/wizard/review/update", {"run_id": run_id, "episode_id": str(card["episode_id"]), "decision": "approved"})
+        compiled = _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        reviewed_path = Path(str(compiled.get("reviewed_path") or ""))
+        reviewed_path.unlink()
+
+        verify = _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
+        assert verify["status"] == "Blocked"
+
+        reset = _json_post(f"{base}/api/wizard/reset", {"run_id": run_id, "stage": "review"})
+        assert reset["ok"] is True
+        state_payload = reset.get("state") or {}
+        assert str(state_payload.get("current_stage") or "") == "review"
+        assert str(((state_payload.get("published_set") or {}).get("status") or "")) == "unpublished"
+        assert str(((state_payload.get("verify") or {}).get("status") or "")) == "Unknown"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_mcp_unknown_ownership_requires_explicit_action(tmp_path: Path, monkeypatch) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    config_path = tmp_path / "claude_code.json"
+    config_path.write_text(
+        json.dumps({"mcpServers": {"numquamoblita-live": {"command": "other.exe", "args": ["--foreign"]}}}, indent=2),
+        encoding="utf-8",
+    )
+
+    class FakePanel:
+        def build_preview(self, payload):
+            return {
+                "server_name": payload["server_name"],
+                "claude_code_scope": payload["claude_code_scope"],
+                "default_role": payload["default_role"],
+                "compat_mode": payload["compat_mode"],
+                "claude_code_entry": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]},
+                "windows_entry": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]},
+                "windows_claude_code_config": str(config_path),
+                "windows_claude_desktop_config": str(tmp_path / "claude_desktop.json"),
+                "claude_code_install_context": "native-windows-claude",
+                "claude_code_display": "Claude Code",
+            }
+
+        def install_claude_code(self, _payload):
+            config_path.write_text(
+                json.dumps({"mcpServers": {"numquamoblita-live": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]}}}, indent=2),
+                encoding="utf-8",
+            )
+            return {"ok": True}
+
+        def remove_claude_code(self, _payload):
+            return {"ok": True}
+
+        def install_claude_desktop(self, _payload):
+            return {"ok": True}
+
+        def remove_claude_desktop(self, _payload):
+            return {"ok": True}
+
+        def export_bundle(self, _payload):
+            return {"server_name": "numquamoblita-live"}
+
+        def save_export_bundle(self, _payload, *, export_path):
+            return {"server_name": "numquamoblita-live", "export_path": str(export_path)}
+
+    monkeypatch.setattr(runtime_server_module, "_wizard_connector_panel", lambda: FakePanel())
+    monkeypatch.setattr(runtime_server_module, "_wizard_mcp_handshake", lambda entry: {"ok": True, "entry": dict(entry)})
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        draft_payload = json.loads(Path(str(built["draft_path"])).read_text(encoding="utf-8"))
+        for card in list(draft_payload.get("cards") or []):
+            _json_post(f"{base}/api/wizard/review/update", {"run_id": run_id, "episode_id": str(card["episode_id"]), "decision": "approved"})
+        _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
+
+        status = _json_post(f"{base}/api/wizard/activate/status", {"run_id": run_id})
+        claude_code = (((status.get("activation") or {}).get("mcp") or {}).get("targets") or {}).get("claude_code") or {}
+        assert str(claude_code.get("ownership") or "") == "unknown"
+
+        blocked_install_code, blocked_install = _json_post_error(
+            f"{base}/api/wizard/activate/mcp/install",
+            {"run_id": run_id, "target": "claude_code"},
+        )
+        assert blocked_install_code == 409
+        assert "unknown mcp ownership" in str(blocked_install.get("error") or "").lower()
+
+        blocked_remove_code, blocked_remove = _json_post_error(
+            f"{base}/api/wizard/activate/mcp/remove",
+            {"run_id": run_id, "target": "claude_code"},
+        )
+        assert blocked_remove_code == 409
+        assert "cannot remove" in str(blocked_remove.get("error") or "").lower()
+
+        overwritten = _json_post(
+            f"{base}/api/wizard/activate/mcp/install",
+            {"run_id": run_id, "target": "claude_code", "ownership_action": "overwrite"},
+        )
+        assert overwritten["ok"] is True
+        assert str((((overwritten.get("activation") or {}).get("mcp") or {}).get("status") or "")) == "installed"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_mcp_handshake_failure_rolls_back_config(tmp_path: Path, monkeypatch) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    config_path = tmp_path / "claude_code.json"
+    previous_payload = {"mcpServers": {"keep": {"command": "keep.exe", "args": ["--stay"]}}}
+    config_path.write_text(json.dumps(previous_payload, indent=2), encoding="utf-8")
+
+    class FakePanel:
+        def build_preview(self, payload):
+            return {
+                "server_name": payload["server_name"],
+                "claude_code_scope": payload["claude_code_scope"],
+                "default_role": payload["default_role"],
+                "compat_mode": payload["compat_mode"],
+                "claude_code_entry": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]},
+                "windows_entry": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]},
+                "windows_claude_code_config": str(config_path),
+                "windows_claude_desktop_config": str(tmp_path / "claude_desktop.json"),
+                "claude_code_install_context": "native-windows-claude",
+                "claude_code_display": "Claude Code",
+            }
+
+        def install_claude_code(self, _payload):
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "mcpServers": {
+                            "keep": {"command": "keep.exe", "args": ["--stay"]},
+                            "numquamoblita-live": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]},
+                        }
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            return {"ok": True}
+
+        def remove_claude_code(self, _payload):
+            return {"ok": True}
+
+        def install_claude_desktop(self, _payload):
+            return {"ok": True}
+
+        def remove_claude_desktop(self, _payload):
+            return {"ok": True}
+
+        def export_bundle(self, _payload):
+            return {"server_name": "numquamoblita-live"}
+
+        def save_export_bundle(self, _payload, *, export_path):
+            return {"server_name": "numquamoblita-live", "export_path": str(export_path)}
+
+    monkeypatch.setattr(runtime_server_module, "_wizard_connector_panel", lambda: FakePanel())
+
+    def _fail_handshake(_entry):
+        raise RuntimeError("forced handshake failure")
+
+    monkeypatch.setattr(runtime_server_module, "_wizard_mcp_handshake", _fail_handshake)
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        draft_payload = json.loads(Path(str(built["draft_path"])).read_text(encoding="utf-8"))
+        for card in list(draft_payload.get("cards") or []):
+            _json_post(f"{base}/api/wizard/review/update", {"run_id": run_id, "episode_id": str(card["episode_id"]), "decision": "approved"})
+        _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
+
+        status_code, payload = _json_post_error(
+            f"{base}/api/wizard/activate/mcp/install",
+            {"run_id": run_id, "target": "claude_code"},
+        )
+        assert status_code == 400
+        assert "rolled back" in str(payload.get("error") or "").lower()
+        restored_payload = json.loads(config_path.read_text(encoding="utf-8"))
+        assert restored_payload == previous_payload
+
+        status = _json_post(f"{base}/api/wizard/activate/status", {"run_id": run_id})
+        claude_code = (((status.get("activation") or {}).get("mcp") or {}).get("targets") or {}).get("claude_code") or {}
+        assert str(claude_code.get("status") or "") == "not_installed"
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
 

@@ -49,7 +49,10 @@
         <section class="chat-column">
           <section class="wizard-shell" id="wizardShell">
             <div class="wizard-head">
-              <h2>Pipeline Wizard</h2>
+              <div>
+                <p class="wizard-kicker">Memory Runtime</p>
+                <h2>Import. Publish. Activate.</h2>
+              </div>
               <div class="wizard-head-actions">
                 <button id="btnWizardResume" class="btn ghost" type="button">Resume</button>
                 <button id="btnWizardStartNew" class="btn ghost" type="button">Start New</button>
@@ -60,12 +63,35 @@
             <div id="wizardRunMeta" class="wizard-run-meta">No wizard run loaded.</div>
             <div id="wizardStageRail" class="wizard-stage-rail"></div>
             <div class="wizard-grid">
-              <article class="wizard-card">
+              <article class="wizard-card wizard-card-entry">
                 <div class="wizard-card-head">
                   <h3>Import</h3>
                   <span class="wizard-step">Step 1</span>
                 </div>
-                <input id="wizardArchivePath" class="input" type="text" placeholder="Path to IA db.json" aria-label="IA db.json path" />
+                <p class="wizard-card-copy">Choose a fresh IA archive or reuse an existing MNO store. No typed paths on the normal path.</p>
+                <input id="wizardArchivePath" class="input wizard-hidden-input" type="text" aria-label="Selected input path" readonly />
+                <div class="wizard-entry-lanes">
+                  <button id="btnWizardLaneArchive" class="btn ghost wizard-lane active" type="button">Import IA Archive</button>
+                  <button id="btnWizardLaneStore" class="btn ghost wizard-lane" type="button">Use Existing MNO Store</button>
+                </div>
+                <div id="wizardArchivePanel" class="wizard-lane-panel active">
+                  <label class="wizard-file-picker" for="wizardArchiveFile">
+                    <span>Pick IA `db.json`</span>
+                    <small>Upload once. The app stages it locally for validation and import.</small>
+                  </label>
+                  <input id="wizardArchiveFile" class="wizard-file-input" type="file" accept=".json,application/json" aria-label="Pick IA archive" />
+                  <div id="wizardArchiveSummary" class="wizard-card-result">No archive uploaded yet.</div>
+                </div>
+                <div id="wizardStorePanel" class="wizard-lane-panel">
+                  <label class="wizard-field-block">
+                    <span>Known MNO stores</span>
+                    <select id="wizardStoreSelect" class="input" aria-label="Choose existing MNO store"></select>
+                  </label>
+                  <div class="wizard-inline-actions wizard-inline-actions-tight">
+                    <button id="btnWizardRefreshSources" class="btn ghost" type="button">Refresh Stores</button>
+                  </div>
+                  <div id="wizardStoreSummary" class="wizard-card-result">Pick an existing store to skip archive import.</div>
+                </div>
                 <div class="wizard-inline-actions">
                   <button id="btnWizardValidate" class="btn ghost" type="button">Validate</button>
                   <button id="btnWizardImport" class="btn ghost" type="button">Import</button>
@@ -77,6 +103,7 @@
                   <h3>Build Episodes</h3>
                   <span class="wizard-step">Step 2</span>
                 </div>
+                <p class="wizard-card-copy">Turn the selected memory store into reviewable episode cards. Builder curation stays optional and tucked into advanced controls.</p>
                 <select id="wizardBuildPolicy" class="input" aria-label="Episode build policy">
                   <option value="strict">strict (recommended)</option>
                   <option value="balanced">balanced</option>
@@ -86,31 +113,31 @@
                   <button id="btnWizardBuild" class="btn ghost" type="button">Build</button>
                 </div>
                 <div id="wizardBuildResult" class="wizard-card-result">Build counts and artifact paths appear here.</div>
-              </article>
-              <article class="wizard-card">
-                <div class="wizard-card-head">
-                  <h3>Builder Curation</h3>
-                  <span class="wizard-step">Step 3</span>
-                </div>
-                <input id="builderProfileName" class="input" type="text" placeholder="Profile name" aria-label="Builder profile name" />
-                <textarea id="builderEntityInclude" class="input" rows="2" placeholder="Entity include (comma-separated)" aria-label="Entity include"></textarea>
-                <textarea id="builderEntityExclude" class="input" rows="2" placeholder="Entity exclude (comma-separated)" aria-label="Entity exclude"></textarea>
-                <textarea id="builderEntityAliases" class="input" rows="2" placeholder="Entity aliases (alias>canonical, comma-separated)" aria-label="Entity aliases"></textarea>
-                <textarea id="builderCueInclude" class="input" rows="2" placeholder="Cue include (comma-separated)" aria-label="Cue include"></textarea>
-                <textarea id="builderCueExclude" class="input" rows="2" placeholder="Cue exclude (comma-separated)" aria-label="Cue exclude"></textarea>
-                <textarea id="builderDomainInclude" class="input" rows="2" placeholder="Domain include patterns (comma-separated)" aria-label="Domain include patterns"></textarea>
-                <textarea id="builderDomainExclude" class="input" rows="2" placeholder="Domain exclude patterns (comma-separated)" aria-label="Domain exclude patterns"></textarea>
-                <div class="wizard-inline-actions">
-                  <button id="btnBuilderSave" class="btn ghost" type="button" aria-label="Save builder profile">Save Profile</button>
-                  <button id="btnBuilderRebuild" class="btn ghost" type="button" aria-label="Rebuild episodes with builder profile">Rebuild Episodes</button>
-                </div>
-                <div id="wizardBuilderResult" class="wizard-card-result">Saved profile and rebuild status appear here.</div>
+                <details class="wizard-advanced">
+                  <summary>Advanced builder curation</summary>
+                  <div class="wizard-advanced-grid">
+                    <input id="builderProfileName" class="input" type="text" placeholder="Profile name" aria-label="Builder profile name" />
+                    <textarea id="builderEntityInclude" class="input" rows="2" placeholder="Entity include (comma-separated)" aria-label="Entity include"></textarea>
+                    <textarea id="builderEntityExclude" class="input" rows="2" placeholder="Entity exclude (comma-separated)" aria-label="Entity exclude"></textarea>
+                    <textarea id="builderEntityAliases" class="input" rows="2" placeholder="Entity aliases (alias>canonical, comma-separated)" aria-label="Entity aliases"></textarea>
+                    <textarea id="builderCueInclude" class="input" rows="2" placeholder="Cue include (comma-separated)" aria-label="Cue include"></textarea>
+                    <textarea id="builderCueExclude" class="input" rows="2" placeholder="Cue exclude (comma-separated)" aria-label="Cue exclude"></textarea>
+                    <textarea id="builderDomainInclude" class="input" rows="2" placeholder="Domain include patterns (comma-separated)" aria-label="Domain include patterns"></textarea>
+                    <textarea id="builderDomainExclude" class="input" rows="2" placeholder="Domain exclude patterns (comma-separated)" aria-label="Domain exclude patterns"></textarea>
+                  </div>
+                  <div class="wizard-inline-actions">
+                    <button id="btnBuilderSave" class="btn ghost" type="button" aria-label="Save builder profile">Save Profile</button>
+                    <button id="btnBuilderRebuild" class="btn ghost" type="button" aria-label="Rebuild episodes with builder profile">Rebuild Episodes</button>
+                  </div>
+                  <div id="wizardBuilderResult" class="wizard-card-result">Saved profile and rebuild status appear here.</div>
+                </details>
               </article>
               <article class="wizard-card">
                 <div class="wizard-card-head">
                   <h3>Review</h3>
-                  <span class="wizard-step">Step 4</span>
+                  <span class="wizard-step">Step 3</span>
                 </div>
+                <p class="wizard-card-copy">Every draft card must be approved, edited, or rejected before publish. No silent auto-approval.</p>
                 <div class="wizard-review-controls">
                   <input id="wizardReviewSearch" class="input" type="search" placeholder="Search draft cards" aria-label="Search draft cards" />
                   <select id="wizardReviewStatus" class="input" aria-label="Filter review decision status">
@@ -124,30 +151,72 @@
                 </div>
                 <div id="wizardReviewList" class="wizard-review-list"></div>
                 <div class="wizard-inline-actions">
-                  <button id="btnWizardCompileReview" class="btn ghost" type="button">Compile Reviewed Set</button>
+                  <button id="btnWizardReviewRefresh" class="btn ghost" type="button">Reload Drafts</button>
                 </div>
-                <div id="wizardReviewResult" class="wizard-card-result">Review compile output appears here.</div>
+                <div id="wizardReviewResult" class="wizard-card-result">Review status appears here.</div>
+              </article>
+              <article class="wizard-card">
+                <div class="wizard-card-head">
+                  <h3>Publish</h3>
+                  <span class="wizard-step">Step 4</span>
+                </div>
+                <p class="wizard-card-copy">Publishing freezes a reviewed set against the current store fingerprint and build ID so verify and activation can trust it.</p>
+                <div class="wizard-inline-actions">
+                  <button id="btnWizardPublish" class="btn ghost" type="button">Publish Reviewed Set</button>
+                </div>
+                <div id="wizardPublishResult" class="wizard-card-result">Published set details appear here.</div>
+                <div id="wizardPublishedHistory" class="wizard-card-result">Restore information appears here.</div>
               </article>
               <article class="wizard-card">
                 <div class="wizard-card-head">
                   <h3>Verify</h3>
                   <span class="wizard-step">Step 5</span>
                 </div>
+                <p class="wizard-card-copy">Only <strong>Safe</strong> is a normal success state. Needs attention is for local developer follow-up. Blocked stops activation.</p>
                 <div class="wizard-inline-actions">
                   <button id="btnWizardVerify" class="btn ghost" type="button">Run Local Verification</button>
                 </div>
                 <div id="wizardVerifyResult" class="wizard-card-result">Verification summary appears here.</div>
                 <div id="wizardVerifyLinks" class="wizard-card-result">Actionable links to reviewed cards/evidence appear here.</div>
+                <input id="wizardRemapFile" class="wizard-file-input" type="file" aria-label="Pick replacement artifact" />
+                <div id="wizardRemapStatus" class="wizard-recovery-panel">Remap and reset actions appear here when the app detects missing artifacts.</div>
+              </article>
+              <article class="wizard-card wizard-card-activate">
+                <div class="wizard-card-head">
+                  <h3>Activate</h3>
+                  <span class="wizard-step">Step 6</span>
+                </div>
+                <p class="wizard-card-copy">Direct runtime and MCP targets are managed from one place. Activation is reversible, and third-party MCP entries are never overwritten silently.</p>
+                <div class="wizard-inline-actions">
+                  <button id="btnWizardActivateRefresh" class="btn ghost" type="button">Refresh Activation Status</button>
+                  <button id="btnWizardGoLive" class="btn ghost" type="button">Activate Direct Runtime</button>
+                  <button id="btnWizardDirectCleanup" class="btn ghost" type="button">Repair Direct Runtime Lock</button>
+                </div>
+                <div id="wizardActivationStatus" class="wizard-activation-status"></div>
+                <div id="wizardMcpTargets" class="wizard-activation-targets"></div>
+                <details class="wizard-advanced wizard-danger-zone">
+                  <summary>Developer-only draft activation</summary>
+                  <p class="wizard-card-copy">Unsafe local testing only. This runs the unreviewed draft directly and never counts as normal success.</p>
+                  <label class="wizard-toggle-row">
+                    <input id="wizardDeveloperMode" type="checkbox" />
+                    <span>Enable developer mode</span>
+                  </label>
+                  <textarea id="wizardDraftReason" class="input" rows="3" placeholder="Why are you bypassing publish/verify for local draft activation?" aria-label="Draft activation reason"></textarea>
+                  <div class="wizard-inline-actions">
+                    <button id="btnWizardDraftGoLive" class="btn danger" type="button">Activate Unreviewed Draft</button>
+                  </div>
+                </details>
+                <div class="wizard-inline-actions">
+                  <button id="btnWizardExportMcp" class="btn ghost" type="button">Export MCP Bundle</button>
+                </div>
+                <div id="wizardGoLiveResult" class="wizard-card-result">Activation output appears here.</div>
               </article>
               <article class="wizard-card">
                 <div class="wizard-card-head">
-                  <h3>Go Live</h3>
-                  <span class="wizard-step">Step 6</span>
+                  <h3>Operate</h3>
+                  <span class="wizard-step">Step 7</span>
                 </div>
-                <div class="wizard-inline-actions">
-                  <button id="btnWizardGoLive" class="btn ghost" type="button">Activate Runtime</button>
-                </div>
-                <div id="wizardGoLiveResult" class="wizard-card-result">Runtime endpoint and provider info appear here.</div>
+                <p class="wizard-card-copy">When activation is green, use the runtime health and provider details here to confirm the system is serving the right store and reviewed set.</p>
                 <div id="wizardGoLiveConfig" class="wizard-card-result">Provider/model config visibility appears here.</div>
               </article>
             </div>

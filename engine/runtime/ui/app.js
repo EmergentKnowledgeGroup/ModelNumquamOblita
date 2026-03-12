@@ -30,6 +30,7 @@ const state = {
     pageSize: 12,
     totalPages: 1,
   },
+  wizardReviewRequestSeq: 0,
   wizardReviewEditingId: null,
   wizardInputOptions: null,
   wizardInputMode: "archive",
@@ -1807,9 +1808,9 @@ function renderWizardReviewList() {
       return (
         `<article class="wizard-review-item ${escapeHtml(decision)}${editing ? " editing" : ""}" data-episode-id="${escapeHtml(episodeId)}">` +
         `<div class="wizard-review-top"><strong>${escapeHtml(episodeId)}</strong><span>${escapeHtml(friendlyReviewDecision(decision))}</span></div>` +
-        `<div class="wizard-review-title">${escapeHtml(card.title || "(untitled episode)")}</div>` +
-        `<div class="wizard-review-summary">${escapeHtml(trimDisplay(card.summary || "", 180))}</div>` +
-        `<div class="wizard-review-meta">${escapeHtml(reviewCardMeta(card))}</div>` +
+        `<div class="wizard-review-title">${escapeHtml(titleValue || "(untitled episode)")}</div>` +
+        `<div class="wizard-review-summary">${escapeHtml(trimDisplay(summaryValue, 180))}</div>` +
+        `<div class="wizard-review-meta">${escapeHtml(reviewCardMeta(card, reviewPayload))}</div>` +
         `<div class="wizard-review-actions">` +
         `<button type="button" class="btn ghost review-approve">Approve As-Is</button>` +
         `<button type="button" class="btn ghost review-edit">${editing ? "Close Quick Edit" : "Quick Edit"}</button>` +
@@ -1923,9 +1924,19 @@ function resetWizardReviewPaging() {
   };
 }
 
-function reviewCardMeta(card) {
-  const actors = Array.isArray(card.actors) && card.actors.length ? `actors: ${card.actors.slice(0, 3).join(", ")}` : "actors: none";
-  const topics = Array.isArray(card.topic_tags) && card.topic_tags.length ? `topics: ${card.topic_tags.slice(0, 3).join(", ")}` : "topics: none";
+function reviewCardMeta(card, reviewPayload = {}) {
+  const actorRows = Array.isArray(reviewPayload.actors) && reviewPayload.actors.length
+    ? reviewPayload.actors
+    : Array.isArray(card.actors)
+      ? card.actors
+      : [];
+  const topicRows = Array.isArray(reviewPayload.topic_tags) && reviewPayload.topic_tags.length
+    ? reviewPayload.topic_tags
+    : Array.isArray(card.topic_tags)
+      ? card.topic_tags
+      : [];
+  const actors = actorRows.length ? `actors: ${actorRows.slice(0, 3).join(", ")}` : "actors: none";
+  const topics = topicRows.length ? `topics: ${topicRows.slice(0, 3).join(", ")}` : "topics: none";
   return `${actors} | ${topics}`;
 }
 
@@ -2026,6 +2037,15 @@ async function refreshWizardState(runId) {
     refreshWizardActivationStatus(state.wizardRunId || undefined),
     refreshWizardRemapStatus(state.wizardRunId || undefined),
   ]);
+}
+
+async function refreshWizardReviewSummary(runId) {
+  const query = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
+  const payload = await jsonFetch(`/api/wizard/state${query}`);
+  state.wizardState = payload.state || null;
+  state.wizardRunId = payload.current_run_id || payload.latest_run_id || state.wizardRunId || null;
+  renderWizardState();
+  renderWizardReviewMeta();
 }
 
 async function startWizard(mode) {
@@ -2165,6 +2185,8 @@ async function rebuildWithBuilderProfile() {
 }
 
 async function loadWizardReviewCards() {
+  const requestSeq = state.wizardReviewRequestSeq + 1;
+  state.wizardReviewRequestSeq = requestSeq;
   const runId = state.wizardRunId || "";
   const search = (els.wizardReviewSearch?.value || "").trim();
   const status = (els.wizardReviewStatus?.value || "all").trim();
@@ -2186,6 +2208,9 @@ async function loadWizardReviewCards() {
   params.set("page", String(Math.max(1, Number(state.wizardReviewMeta?.page || 1))));
   params.set("page_size", String(Math.max(1, Number(els.wizardReviewPageSize?.value || state.wizardReviewMeta?.pageSize || 12))));
   const payload = await jsonFetch(`/api/wizard/review/cards?${params.toString()}`);
+  if (requestSeq !== state.wizardReviewRequestSeq) {
+    return;
+  }
   state.wizardReviewCards = payload.cards || [];
   state.wizardReviewMeta = {
     total: Number(payload.total || 0),
@@ -2212,6 +2237,7 @@ async function updateWizardReviewDecision(episodeId, decision, edits = {}) {
   });
   wizardResult(els.wizardReviewResult, `${episodeId}: ${friendlyReviewDecision(decision)}.`);
   await loadWizardReviewCards();
+  await refreshWizardReviewSummary(state.wizardRunId || undefined);
 }
 
 async function compileWizardReview() {

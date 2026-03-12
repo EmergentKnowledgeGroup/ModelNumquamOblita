@@ -6228,8 +6228,9 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             decisions = wizard_state.get("review_decisions")
             if not isinstance(decisions, dict):
                 decisions = {}
+            raw_cards = list(payload.get("cards") or [])
             all_cards: list[dict[str, Any]] = []
-            for row in list(payload.get("cards") or []):
+            for row in raw_cards:
                 if not isinstance(row, dict):
                     continue
                 card = _normalize_episode_card(row)
@@ -6273,7 +6274,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     "run_id": wizard_state.get("run_id"),
                     "source_cards_path": str(source_path),
                     "cards": cards,
-                    "total": len(list(payload.get("cards") or [])),
+                    "total": len(raw_cards),
                     "filtered_total": filtered_total,
                     "page": page,
                     "page_size": page_size,

@@ -727,6 +727,14 @@ def test_wizard_review_cards_supports_pagination_and_inline_edit_batches(tmp_pat
         assert len(approved_only["cards"]) == 1
         assert str(approved_only["cards"][0]["episode_id"]) == "ep_001"
 
+        edited_only = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&status=edited&page=1&page_size=12")
+        assert edited_only["ok"] is True
+        assert edited_only["filtered_total"] == 1
+        assert len(edited_only["cards"]) == 1
+        assert str(edited_only["cards"][0]["episode_id"]) == "ep_002"
+        assert edited_only["cards"][0]["review_payload"]["title"] == "Edited title"
+        assert edited_only["cards"][0]["review_payload"]["summary"] == "Edited summary"
+
         searched = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&q={quote('Episode 020')}&page=1&page_size=12")
         assert searched["ok"] is True
         assert searched["filtered_total"] == 1

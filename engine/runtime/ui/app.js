@@ -1293,8 +1293,7 @@ function renderMemoryGraph() {
       if (!source || !target) {
         return "";
       }
-      const kind = String(link.kind || "link");
-      const kindClass = kind.toLowerCase().replaceAll("_", "-").replace(/[^a-z0-9-]/g, "-");
+      const kindClass = graphCssToken(String(link.kind || "link"));
       return `<line class="graph-link kind-${escapeHtml(kindClass)}" x1="${source.x.toFixed(2)}" y1="${source.y.toFixed(2)}" x2="${target.x.toFixed(2)}" y2="${target.y.toFixed(2)}"></line>`;
     })
     .join("");
@@ -1307,8 +1306,8 @@ function renderMemoryGraph() {
         return "";
       }
       const selectedClass = selectedId === atomId ? " selected" : "";
-      const kindClass = ` kind-${String(node.kind || "").toLowerCase().replaceAll("_", "-").replace(/[^a-z0-9-]/g, "-")}`;
-      const statusClass = ` status-${String(node.status || "").toLowerCase().replaceAll("_", "-").replace(/[^a-z0-9-]/g, "-")}`;
+      const kindClass = ` kind-${graphCssToken(String(node.kind || ""))}`;
+      const statusClass = ` status-${graphCssToken(String(node.status || ""))}`;
       const radius = 6 + Math.min(8, Number(node.degree || 0));
       const label = summarizeGraphNode(node);
       return (

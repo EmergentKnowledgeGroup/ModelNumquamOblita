@@ -568,6 +568,7 @@ def test_runtime_http_server_exposes_phase6_chat_shell_cards_and_reason_catalog(
         assert "id=\"memoryNeighborhoodDepth\"" in html
         assert "id=\"memoryNeighborhoodShared\"" in html
         assert "id=\"btnMemoryNeighborhoodRefresh\"" in html
+        assert "id=\"memoryNeighborhoodMeta\"" in html
         assert "id=\"memoryNeighborhoodSvg\"" in html
         assert "id=\"memoryNeighborhoodList\"" in html
         assert "id=\"ledgerList\"" in html

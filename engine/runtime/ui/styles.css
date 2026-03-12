@@ -1737,6 +1737,7 @@ body.simple-mode .wizard-danger-zone {
   margin-top: 0.6rem;
   width: 100%;
   min-height: 44px;
+  cursor: pointer;
   border: 1px solid rgb(32 45 52 / 0.14);
   border-radius: 10px;
   background: rgb(255 255 255 / 0.96);
@@ -1748,6 +1749,7 @@ body.simple-mode .wizard-danger-zone {
 
 .memory-neighborhood-row:hover,
 .memory-neighborhood-row:focus-visible {
+  cursor: pointer;
   border-color: rgb(47 125 131 / 0.62);
   outline: 0;
 }

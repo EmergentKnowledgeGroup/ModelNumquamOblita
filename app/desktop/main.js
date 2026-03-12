@@ -19,6 +19,7 @@ const {
   loadShellPreferences,
   parseRuntimeStdoutLine,
   parseShellCliArgs,
+  normalizeRuntimePort,
   readRuntimeLock,
   requestRuntimeShutdown,
   resolveShellPaths,
@@ -97,8 +98,7 @@ function desiredRuntimeHost() {
 }
 
 function desiredRuntimePort() {
-  const numeric = Number(cli.port || process.env.MNO_RUNTIME_PORT || 7340);
-  return Number.isFinite(numeric) && numeric > 0 ? numeric : 7340;
+  return normalizeRuntimePort(cli.port || process.env.MNO_RUNTIME_PORT || 7340);
 }
 
 function desiredRuntimeUrl() {
@@ -775,6 +775,9 @@ async function stopRuntime({ explicitUserStop = false, reloadBootUi = true } = {
   }
   shuttingDown = true;
   expectedRuntimeExit = true;
+  let shutdownFailure = null;
+  const remoteRuntimeUrl = String(state.runtimeUrl || '').replace(/\/$/, '');
+  const remoteRuntimeHealthUrl = remoteRuntimeUrl ? `${remoteRuntimeUrl}/api/runtime/health` : '';
   try {
     if (runtimeChild) {
       const child = runtimeChild;
@@ -806,10 +809,15 @@ async function stopRuntime({ explicitUserStop = false, reloadBootUi = true } = {
       || (state.runtimeUrl && state.runtimeHealth && state.runtimeHealth.service === 'modelnumquamoblita-runtime')
     ) {
       try {
-        await requestRuntimeShutdown({ runtimeShutdownUrl: `${String(state.runtimeUrl || '').replace(/\/$/, '')}/api/runtime/desktop/shutdown` });
-        await waitForRuntimeDown(`${String(state.runtimeUrl || '').replace(/\/$/, '')}/api/runtime/health`);
+        await requestRuntimeShutdown({ runtimeShutdownUrl: `${remoteRuntimeUrl}/api/runtime/desktop/shutdown` });
+        const stopped = await waitForRuntimeDown(remoteRuntimeHealthUrl);
+        if (!stopped) {
+          throw new Error(`remote runtime did not stop in time: ${remoteRuntimeUrl}`);
+        }
       } catch (error) {
-        writeShellLog(`[stop-runtime] remote shutdown failed: ${error?.message || error}`);
+        shutdownFailure = error instanceof Error ? error : new Error(String(error || 'remote shutdown failed'));
+        writeShellLog(`[stop-runtime] remote shutdown failed for ${remoteRuntimeUrl}: ${shutdownFailure.message}`);
+        throw shutdownFailure;
       }
     }
   } finally {
@@ -817,7 +825,13 @@ async function stopRuntime({ explicitUserStop = false, reloadBootUi = true } = {
     runtimeLaunchPlan = null;
     expectedRuntimeExit = false;
     shuttingDown = false;
-    hydrateStateFromDisk({ lastError: '' });
+    const refreshedRemoteHealth = shutdownFailure && remoteRuntimeHealthUrl
+      ? await fetchRuntimeHealthOnce({ runtimeHealthUrl: remoteRuntimeHealthUrl })
+      : null;
+    hydrateStateFromDisk({
+      runtimeHealth: refreshedRemoteHealth,
+      lastError: shutdownFailure ? shutdownFailure.message : '',
+    });
     if (reloadBootUi) {
       await loadBootPage().catch(() => {});
     }

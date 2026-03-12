@@ -18,6 +18,7 @@ const DEFAULT_CLOSE_BEHAVIOR = 'hide_to_tray';
 const DEFAULT_AUTO_START = 'auto_start_if_ready';
 const DEFAULT_RUNTIME_DESIRED_STATE = 'running';
 const DEFAULT_BUNDLE_SCHEMA = 'modelnumquamoblita.desktop.runtime_bundle.v1';
+const DEFAULT_RUNTIME_PORT = 7340;
 
 function resolveRepoRoot(explicitRoot) {
   return explicitRoot ? path.resolve(String(explicitRoot)) : path.resolve(__dirname, '..', '..');
@@ -142,6 +143,14 @@ function hydratedRuntimeUrl(runtimeHealth) {
   return runtimeHealth && typeof runtimeHealth === 'object'
     ? String(runtimeHealth.runtime_url || '').trim()
     : '';
+}
+
+function normalizeRuntimePort(candidate, fallback = DEFAULT_RUNTIME_PORT) {
+  const parsed = Number.parseInt(String(candidate ?? ''), 10);
+  if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535) {
+    return parsed;
+  }
+  return fallback;
 }
 
 function defaultShellPreferences() {
@@ -612,7 +621,7 @@ function buildRuntimeLaunchPlan({
   requireBundledRuntime = false,
 } = {}) {
   const resolvedRoot = resolveRepoRoot(repoRoot);
-  const runtimePort = Number.isFinite(Number(port)) && Number(port) > 0 ? Number(port) : 7340;
+  const runtimePort = normalizeRuntimePort(port);
   const runtimeHost = String(host || '127.0.0.1').trim() || '127.0.0.1';
   const manifest = runtimeManifest && runtimeManifest.bundleMode
     ? runtimeManifest
@@ -861,6 +870,7 @@ module.exports = {
   parseShellCliArgs,
   pidIsAlive,
   pathWithinRoot,
+  normalizeRuntimePort,
   readRuntimeLock,
   requestRuntimeShutdown,
   resolveRepoRoot,

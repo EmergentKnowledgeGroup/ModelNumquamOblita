@@ -20,6 +20,7 @@ const {
   loadShellPreferences,
   parseRuntimeStdoutLine,
   parseShellCliArgs,
+  normalizeRuntimePort,
   readRuntimeLock,
   resolveShellPaths,
   runtimeHealthMatchesExpected,
@@ -113,6 +114,14 @@ test('buildRuntimeLaunchPlan supports setup mode with explicit setup store', () 
   assert.equal(plan.launchMode, 'setup_mode');
   assert.ok(plan.args.includes('--setup-mode'));
   assert.ok(plan.args.includes(path.resolve('/repo/runtime/desktop_shell/setup.sqlite3')));
+});
+
+test('normalizeRuntimePort accepts only integer ports inside the TCP range', () => {
+  assert.equal(normalizeRuntimePort('8450'), 8450);
+  assert.equal(normalizeRuntimePort(7340.9), 7340);
+  assert.equal(normalizeRuntimePort('65536'), 7340);
+  assert.equal(normalizeRuntimePort('0'), 7340);
+  assert.equal(normalizeRuntimePort('not-a-port'), 7340);
 });
 
 test('buildRuntimeLaunchPlan resolves bundled Python relative to repo root when present', () => {
@@ -642,5 +651,7 @@ test('stateLabel uses the locked user-facing status names only', () => {
 });
 
 test('readRuntimeLock returns empty object for missing files', () => {
-  assert.deepEqual(readRuntimeLock(path.join(os.tmpdir(), 'definitely-missing-lock.json')), {});
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mno-missing-lock-'));
+  const missingLockPath = path.join(tmpDir, 'runtime.lock.json');
+  assert.deepEqual(readRuntimeLock(missingLockPath), {});
 });

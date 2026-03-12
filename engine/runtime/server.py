@@ -116,6 +116,15 @@ def _runtime_state_root_path(server: "RuntimeHTTPServer") -> Path:
     return RUNTIME_ROOT
 
 
+def _existing_runtime_probe_root(server: "RuntimeHTTPServer") -> Path:
+    current = _runtime_state_root_path(server)
+    for candidate in (current, *current.parents):
+        if candidate.exists():
+            return candidate
+    anchor = Path(current.anchor) if current.anchor else Path("/")
+    return anchor
+
+
 def _canonical_graph_link_key(source: str, target: str, kind: str) -> tuple[str, str, str]:
     left, right = sorted((str(source), str(target)))
     return left, right, str(kind)
@@ -3881,7 +3890,7 @@ def _runtime_health(server: "RuntimeHTTPServer") -> dict[str, Any]:
         checks.append({"id": "provider_reachable", "status": "fail", "detail": str(exc)})
 
     try:
-        usage = shutil.disk_usage(str(_runtime_state_root_path(server)))
+        usage = shutil.disk_usage(str(_existing_runtime_probe_root(server)))
         free_gb = float(usage.free) / float(1024**3)
         status = "ok" if free_gb >= 1.0 else "warn"
         warned = warned or status == "warn"

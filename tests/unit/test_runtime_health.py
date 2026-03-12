@@ -23,6 +23,7 @@ def test_runtime_health_uses_runtime_state_root_for_disk_usage(monkeypatch, tmp_
     calls: list[str] = []
     runtime_root = (tmp_path / 'runtime_state').resolve()
     diagnostics_root = (tmp_path / 'diagnostics').resolve()
+    expected_probe_root = tmp_path.resolve()
 
     def fake_disk_usage(target: str):
         calls.append(target)
@@ -45,4 +46,4 @@ def test_runtime_health_uses_runtime_state_root_for_disk_usage(monkeypatch, tmp_
     payload = runtime_server._runtime_health(server)
 
     assert payload['service'] == 'modelnumquamoblita-runtime'
-    assert calls == [str(runtime_root)]
+    assert calls == [str(expected_probe_root)]

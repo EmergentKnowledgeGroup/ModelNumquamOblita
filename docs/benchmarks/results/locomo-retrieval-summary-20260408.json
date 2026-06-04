@@ -1,0 +1,129 @@
+{
+  "all_question_metrics": {
+    "gold_source_present_in_store_rate": 0.998,
+    "gold_source_shortlisted_rate": 0.9527,
+    "mrr": 0.7143,
+    "source_recall_at_1": 0.6062,
+    "source_recall_at_10": 0.924,
+    "source_recall_at_5": 0.8474
+  },
+  "ann_enabled": true,
+  "benchmark": "LoCoMo",
+  "completed_questions": 1986,
+  "dataset_conversations": 10,
+  "duration_s": 219.643,
+  "helper_lanes": [],
+  "metric_scope": "retrieval/source-support only; not final answer F1",
+  "miss_counts": {
+    "misses_at_10_count": 151,
+    "misses_without_gold_in_shortlist_count": 90,
+    "misses_without_gold_in_store_count": 0
+  },
+  "notes": [
+    "This artifact is a sanitized aggregate summary derived from the dev evaluation output.",
+    "Retrieval-eligible metrics exclude questions with no gold source identifier.",
+    "The benchmark asks whether MNO retrieved the source evidence needed for a memory claim."
+  ],
+  "omitted_from_public_artifact": [
+    "raw benchmark dataset files",
+    "per-case results jsonl",
+    "sample miss questions",
+    "source identifiers",
+    "local filesystem paths"
+  ],
+  "profile": "auto",
+  "question_type_breakdown": {
+    "adversarial": {
+      "cases": 446,
+      "eligible_gold_source_present_in_store_rate": 1.0,
+      "eligible_gold_source_shortlisted_rate": 0.9574,
+      "eligible_mrr": 0.7664,
+      "eligible_source_recall_at_1": 0.6659,
+      "eligible_source_recall_at_10": 0.9417,
+      "eligible_source_recall_at_5": 0.8924,
+      "gold_source_present_in_store_rate": 1.0,
+      "gold_source_shortlisted_rate": 0.9574,
+      "mrr": 0.7664,
+      "retrieval_eligible_cases": 446,
+      "source_recall_at_1": 0.6659,
+      "source_recall_at_10": 0.9417,
+      "source_recall_at_5": 0.8924
+    },
+    "multi_hop": {
+      "cases": 282,
+      "eligible_gold_source_present_in_store_rate": 1.0,
+      "eligible_gold_source_shortlisted_rate": 0.961,
+      "eligible_mrr": 0.6042,
+      "eligible_source_recall_at_1": 0.4539,
+      "eligible_source_recall_at_10": 0.9397,
+      "eligible_source_recall_at_5": 0.7979,
+      "gold_source_present_in_store_rate": 1.0,
+      "gold_source_shortlisted_rate": 0.961,
+      "mrr": 0.6042,
+      "retrieval_eligible_cases": 282,
+      "source_recall_at_1": 0.4539,
+      "source_recall_at_10": 0.9397,
+      "source_recall_at_5": 0.7979
+    },
+    "open_domain": {
+      "cases": 96,
+      "eligible_gold_source_present_in_store_rate": 1.0,
+      "eligible_gold_source_shortlisted_rate": 0.8152,
+      "eligible_mrr": 0.4877,
+      "eligible_source_recall_at_1": 0.337,
+      "eligible_source_recall_at_10": 0.7826,
+      "eligible_source_recall_at_5": 0.6848,
+      "gold_source_present_in_store_rate": 0.9583,
+      "gold_source_shortlisted_rate": 0.7812,
+      "mrr": 0.4674,
+      "retrieval_eligible_cases": 92,
+      "source_recall_at_1": 0.3229,
+      "source_recall_at_10": 0.75,
+      "source_recall_at_5": 0.6562
+    },
+    "single_hop": {
+      "cases": 841,
+      "eligible_gold_source_present_in_store_rate": 1.0,
+      "eligible_gold_source_shortlisted_rate": 0.9655,
+      "eligible_mrr": 0.7617,
+      "eligible_source_recall_at_1": 0.6683,
+      "eligible_source_recall_at_10": 0.9417,
+      "eligible_source_recall_at_5": 0.8787,
+      "gold_source_present_in_store_rate": 1.0,
+      "gold_source_shortlisted_rate": 0.9655,
+      "mrr": 0.7617,
+      "retrieval_eligible_cases": 841,
+      "source_recall_at_1": 0.6683,
+      "source_recall_at_10": 0.9417,
+      "source_recall_at_5": 0.8787
+    },
+    "temporal": {
+      "cases": 321,
+      "eligible_gold_source_present_in_store_rate": 1.0,
+      "eligible_gold_source_shortlisted_rate": 0.9564,
+      "eligible_mrr": 0.6882,
+      "eligible_source_recall_at_1": 0.5794,
+      "eligible_source_recall_at_10": 0.891,
+      "eligible_source_recall_at_5": 0.8037,
+      "gold_source_present_in_store_rate": 1.0,
+      "gold_source_shortlisted_rate": 0.9564,
+      "mrr": 0.6882,
+      "retrieval_eligible_cases": 321,
+      "source_recall_at_1": 0.5794,
+      "source_recall_at_10": 0.891,
+      "source_recall_at_5": 0.8037
+    }
+  },
+  "retrieval_eligible_cases": 1982,
+  "retrieval_eligible_metrics": {
+    "gold_source_present_in_store_rate": 1.0,
+    "gold_source_shortlisted_rate": 0.9546,
+    "mrr": 0.7157,
+    "source_recall_at_1": 0.6075,
+    "source_recall_at_10": 0.9258,
+    "source_recall_at_5": 0.8491
+  },
+  "retrieval_ineligible_cases": 4,
+  "run_date": "2026-04-08",
+  "run_id": "locomo_retrieval_full_auto_ann_source_support_20260408"
+}

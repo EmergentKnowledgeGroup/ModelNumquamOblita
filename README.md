@@ -1,190 +1,228 @@
 # ModelNumquamOblita
 
-ModelNumquamOblita, or `MNO`, is a local-first memory runtime for agents that need:
-- evidence-backed memory
-- reviewed durable truth
-- bounded retrieval
-- honest abstention when evidence is weak
+ModelNumquamOblita, or `MNO`, is my local-first memory project for agents.
 
-Core rule:
+The simple version: it helps an assistant remember from real evidence instead of guessing from vibes.
+
+MNO is built around a small rule that matters a lot:
 
 `No memory claim without evidence.`
 
-## What MNO does
+That means memories are not just loose notes floating around in a prompt. They come from source material, get shaped into reviewable memory, and stay tied to the evidence they came from. If MNO cannot find enough support for something, it should be able to say so.
 
-MNO can start from either:
-- raw source files or folders such as `conversations.json`, `.jsonl`, `.txt`, `.md`, or mixed folders
-- an existing MNO atom store plus optional reviewed episode set
+## Why This Exists
 
-From there it can:
-- import evidence into `atoms.sqlite3`
+Long-term memory for agents can get weird fast.
+
+Sometimes systems remember things that were never said. Sometimes drafts turn into "truth" without anyone noticing. Sometimes a model sounds confident because confidence is cheap, not because the evidence is there.
+
+MNO is my attempt at a more grounded path:
+
+- keep the source evidence close
+- separate drafts from reviewed memory
+- let a human stay in charge of what becomes durable truth
+- give agents a local memory runtime they can query without taking over the whole system
+- make it possible to inspect why something was recalled
+
+It is not trying to be a giant hosted memory platform. It is a local, inspectable memory runtime for people building agents who care about provenance, correction, and honesty.
+
+## The Picture Version
+
+These are the plain-language diagrams. They are intentionally simple because the main idea should not require a PhD in repo archaeology.
+
+### Launch Pipeline
+
+How raw source material becomes usable, reviewed memory.
+
+![MNO launch pipeline](docs/visuals/exports/clean/mno-launch-pipeline-clean.svg)
+
+### Runtime And Integration
+
+How an assistant, MCP sidecar, or integration talks to the local runtime.
+
+![MNO runtime and integration](docs/visuals/exports/clean/mno-runtime-integration-clean.svg)
+
+### Current Pipeline
+
+The practical shape of the current system.
+
+![MNO current pipeline](docs/visuals/exports/clean/mno-current-pipeline-clean.svg)
+
+### Runtime Memory And Decision
+
+How a runtime answer moves through memory, evidence, and the decision to answer or abstain.
+
+![MNO runtime memory decision](docs/visuals/exports/clean/mno-runtime-memory-decision-clean.svg)
+
+More diagrams live in:
+
+- [Plain-language diagram exports](docs/visuals/exports/clean/README.md)
+- [Engineer architecture diagrams](docs/visuals/exports/architecture/README.md)
+- [Visuals guide](docs/visuals/README.md)
+
+## What You Can Use It For
+
+MNO can help you build a local memory layer for:
+
+- personal assistant experiments
+- agent sidecars
+- MCP-based tools
+- local research or writing companions
+- systems where memory needs to be reviewable instead of magical
+
+It can start from raw files and folders, or from an existing MNO store. The setup flow can import source material, build draft memory, let you review what should become durable, and then run a local memory runtime over that reviewed set.
+
+## What It Does
+
+MNO can:
+
+- import raw source files like `.json`, `.jsonl`, `.txt`, `.md`, and mixed folders
 - preserve bounded original wording for quote and provenance lookups
-- build draft episode cards for review
-- optionally let an assistant or agent help curate the draft before human review
+- build draft episode cards for human review
+- keep draft/proposal/helper memory separate from reviewed truth
 - compile reviewed episode cards for runtime use
-- keep reviewed correction chains clear so current vs superseded truth stays visible
-- run a local runtime over HTTP, adapters, MCP, or the desktop shell
+- run locally through the desktop shell, HTTP runtime, MCP server, or integration routes
+- show evidence and context for why memory was recalled
+- abstain when evidence is too weak
 
-## What MNO does not do
+The main public integration boundary is `integration-v1`.
+
+MCP is available when you want tool-style local agent integration. Compatibility adapters also exist for `reference`, `openclaw`, and `nanobot`.
+
+## What It Does Not Promise
 
 MNO does not promise:
+
+- magic memory
 - silent truth mutation
-- unreviewed draft artifacts becoming published truth
-- one giant shared multi-agent runtime
-- unversioned internal routes as the main public integration contract
+- unreviewed drafts becoming published memory
+- a hosted multi-user memory service
+- that every old internal route is a stable public contract
 
-## How you run it
+The bias here is deliberate: better to be a little slower and more inspectable than fast and quietly wrong.
 
-MNO has 3 normal launch shapes:
-- desktop app: Electron shell with managed runtime and local operator UI
-- headless runtime: HTTP server over a memory store and optional reviewed episode set
-- MCP sidecar: stdio or HTTP MCP server pointed at a running runtime
+## Quick Start
 
-The normal public integration boundary is:
+Use the setup workspace if you want the guided path:
 
-`integration-v1`
+```bash
+./launch_setup_workspace.sh
+```
 
-Compatibility adapters also exist for:
-- `reference`
-- `openclaw`
-- `nanobot`
+PowerShell:
 
-If you are building a new integration, prefer `integration-v1` first.
+```powershell
+./launch_setup_workspace.ps1
+```
 
-## Retrieval note
+Command Prompt:
 
-This clean repo ships with a bounded local ANN sidecar enabled by default.
+```bat
+launch_setup_workspace.bat
+```
 
-`ANN` means `approximate nearest neighbor`.
+Or run local setup directly:
 
-In MNO it is:
-- local only
-- bounded
-- additive candidate generation only
-- kill-switchable
+```bash
+./setup_local.sh
+```
 
-It is not:
-- a truth source
-- a verifier replacement
-- a shortcut around review, publish, or evidence rules
+PowerShell:
 
-MNO also keeps a bounded raw-context sidecar for explicit quote, original-wording, and provenance requests. That sidecar is read-only and only augments the evidence pack when the query asks for original context.
+```powershell
+./setup_local.ps1
+```
 
-## Repo layout
+Command Prompt:
 
-- `engine/`: runtime, retrieval, memory, MCP, adapters, UI
+```bat
+setup_local.bat
+```
+
+The setup workspace is the easiest way to:
+
+- choose files or folders to import
+- create or append to a local memory store
+- build reviewable memory
+- export or install an integration bundle
+- prepare MNO for an assistant, MCP client, or sidecar
+
+## Manual Runtime Commands
+
+Import raw source:
+
+```bash
+python3 tools/import_memories.py --input /absolute/path/to/source-or-folder --store runtime/imports/atoms.sqlite3
+```
+
+Start the local runtime:
+
+```bash
+python3 tools/run_live_runtime.py --memories runtime/imports/atoms.sqlite3
+```
+
+Launch the desktop shell:
+
+```bash
+npm run desktop:dev --prefix app/desktop
+```
+
+Run MCP against the runtime:
+
+```bash
+python3 tools/run_mcp_server.py --transport stdio --runtime-base-url http://127.0.0.1:7340
+```
+
+## How The Repo Is Organized
+
+- `engine/`: runtime, retrieval, memory, MCP, adapters, and local UI
 - `app/desktop/`: Electron desktop shell
 - `tools/`: setup, import, build, runtime, and MCP launchers
-- `tests/`: focused validation for setup, runtime, MCP, adapters, packaging, and integration contract behavior
-- `runtime/`: empty local workspace skeleton for imports, episodes, runs, and state
+- `tests/`: validation for setup, runtime, MCP, adapters, packaging, and contracts
+- `runtime/`: empty local workspace skeleton for generated data
+- `docs/`: guides, API notes, security/privacy docs, and diagrams
 
-## Fast start
+Generated runtime data is intentionally not committed. Your imported stores, setup reports, diagnostics, desktop logs, and local state should stay local.
 
-1. Use the one-click setup workspace if you want the guided path.
-   - Unix/macOS: `./launch_setup_workspace.sh`
-   - PowerShell: `./launch_setup_workspace.ps1`
-   - Command Prompt: `launch_setup_workspace.bat`
-2. Or run local setup directly.
-   - Unix/macOS: `./setup_local.sh`
-   - PowerShell: `./setup_local.ps1`
-   - Command Prompt: `setup_local.bat`
-3. Start from raw source.
-   - GUI path: launch the setup workspace, click `Add Files` and/or `Add Folder`, build a mixed source list, then either create a new store or append into an existing one.
-   - CLI path: `python3 tools/import_memories.py --input /absolute/path/to/source-or-folder --store runtime/imports/atoms.sqlite3`
-4. Launch the runtime:
-   - `python3 tools/run_live_runtime.py --memories runtime/imports/atoms.sqlite3`
-5. Or launch the desktop shell:
-   - `npm run desktop:dev --prefix app/desktop`
-6. Or launch MCP against the runtime:
-   - `python3 tools/run_mcp_server.py --transport stdio --runtime-base-url http://127.0.0.1:7340`
+## Start Reading Here
 
-The setup workspace is the easiest launch path if you want to:
-- open the GUI setup flow
-- choose a managed client or export target
-- install or export the right integration bundle
-- finish with MNO ready for assistant/agent or sidecar use
+If you are new to the project:
 
-Managed MCP targets currently include:
-- `Claude Code`
-- `Claude Desktop`
-
-## Raw-source import behavior
-
-The desktop import flow is picker-first now:
-- `Add Files` opens a file picker
-- `Add Folder` opens a folder picker
-- you can mix folders and individual files in one source list
-- you can clear or remove entries before import
-- you can import into a new store or append into an existing store
-
-Advanced manual path entry still exists as a fallback, but it is no longer the primary path.
-
-Sanitization and normalization happen automatically before insert:
-- supported raw files are normalized into conversations and turns
-- whitespace is cleaned
-- roles and timestamps are normalized when possible
-- obvious junk directories are skipped in folder imports
-- tool payload noise and unsupported blocks are filtered before extraction
-
-## Pick the right integration path
-
-- Use `integration-v1` for orchestrators, sidecars, and agent hot loops.
-- Use adapter routes when you already speak an existing compatibility envelope like OpenClaw or Nanobot.
-- Use MCP when you want tool-driven local agent integration or parity with the runtime contract.
-
-## Docs
-
-Start here:
 - [Quickstart](docs/QUICKSTART.md)
 - [Pipeline Guide](docs/PIPELINE_GUIDE.md)
+- [Public Overview](docs/public/README.md)
+- [Public Architecture](docs/public/ARCHITECTURE.md)
+- [Security And Privacy](docs/SECURITY_AND_PRIVACY.md)
+
+If you are integrating an agent or tool:
+
 - [Agent Integration](docs/AGENT_INTEGRATION.md)
 - [MCP Integration](docs/MCP_INTEGRATION.md)
 - [API](docs/API.md)
 - [Configuration](docs/CONFIGURATION.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Security And Privacy](docs/SECURITY_AND_PRIVACY.md)
 
-Public-facing summary docs:
-- [Public Overview](docs/public/README.md)
-- [Public Architecture](docs/public/ARCHITECTURE.md)
-- [One Pager](docs/public/ONE_PAGER.md)
-- [Teaser](docs/public/TEASER.md)
+Integration-specific notes:
 
-Launch visuals:
-- [Clean Public Diagram Exports](docs/visuals/exports/clean/README.md)
-- [Architecture Diagram Exports](docs/visuals/exports/architecture/README.md)
-- [Rendered SVG/PNG Export Index](docs/visuals/exports/README.md)
-- [Launch Pipeline Visual Spec](docs/visuals/MNO_LAUNCH_PIPELINE_VISUAL_SPEC_2026-04-12.md)
-- [Launch Pipeline Draw.io](docs/visuals/MNO_LAUNCH_PIPELINE_2026-04-12.drawio)
-- [Launch Runtime And Integration Visual Spec](docs/visuals/MNO_LAUNCH_RUNTIME_AND_INTEGRATION_VISUAL_SPEC_2026-04-12.md)
-- [Launch Runtime And Integration Draw.io](docs/visuals/MNO_LAUNCH_RUNTIME_AND_INTEGRATION_2026-04-12.drawio)
-
-Current-state visuals:
-- [Current Pipeline Visual Spec](docs/visuals/MNO_CURRENT_PIPELINE_VISUAL_SPEC_2026-04-12.md)
-- [Current Pipeline Draw.io](docs/visuals/MNO_CURRENT_PIPELINE_2026-04-12.drawio)
-- [Current Runtime Memory And Decision Visual Spec](docs/visuals/MNO_CURRENT_RUNTIME_MEMORY_AND_DECISION_VISUAL_SPEC_2026-04-12.md)
-- [Current Runtime Memory And Decision Draw.io](docs/visuals/MNO_CURRENT_RUNTIME_MEMORY_AND_DECISION_2026-04-12.drawio)
-
-Public article response:
-- [Response To "Why Long-Term Memory Remains Unsolved"](docs/public/MNO_RESPONSE_TO_WHY_LONG_TERM_MEMORY_REMAINS_UNSOLVED_2026-04-12.md)
-
-Integration-specific docs:
 - [OpenClaw Integration](docs/integrations/OPENCLAW.md)
 - [Hermes Agent Integration](docs/integrations/HERMES_AGENT.md)
 - [Nanobot Integration](docs/integrations/NANOBOT.md)
 - [Generic Sidecar Integration](docs/integrations/GENERIC_SIDECAR.md)
 
-## Visual tour
+Longer public writeup:
 
-MNO ships generated flowcharts for both quick public explanation and engineering review.
+- [Response To "Why Long-Term Memory Remains Unsolved"](docs/public/MNO_RESPONSE_TO_WHY_LONG_TERM_MEMORY_REMAINS_UNSOLVED_2026-04-12.md)
 
-Plain-language/caveman diagrams:
-- [Launch Pipeline](docs/visuals/exports/clean/mno-launch-pipeline-clean.svg)
-- [Runtime And Integration](docs/visuals/exports/clean/mno-runtime-integration-clean.svg)
-- [Current Pipeline](docs/visuals/exports/clean/mno-current-pipeline-clean.svg)
-- [Runtime Memory And Decision](docs/visuals/exports/clean/mno-runtime-memory-decision-clean.svg)
+## For Engineers
 
-Engineer diagrams:
+The short technical shape is:
+
+`raw source -> import/normalize -> atoms.sqlite3 -> draft episode cards -> human review -> reviewed episode cards -> runtime`
+
+The runtime includes bounded retrieval, reviewed memory, optional local ANN candidate generation, raw-context lookup for exact wording, and verification/abstention behavior. The ANN and raw-context sidecars are helpers only. They are not truth sources and do not bypass review.
+
+Engineer-facing diagrams:
+
 - [System Context](docs/visuals/exports/architecture/mno-architecture-system-context.svg)
 - [Build Pipeline](docs/visuals/exports/architecture/mno-architecture-build-pipeline.svg)
 - [Runtime Retrieval](docs/visuals/exports/architecture/mno-architecture-runtime-retrieval.svg)
@@ -193,11 +231,7 @@ Engineer diagrams:
 - [Data Lineage](docs/visuals/exports/architecture/mno-architecture-data-lineage.svg)
 - [Deployment And Process Model](docs/visuals/exports/architecture/mno-architecture-deployment-process.svg)
 
-![MNO clean launch pipeline](docs/visuals/exports/clean/mno-launch-pipeline-clean.svg)
-
-The canonical draw.io files and regeneration notes live in [Visuals Guide](docs/visuals/README.md).
-
-## Release metadata
+## Release Metadata
 
 - [License](LICENSE)
 - [Security Policy](SECURITY.md)

@@ -15,6 +15,28 @@ def test_default_config_matches_locked_policy() -> None:
     assert cfg.decay.half_life_days == 180
     assert cfg.runtime.allow_autonomous_destructive_mutation is False
     assert cfg.runtime.require_uncertainty_citations is True
+    assert cfg.provisional_memory.enabled is False
+    assert cfg.provisional_memory.proposal_capture_enabled is False
+    assert cfg.provisional_memory.default_sensitivity == "balanced"
+    assert cfg.provisional_memory.inactivity_gap_seconds == 300
+    assert cfg.provisional_memory.review_worthiness.fact_min_score > 0.0
+    assert cfg.provisional_memory.near_duplicate.enabled is True
+    assert cfg.retrieval_feedback.enabled is True
+    assert cfg.retrieval_feedback.max_entries == 2000
+    assert cfg.history_surfaces.enabled is True
+    assert cfg.history_surfaces.max_episode_entries == 40
+    assert cfg.continuity_adds.enabled is True
+    assert cfg.continuity_adds.action_log_max_entries == 500
+    assert cfg.retrieval.ann_sidecar.enabled is False
+    assert cfg.retrieval.raw_context_sidecar.write_enabled is True
+    assert cfg.retrieval.raw_context_sidecar.read_enabled is True
+    assert cfg.retrieval.raw_context_sidecar.max_turns == 3
+    assert cfg.retrieval.ann_sidecar.embedding_backend == "hashed-simhash-sqlite"
+    assert cfg.retrieval.derived_helpers.source_projection.enabled is False
+    assert cfg.retrieval.derived_helpers.temporal_lift.enabled is False
+    assert cfg.retrieval.derived_helpers.cross_encoder_reranker.enabled is False
+    assert cfg.retrieval.derived_helpers.update_family_resolver.enabled is False
+    assert cfg.retrieval.derived_helpers.observation_projection.enabled is False
     assert cfg.efficiency.enabled is False
     assert cfg.efficiency.fanout_hard_cap == 24
     assert cfg.efficiency.fanout_p95_soft_cap == 24
@@ -28,6 +50,47 @@ def test_load_config_overrides_nested_values(tmp_path: Path) -> None:
             "top_k_lexical": 12,
             "rerank_limit": 20,
             "router": {"procedural": {"semantic_scale": 0.7}},
+            "ann_sidecar": {
+                "enabled": True,
+                "top_k_ann": 12,
+                "candidate_cap_ratio": 0.25,
+                "candidate_cap_floor": 3,
+                "max_latency_ms": 35.0,
+                "embedding_store_path": "/tmp/mno.ann.sqlite3",
+            },
+            "raw_context_sidecar": {
+                "write_enabled": False,
+                "read_enabled": True,
+                "neighbor_turns": 2,
+                "max_turns": 5,
+                "max_chars": 900,
+            },
+            "derived_helpers": {
+                "source_projection": {
+                    "enabled": True,
+                    "per_source_fanout_cap": 5,
+                    "per_query_contribution_cap": 10,
+                },
+                "temporal_lift": {
+                    "enabled": True,
+                    "score_cap": 0.18,
+                },
+                "cross_encoder_reranker": {
+                    "enabled": True,
+                    "top_n": 20,
+                    "top_m": 8,
+                    "max_latency_ms": 80.0,
+                },
+                "update_family_resolver": {
+                    "enabled": True,
+                    "family_scan_limit": 18,
+                },
+                "observation_projection": {
+                    "enabled": True,
+                    "per_source_fanout_cap": 3,
+                    "per_query_contribution_cap": 6,
+                },
+            },
             "bm25": {"k1": 1.8},
             "rrf": {"semantic_weight": 1.2},
             "pack": {"core_limit": 4},
@@ -35,6 +98,35 @@ def test_load_config_overrides_nested_values(tmp_path: Path) -> None:
         },
         "gate": {"abstain_threshold": 0.7},
         "runtime": {"retrieval": {"ltm_max_passes": 3, "prewarm_caches": False}},
+        "provisional_memory": {
+            "enabled": True,
+            "retrieval_enabled": True,
+            "stm_sweep_enabled": True,
+            "proposal_capture_enabled": True,
+            "default_sensitivity": "eager",
+            "inactivity_gap_seconds": 420,
+            "review_worthiness": {"fact_min_score": 0.44},
+            "near_duplicate": {"similarity_threshold": 0.58},
+            "balanced": {"max_auto_writes_per_turn": 3},
+        },
+        "retrieval_feedback": {
+            "enabled": True,
+            "max_entries": 128,
+            "max_query_chars": 96,
+        },
+        "history_surfaces": {
+            "enabled": False,
+            "max_episode_entries": 12,
+            "max_provisional_events": 24,
+        },
+        "continuity_adds": {
+            "enabled": True,
+            "action_log_enabled": True,
+            "action_log_max_entries": 64,
+            "wake_up_pack_enabled": True,
+            "resume_pack_enabled": False,
+            "pinned_preferences_enabled": True,
+        },
         "efficiency": {
             "enabled": True,
             "fanout_hard_cap": 16,
@@ -49,6 +141,31 @@ def test_load_config_overrides_nested_values(tmp_path: Path) -> None:
     assert cfg.retrieval.top_k_lexical == 12
     assert cfg.retrieval.rerank_limit == 20
     assert cfg.retrieval.router.procedural.semantic_scale == pytest.approx(0.7)
+    assert cfg.retrieval.ann_sidecar.enabled is True
+    assert cfg.retrieval.ann_sidecar.top_k_ann == 12
+    assert cfg.retrieval.ann_sidecar.candidate_cap_ratio == pytest.approx(0.25)
+    assert cfg.retrieval.ann_sidecar.candidate_cap_floor == 3
+    assert cfg.retrieval.ann_sidecar.max_latency_ms == pytest.approx(35.0)
+    assert cfg.retrieval.ann_sidecar.embedding_store_path == "/tmp/mno.ann.sqlite3"
+    assert cfg.retrieval.raw_context_sidecar.write_enabled is False
+    assert cfg.retrieval.raw_context_sidecar.read_enabled is True
+    assert cfg.retrieval.raw_context_sidecar.neighbor_turns == 2
+    assert cfg.retrieval.raw_context_sidecar.max_turns == 5
+    assert cfg.retrieval.raw_context_sidecar.max_chars == 900
+    assert cfg.retrieval.derived_helpers.source_projection.enabled is True
+    assert cfg.retrieval.derived_helpers.source_projection.per_source_fanout_cap == 5
+    assert cfg.retrieval.derived_helpers.source_projection.per_query_contribution_cap == 10
+    assert cfg.retrieval.derived_helpers.temporal_lift.enabled is True
+    assert cfg.retrieval.derived_helpers.temporal_lift.score_cap == pytest.approx(0.18)
+    assert cfg.retrieval.derived_helpers.cross_encoder_reranker.enabled is True
+    assert cfg.retrieval.derived_helpers.cross_encoder_reranker.top_n == 20
+    assert cfg.retrieval.derived_helpers.cross_encoder_reranker.top_m == 8
+    assert cfg.retrieval.derived_helpers.cross_encoder_reranker.max_latency_ms == pytest.approx(80.0)
+    assert cfg.retrieval.derived_helpers.update_family_resolver.enabled is True
+    assert cfg.retrieval.derived_helpers.update_family_resolver.family_scan_limit == 18
+    assert cfg.retrieval.derived_helpers.observation_projection.enabled is True
+    assert cfg.retrieval.derived_helpers.observation_projection.per_source_fanout_cap == 3
+    assert cfg.retrieval.derived_helpers.observation_projection.per_query_contribution_cap == 6
     assert cfg.retrieval.bm25.k1 == pytest.approx(1.8)
     assert cfg.retrieval.rrf.semantic_weight == pytest.approx(1.2)
     assert cfg.retrieval.pack.core_limit == 4
@@ -56,6 +173,24 @@ def test_load_config_overrides_nested_values(tmp_path: Path) -> None:
     assert cfg.gate.abstain_threshold == pytest.approx(0.7)
     assert cfg.runtime.retrieval.ltm_max_passes == 3
     assert cfg.runtime.retrieval.prewarm_caches is False
+    assert cfg.provisional_memory.enabled is True
+    assert cfg.provisional_memory.retrieval_enabled is True
+    assert cfg.provisional_memory.stm_sweep_enabled is True
+    assert cfg.provisional_memory.proposal_capture_enabled is True
+    assert cfg.provisional_memory.default_sensitivity == "eager"
+    assert cfg.provisional_memory.inactivity_gap_seconds == 420
+    assert cfg.provisional_memory.review_worthiness.fact_min_score == pytest.approx(0.44)
+    assert cfg.provisional_memory.near_duplicate.similarity_threshold == pytest.approx(0.58)
+    assert cfg.provisional_memory.balanced.max_auto_writes_per_turn == 3
+    assert cfg.retrieval_feedback.enabled is True
+    assert cfg.retrieval_feedback.max_entries == 128
+    assert cfg.retrieval_feedback.max_query_chars == 96
+    assert cfg.history_surfaces.enabled is False
+    assert cfg.history_surfaces.max_episode_entries == 12
+    assert cfg.history_surfaces.max_provisional_events == 24
+    assert cfg.continuity_adds.enabled is True
+    assert cfg.continuity_adds.action_log_max_entries == 64
+    assert cfg.continuity_adds.resume_pack_enabled is False
     assert cfg.efficiency.enabled is True
     assert cfg.efficiency.fanout_hard_cap == 16
     assert cfg.efficiency.fanout_p95_soft_cap == 32
@@ -164,8 +299,129 @@ def test_load_config_validates_nested_retrieval_and_runtime_bounds(tmp_path: Pat
     with pytest.raises(ValueError, match=r"retrieval\.bm25\.posting_cutoff_fraction must be a finite float"):
         load_config(path)
 
+
+def test_load_config_validates_derived_helper_bounds(tmp_path: Path) -> None:
+    payload = {
+        "retrieval": {
+            "bm25": {"posting_cutoff_fraction": 0.35},
+            "derived_helpers": {
+                "cross_encoder_reranker": {
+                    "enabled": True,
+                    "top_n": 8,
+                    "top_m": 12,
+                }
+            }
+        }
+    }
+    path = tmp_path / "bad_helpers.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(
+        ValueError,
+        match=r"retrieval\.derived_helpers\.cross_encoder_reranker\.top_m must be <= retrieval\.derived_helpers\.cross_encoder_reranker\.top_n",
+    ):
+        load_config(path)
+
+    payload["retrieval"]["derived_helpers"]["cross_encoder_reranker"]["top_m"] = 6
+    payload["retrieval"]["derived_helpers"]["temporal_lift"] = {"score_cap": 1.2}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"retrieval\.derived_helpers\.temporal_lift\.score_cap must be <= 1.0"):
+        load_config(path)
+
     payload["retrieval"]["bm25"]["posting_cutoff_fraction"] = 0.35
     payload["retrieval"]["router"] = "bad"
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(TypeError, match=r"retrieval\.router must be RetrievalRouterPolicy"):
+        load_config(path)
+
+    payload["retrieval"]["router"] = {"mixed": {"candidate_cap_ratio": 1.0}}
+    payload["retrieval"]["ann_sidecar"] = {"candidate_cap_ratio": 1.2}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"retrieval\.ann_sidecar\.candidate_cap_ratio must be <= 1.0"):
+        load_config(path)
+
+
+def test_load_config_validates_provisional_memory_bounds(tmp_path: Path) -> None:
+    payload = {
+        "provisional_memory": {
+            "default_sensitivity": "wild",
+        }
+    }
+    path = tmp_path / "bad_provisional.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"provisional_memory\.default_sensitivity must be one of"):
+        load_config(path)
+
+    payload["provisional_memory"]["default_sensitivity"] = "balanced"
+    payload["provisional_memory"]["inactivity_gap_seconds"] = 0
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"provisional_memory\.inactivity_gap_seconds must be >= 1"):
+        load_config(path)
+
+    payload["provisional_memory"]["inactivity_gap_seconds"] = 300
+    payload["provisional_memory"]["balanced"] = {"max_auto_writes_per_turn": 0}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"provisional_memory\.balanced\.max_auto_writes_per_turn must be >= 1"):
+        load_config(path)
+
+    payload["provisional_memory"]["balanced"] = {"max_auto_writes_per_turn": 2}
+    payload["provisional_memory"]["review_worthiness"] = {"fact_min_score": 1.2}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"provisional_memory\.review_worthiness\.fact_min_score must be <= 1.0"):
+        load_config(path)
+
+    payload["provisional_memory"]["review_worthiness"] = {"fact_min_score": 0.7}
+    payload["provisional_memory"]["near_duplicate"] = {"similarity_threshold": 0.0}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"provisional_memory\.near_duplicate\.similarity_threshold must be > 0.0"):
+        load_config(path)
+
+
+def test_load_config_validates_retrieval_feedback_bounds(tmp_path: Path) -> None:
+    payload = {
+        "retrieval_feedback": {
+            "enabled": True,
+            "max_entries": 0,
+        }
+    }
+    path = tmp_path / "bad_feedback.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"retrieval_feedback\.max_entries must be >= 1"):
+        load_config(path)
+
+    payload["retrieval_feedback"]["max_entries"] = 64
+    payload["retrieval_feedback"]["max_query_chars"] = 0
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"retrieval_feedback\.max_query_chars must be >= 1"):
+        load_config(path)
+
+
+def test_load_config_validates_history_surface_bounds(tmp_path: Path) -> None:
+    payload = {
+        "history_surfaces": {
+            "enabled": True,
+            "max_episode_entries": 0,
+        }
+    }
+    path = tmp_path / "bad_history_surfaces.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"history_surfaces\.max_episode_entries must be >= 1"):
+        load_config(path)
+
+    payload["history_surfaces"]["max_episode_entries"] = 12
+    payload["history_surfaces"]["max_provisional_events"] = 0
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"history_surfaces\.max_provisional_events must be >= 1"):
+        load_config(path)
+
+
+def test_load_config_validates_continuity_adds_bounds(tmp_path: Path) -> None:
+    payload = {
+        "continuity_adds": {
+            "enabled": True,
+            "action_log_max_entries": 0,
+        }
+    }
+    path = tmp_path / "bad_continuity_adds.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"continuity_adds\.action_log_max_entries must be >= 1"):
         load_config(path)

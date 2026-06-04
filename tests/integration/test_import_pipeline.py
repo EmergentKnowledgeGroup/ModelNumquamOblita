@@ -52,6 +52,57 @@ def _write_wrapper_export(path: Path) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _write_late_fact_export(path: Path) -> None:
+    payload = {
+        "generated_at": "2026-02-12T00:00:00+00:00",
+        "conversations": [
+            {
+                "id": "conv-late-fact-1",
+                "messages": [
+                    {
+                        "id": "u1",
+                        "role": "user",
+                        "text": (
+                            "I was thinking of getting Emily to audition for a role, I'll definitely encourage her to give it a shot. "
+                            "The play I attended was actually a production of The Glass Menagerie, have you heard of it?"
+                        ),
+                    },
+                    {"id": "a1", "role": "assistant", "text": "The Glass Menagerie is a classic Tennessee Williams play."},
+                ],
+            }
+        ],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _write_assistant_artifact_export(path: Path) -> None:
+    filler = " ".join("This chapter explores wonder and adventure." for _ in range(80))
+    payload = {
+        "generated_at": "2026-02-12T00:00:00+00:00",
+        "conversations": [
+            {
+                "id": "conv-assistant-artifact-1",
+                "messages": [
+                    {
+                        "id": "u1",
+                        "role": "user",
+                        "text": "Write a children's book about dinosaurs and include an image description for the Plesiosaur.",
+                    },
+                    {
+                        "id": "a1",
+                        "role": "assistant",
+                        "text": (
+                            f"{filler} "
+                            "::Plesiosaur Image:: == A Plesiosaur is shown swimming through the sea with a blue scaly body and long flippers."
+                        ),
+                    },
+                ],
+            }
+        ],
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def test_import_pipeline_is_idempotent_for_same_export(tmp_path: Path) -> None:
     input_path = tmp_path / "conversations.json"
     store_path = tmp_path / "atoms.sqlite3"
@@ -136,3 +187,33 @@ def test_import_pipeline_accepts_wrapper_object_root(tmp_path: Path) -> None:
     assert report.counters.turns_emitted >= 2
     assert report.counters.messages_seen == 2
     assert Path(report.store_path or "").exists()
+
+
+def test_import_pipeline_persists_bounded_raw_context_sidecar(tmp_path: Path) -> None:
+    input_path = tmp_path / "quote_export.json"
+    store_path = tmp_path / "atoms.sqlite3"
+    payload = {
+        "conversations": [
+            {
+                "id": "conv-quote-1",
+                "messages": [
+                    {"id": "u1", "role": "user", "text": "  Say this exactly.  "},
+                    {"id": "a1", "role": "assistant", "text": "\r\nSure. I said it exactly.\r\n"},
+                ],
+            }
+        ]
+    }
+    input_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = run_sqlite_import_job(input_path=input_path, sqlite_path=store_path)
+    assert report.ok is True
+
+    store = SqliteAtomStore(store_path)
+    try:
+        rows = store.fetch_raw_context_slice("conv-quote-1", message_id="a1", before=1, after=0, max_turns=2, max_chars=200)
+    finally:
+        store.close()
+
+    assert [row.message_id for row in rows] == ["u1", "a1"]
+    assert rows[0].quote_text == "  Say this exactly.  "
+    assert rows[1].quote_text == "\nSure. I said it exactly.\n"

@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
+from .source_loader import iter_source_conversations
 from .streaming_json import iter_json_array_objects
 from ..contracts import NormalizedTurn
 
@@ -58,21 +59,47 @@ def normalize_timestamp(raw_value: Any) -> Optional[datetime]:
     return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
 
 
+def _canonicalize_quote_text(value: Any) -> str:
+    text = str(value or "")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _message_quote_text(message: dict[str, Any]) -> str:
+    content = message.get("content")
+    if isinstance(content, dict):
+        parts = content.get("parts")
+        if isinstance(parts, list):
+            chunks = [_canonicalize_quote_text(part) for part in parts if part is not None]
+            if chunks:
+                return "\n".join(chunks)
+        if "text" in content:
+            return _canonicalize_quote_text(content.get("text"))
+    if isinstance(content, str):
+        return _canonicalize_quote_text(content)
+    if "text" in message:
+        return _canonicalize_quote_text(message.get("text"))
+    return ""
+
+
 def _message_text(message: dict[str, Any]) -> str:
     content = message.get("content")
     if isinstance(content, dict):
         parts = content.get("parts")
         if isinstance(parts, list):
-            chunks = [str(part).strip() for part in parts if str(part).strip()]
+            chunks = [
+                _canonicalize_quote_text(part).strip()
+                for part in parts
+                if _canonicalize_quote_text(part).strip()
+            ]
             if chunks:
                 return "\n".join(chunks)
         text = content.get("text")
-        if text:
-            return str(text).strip()
+        if text is not None:
+            return _canonicalize_quote_text(text).strip()
     if isinstance(content, str):
-        return content.strip()
+        return _canonicalize_quote_text(content).strip()
     text = message.get("text")
-    return str(text or "").strip()
+    return _canonicalize_quote_text(text).strip()
 
 
 def _first_valid_timestamp(*values: Any) -> Optional[datetime]:
@@ -145,7 +172,7 @@ class ConversationIngestor:
                 (node for node in mapping.values() if isinstance(node, dict)),
                 key=_create_time,
             )
-            for node in nodes:
+            for index, node in enumerate(nodes):
                 message = node.get("message")
                 if not isinstance(message, dict):
                     continue
@@ -167,6 +194,8 @@ class ConversationIngestor:
                     message_id=str(message.get("id") or node.get("id") or "") or None,
                     role=role,
                     text=text,
+                    quote_text=_message_quote_text(message) or text,
+                    sequence_index=index,
                     timestamp=_first_valid_timestamp(
                         message.get("create_time"),
                         message.get("create_time_iso"),
@@ -202,6 +231,8 @@ class ConversationIngestor:
                     message_id=str(message.get("id") or index),
                     role=role,
                     text=text,
+                    quote_text=_message_quote_text(message) or text,
+                    sequence_index=index,
                     timestamp=_first_valid_timestamp(
                         message.get("time_iso"),
                         message.get("time"),
@@ -229,20 +260,13 @@ class ConversationIngestor:
 
     def iter_export_conversations(self, path: str | Path) -> Iterator[dict[str, Any]]:
         src = Path(path)
-        try:
-            yield from iter_json_array_objects(src)
+        if src.is_dir() or src.suffix.lower() in {".jsonl", ".txt", ".md"}:
+            yield from iter_source_conversations(src)
             return
+        try:
+            yield from iter_source_conversations(src)
+            return
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"failed to parse JSON: {exc}") from exc
         except ValueError as exc:
-            if "JSON root must be an array" not in str(exc):
-                raise
-
-        with src.open("r", encoding="utf-8", errors="replace") as fp:
-            payload = json.load(fp)
-        if isinstance(payload, dict):
-            conversations = payload.get("conversations")
-            if isinstance(conversations, list):
-                for convo in conversations:
-                    if isinstance(convo, dict):
-                        yield convo
-                return
-        raise ValueError("JSON root must be an array or an object with conversations[]")
+            raise ValueError(str(exc)) from exc

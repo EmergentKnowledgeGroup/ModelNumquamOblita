@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+import math
+from datetime import date
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,20 +13,53 @@ _CUE_TOKEN_RE = re.compile(r"[A-Za-z0-9_\-']+")
 _QUOTE_RE = re.compile(r"['\"]([^'\"]{2,120})['\"]")
 _CUE_STOPWORDS = {
     "about",
+    "a",
+    "am",
+    "an",
+    "and",
+    "are",
+    "at",
     "after",
     "before",
     "could",
     "detail",
+    "did",
+    "do",
+    "does",
+    "for",
+    "had",
     "happen",
     "happened",
     "happening",
+    "has",
+    "have",
+    "he",
+    "her",
+    "hers",
+    "him",
+    "his",
+    "i",
+    "if",
+    "in",
+    "is",
+    "it",
+    "its",
     "memory",
+    "me",
+    "my",
+    "of",
+    "on",
+    "or",
     "remember",
     "recall",
     "said",
+    "she",
+    "so",
     "tell",
     "that",
     "this",
+    "to",
+    "too",
     "what",
     "when",
     "where",
@@ -36,7 +72,39 @@ _CUE_STOPWORDS = {
     "there",
     "them",
     "then",
+    "they",
+    "was",
+    "we",
+    "were",
+    "who",
+    "why",
+    "yo",
+    "you",
 }
+_LOW_SIGNAL_CUE_TERMS = {
+    "day",
+    "days",
+    "moment",
+    "moments",
+    "night",
+    "nights",
+    "time",
+    "times",
+    "today",
+    "tonight",
+    "tomorrow",
+    "yesterday",
+}
+_NAMED_ENTITY_IGNORE_TERMS = {"assistant", "user", "dyad"}
+_ORDINAL_RE = re.compile(r"^(\d{1,2})(?:st|nd|rd|th)$", re.IGNORECASE)
+_ISO_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+_CURRENT_TRUTH_PHRASES = ("right now", "currently", "current", "latest", "today", "as of now")
+_HISTORICAL_TRUTH_PHRASES = ("used to", "previously", "earlier", "back then", "at the time")
+_FOCUS_ENTITY_RE = re.compile(
+    r"(?:who is|who's|what happened to|tell me about|what do you know about)\s+([A-Za-z0-9][A-Za-z0-9'\-_]{2,})",
+    re.IGNORECASE,
+)
+_HIGH_SIGNAL_CUE_WEIGHT_FLOOR = 1.4
 
 
 def _tokenize(text: str) -> set[str]:
@@ -70,6 +138,31 @@ def _clean_cue_term(term: str) -> str:
     return value
 
 
+def _normalized_numeric_cue(term: str) -> str:
+    match = _ORDINAL_RE.match(str(term or "").strip().lower())
+    if not match:
+        return ""
+    return match.group(1)
+
+
+def _focus_terms_from_query(text: str) -> set[str]:
+    raw = str(text or "").strip()
+    if not raw:
+        return set()
+    out: set[str] = set()
+    for value in _FOCUS_ENTITY_RE.findall(raw):
+        cleaned = _clean_cue_term(value)
+        if cleaned:
+            out.add(cleaned)
+    if out:
+        return out
+    for raw_token in re.findall(r"[A-Z][A-Za-z0-9'\-_]{2,}", raw):
+        cleaned = _clean_cue_term(raw_token)
+        if cleaned:
+            out.add(cleaned)
+    return out
+
+
 def _cue_terms_from_text(text: str) -> set[str]:
     raw = str(text or "")
     terms: set[str] = set()
@@ -83,6 +176,9 @@ def _cue_terms_from_text(text: str) -> set[str]:
     for token in filtered:
         if len(token) >= 4 or "_" in token or any(ch.isdigit() for ch in token):
             terms.add(token)
+        numeric = _normalized_numeric_cue(token)
+        if numeric:
+            terms.add(numeric)
     for idx in range(max(0, len(filtered) - 1)):
         pair = f"{filtered[idx]} {filtered[idx + 1]}".strip()
         cleaned_pair = _clean_cue_term(pair)
@@ -122,6 +218,52 @@ def _cue_terms_from_card(
     return out
 
 
+def _parse_iso_date(raw: str) -> date | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    if len(text) >= 10:
+        text = text[:10]
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _query_reference_date(query_text: str) -> date | None:
+    match = _ISO_DATE_RE.search(str(query_text or ""))
+    if not match:
+        return None
+    return _parse_iso_date(match.group(1))
+
+
+def _lineage_query_mode(query_text: str) -> tuple[str, date | None]:
+    lowered = str(query_text or "").strip().lower()
+    ref_date = _query_reference_date(query_text)
+    if ref_date is not None:
+        return "historical", ref_date
+    if any(phrase in lowered for phrase in _CURRENT_TRUTH_PHRASES):
+        return "current", None
+    if any(phrase in lowered for phrase in _HISTORICAL_TRUTH_PHRASES):
+        return "historical", None
+    return "default", None
+
+
+def _historical_lineage_match(card: "EpisodeCard", *, ref_date: date) -> float:
+    start_date = _parse_iso_date(card.start_at or card.day_key)
+    end_date = _parse_iso_date(card.end_at or card.start_at or card.day_key)
+    if start_date is None:
+        return 0.0
+    if end_date is None:
+        end_date = start_date
+    if start_date <= ref_date <= end_date:
+        return 1.0
+    if ref_date < start_date:
+        return 0.0
+    delta_days = abs((ref_date - start_date).days)
+    return max(0.0, 1.0 - min(1.0, delta_days / 30.0))
+
+
 @dataclass(slots=True)
 class EpisodeCard:
     episode_id: str
@@ -143,9 +285,13 @@ class EpisodeCard:
     topics: list[str]
     start_at: str
     end_at: str
-    cue_terms: set[str]
-    token_set: set[str]
-    ngrams: set[str]
+    truth_family_id: str = ""
+    supersedes_episode_id: str = ""
+    superseded_by_episode_id: str = ""
+    lineage_is_current: bool = False
+    cue_terms: set[str] = None  # type: ignore[assignment]
+    token_set: set[str] = None  # type: ignore[assignment]
+    ngrams: set[str] = None  # type: ignore[assignment]
 
 
 @dataclass(slots=True)
@@ -162,6 +308,8 @@ class EpisodeCardIndex:
 
     def __init__(self, cards: list[EpisodeCard]) -> None:
         self.cards = list(cards)
+        self._augment_source_local_entity_cues()
+        self._cue_doc_frequency = self._build_cue_doc_frequency()
 
     @classmethod
     def load(cls, path: str | Path) -> "EpisodeCardIndex":
@@ -193,6 +341,12 @@ class EpisodeCardIndex:
             topics = [str(item).strip() for item in list(row.get("topics") or []) if str(item).strip()]
             start_at = str(row.get("start_at") or "").strip()
             end_at = str(row.get("end_at") or "").strip()
+            truth_family_id = str(row.get("truth_family_id") or "").strip()
+            supersedes_episode_id = str(row.get("supersedes_episode_id") or "").strip()
+            superseded_by_episode_id = str(row.get("superseded_by_episode_id") or "").strip()
+            lineage_is_current = bool(row.get("lineage_is_current")) if any(
+                key in row for key in ("truth_family_id", "supersedes_episode_id", "superseded_by_episode_id", "lineage_is_current")
+            ) else False
             index_text = " ".join([title, summary, source_id, day_key, domain] + entities + topics)
             cue_terms = {str(item).strip().lower() for item in list(row.get("cue_terms") or []) if str(item).strip()}
             if not cue_terms:
@@ -226,12 +380,129 @@ class EpisodeCardIndex:
                     topics=topics,
                     start_at=start_at,
                     end_at=end_at,
+                    truth_family_id=truth_family_id,
+                    supersedes_episode_id=supersedes_episode_id,
+                    superseded_by_episode_id=superseded_by_episode_id,
+                    lineage_is_current=lineage_is_current,
                     cue_terms=cue_terms,
                     token_set=_tokenize(index_text),
                     ngrams=_char_ngrams(index_text),
                 )
             )
         return cls(cards)
+
+    def _augment_source_local_entity_cues(self) -> None:
+        grouped: dict[tuple[str, str], list[EpisodeCard]] = defaultdict(list)
+        for card in self.cards:
+            grouped[(card.source_id, card.day_key)].append(card)
+        for peers in grouped.values():
+            peer_entities: set[str] = set()
+            for peer in peers:
+                for entity in peer.entities:
+                    cleaned = _clean_cue_term(entity)
+                    if cleaned and cleaned not in _NAMED_ENTITY_IGNORE_TERMS:
+                        peer_entities.add(cleaned)
+            if not peer_entities:
+                continue
+            for card in peers:
+                card.cue_terms.update(peer_entities)
+
+    def _build_cue_doc_frequency(self) -> dict[str, int]:
+        frequency: dict[str, int] = {}
+        for card in self.cards:
+            for term in card.cue_terms:
+                frequency[term] = frequency.get(term, 0) + 1
+        return frequency
+
+    def _cue_term_weight(self, term: str) -> float:
+        cleaned = _clean_cue_term(term)
+        if not cleaned:
+            return 0.0
+        rarity = math.log((len(self.cards) + 1) / (self._cue_doc_frequency.get(cleaned, 0) + 1)) + 1.0
+        specificity = 1.0
+        if " " in cleaned:
+            specificity += 0.35
+        if any(ch.isdigit() for ch in cleaned):
+            specificity += 0.45
+        if len(cleaned) >= 9:
+            specificity += 0.15
+        if cleaned in _LOW_SIGNAL_CUE_TERMS:
+            specificity -= 0.45
+        return max(0.2, rarity * specificity)
+
+    def _weighted_cue_overlap(self, query_cues: set[str], card_cues: set[str]) -> float:
+        if not query_cues or not card_cues:
+            return 0.0
+        denominator = sum(self._cue_term_weight(term) for term in query_cues)
+        if denominator <= 0.0:
+            return 0.0
+        numerator = sum(self._cue_term_weight(term) for term in query_cues.intersection(card_cues))
+        return numerator / denominator
+
+    def _person_focus_adjustment(self, *, query_text: str, card: EpisodeCard) -> float:
+        focus_terms = _focus_terms_from_query(query_text)
+        if not focus_terms:
+            return 0.0
+        text_tokens = _tokenize(f"{card.title} {card.summary}")
+        entity_terms = {_clean_cue_term(item) for item in list(card.entities or [])}
+        topic_terms = {_clean_cue_term(item) for item in list(card.topics or [])}
+        cue_terms = {_clean_cue_term(item) for item in list(card.cue_terms or [])}
+        entity_terms.discard("")
+        topic_terms.discard("")
+        cue_terms.discard("")
+        if not focus_terms.intersection(entity_terms.union(cue_terms).union(text_tokens)):
+            return 0.0
+
+        text_hits = focus_terms.intersection(text_tokens)
+        cue_hits = focus_terms.intersection(cue_terms)
+        metadata_only_hits = focus_terms.intersection(entity_terms).difference(text_hits.union(cue_hits))
+        entity_breadth = max(0, len(entity_terms.difference(focus_terms)))
+        topic_breadth = max(0, len(topic_terms.difference(focus_terms)))
+        adjustment = 0.0
+        if text_hits and cue_hits:
+            adjustment += 0.22
+        elif text_hits or cue_hits:
+            adjustment += 0.10
+        else:
+            adjustment -= 0.24
+        adjustment -= min(0.28, (0.06 * entity_breadth) + (0.03 * max(0, topic_breadth - 1)))
+        if not text_hits and not cue_hits and entity_breadth >= 2:
+            adjustment -= 0.10
+        if metadata_only_hits:
+            adjustment -= 0.32
+            adjustment -= min(0.18, (0.05 * entity_breadth) + (0.03 * topic_breadth))
+        if len(entity_terms) <= max(2, len(focus_terms) + 1):
+            adjustment += 0.06
+        return adjustment
+
+    def _apply_explicit_lineage_resolution(self, query_text: str, ranked: list[EpisodeHit]) -> list[EpisodeHit]:
+        mode, ref_date = _lineage_query_mode(query_text)
+        if not any(str(item.card.truth_family_id or "").strip() for item in ranked):
+            return ranked
+        adjusted: list[EpisodeHit] = []
+        for hit in ranked:
+            bonus = 0.0
+            family_id = str(hit.card.truth_family_id or "").strip()
+            if family_id:
+                if mode in {"default", "current"}:
+                    if bool(hit.card.lineage_is_current):
+                        bonus += 0.08
+                    elif str(hit.card.superseded_by_episode_id or "").strip():
+                        bonus -= 0.08
+                elif mode == "historical":
+                    if ref_date is not None:
+                        history_fit = _historical_lineage_match(hit.card, ref_date=ref_date)
+                        bonus += history_fit * 0.12
+                        if bool(hit.card.lineage_is_current) and history_fit < 0.5:
+                            bonus -= 0.06
+                    else:
+                        if str(hit.card.superseded_by_episode_id or "").strip():
+                            bonus += 0.05
+                        if bool(hit.card.lineage_is_current):
+                            bonus -= 0.04
+            adjusted.append(EpisodeHit(card=hit.card, score=_clamp01(hit.score + bonus), cue_match=hit.cue_match, lexical=hit.lexical, semantic=hit.semantic))
+        adjusted.sort(key=lambda item: item.score, reverse=True)
+        return adjusted
 
     def search(self, query_text: str, *, top_k: int = 3) -> list[EpisodeHit]:
         text = str(query_text or "").strip()
@@ -248,12 +519,14 @@ class EpisodeCardIndex:
                 continue
             lexical = len(query_tokens.intersection(card.token_set)) / max(1, len(query_tokens)) if query_tokens else 0.0
             semantic = _jaccard(query_ngrams, card.ngrams)
-            cue_match = len(query_cues.intersection(card.cue_terms)) / max(1, len(query_cues)) if query_cues else 0.0
+            cue_match = self._weighted_cue_overlap(query_cues, card.cue_terms)
             quality = max(card.confidence, card.retrieval_weight, card.evidence_strength)
             if query_cues:
-                score = _clamp01(0.46 * cue_match + 0.26 * lexical + 0.18 * semantic + 0.10 * quality)
+                # Explicit event/date prompts need cue identity to dominate generic lexical overlap.
+                score = _clamp01(0.62 * cue_match + 0.18 * lexical + 0.10 * semantic + 0.10 * quality)
             else:
                 score = _clamp01(0.44 * lexical + 0.32 * semantic + 0.24 * quality)
+            score = _clamp01(score + self._person_focus_adjustment(query_text=text, card=card))
             ranked.append(
                 EpisodeHit(
                     card=card,
@@ -264,4 +537,24 @@ class EpisodeCardIndex:
                 )
             )
         ranked.sort(key=lambda item: item.score, reverse=True)
+        if query_cues:
+            exact_support_terms = [
+                term
+                for term in query_cues
+                if term not in _LOW_SIGNAL_CUE_TERMS and self._cue_term_weight(term) >= _HIGH_SIGNAL_CUE_WEIGHT_FLOOR
+            ]
+            if exact_support_terms:
+                supported_terms = [
+                    term for term in exact_support_terms if any(term in item.card.cue_terms for item in ranked)
+                ]
+                if not supported_terms:
+                    return []
+                strongest_supported = max(self._cue_term_weight(term) for term in supported_terms)
+                required_terms = {
+                    term
+                    for term in supported_terms
+                    if self._cue_term_weight(term) >= max(_HIGH_SIGNAL_CUE_WEIGHT_FLOOR, strongest_supported - 0.35)
+                }
+                ranked = [item for item in ranked if required_terms.intersection(item.card.cue_terms)]
+        ranked = self._apply_explicit_lineage_resolution(text, ranked)
         return ranked[: max(1, int(top_k))]

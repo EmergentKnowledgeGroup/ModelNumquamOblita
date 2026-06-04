@@ -100,11 +100,22 @@ def _verify_archive(asset_name: str, archive_path: Path) -> None:
     )
 
 
+def _rmtree_best_effort(path: Path) -> None:
+    def _handle_remove_error(_func, _target, exc_info) -> None:
+        exc = exc_info[1]
+        if isinstance(exc, FileNotFoundError):
+            return
+        raise exc
+
+    shutil.rmtree(path, onexc=_handle_remove_error)
+
+
 def _extract_to_output(archive_path: Path, destination: Path) -> None:
     temp_root = Path(tempfile.mkdtemp(prefix="mno-managed-runtime-"))
-    if destination.exists():
-        shutil.rmtree(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    staging_root = destination.parent / f".python-staging-{os.getpid()}"
+    if staging_root.exists():
+        _rmtree_best_effort(staging_root)
     try:
         with tarfile.open(archive_path, "r:gz") as archive:
             _safe_extract(archive, temp_root)
@@ -113,9 +124,14 @@ def _extract_to_output(archive_path: Path, destination: Path) -> None:
             raise SystemExit(f"managed runtime archive did not produce the expected python/ directory: {archive_path}")
         terminfo_root = source_root / "share" / "terminfo"
         if terminfo_root.exists():
-            shutil.rmtree(terminfo_root)
-        shutil.copytree(source_root, destination, symlinks=True)
+            _rmtree_best_effort(terminfo_root)
+        shutil.copytree(source_root, staging_root, symlinks=True)
+        if destination.exists():
+            _rmtree_best_effort(destination)
+        staging_root.rename(destination)
     finally:
+        if staging_root.exists():
+            _rmtree_best_effort(staging_root)
         shutil.rmtree(temp_root, ignore_errors=True)
 
 

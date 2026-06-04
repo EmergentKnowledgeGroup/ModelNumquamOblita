@@ -1,0 +1,380 @@
+<mxfile host="app.diagrams.net" pages="3">
+  <diagram name="MNO Current Pipeline" id="hkXOmsIwXgXbIP6kO3cN">
+    <mxGraphModel dx="1542" dy="802" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-1" parent="1" style="swimlane;horizontal=0;startSize=28;rounded=1;fillColor=#f8f1e7;strokeColor=#c58b3a;fontStyle=1;" value="Build and Curation" vertex="1">
+          <mxGeometry height="700" width="310" x="20" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-2" parent="1" style="swimlane;horizontal=0;startSize=28;rounded=1;fillColor=#eef6ea;strokeColor=#6a9b58;fontStyle=1;" value="Runtime Memory Layers" vertex="1">
+          <mxGeometry height="700" width="330" x="360" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-3" parent="1" style="swimlane;horizontal=0;startSize=28;rounded=1;fillColor=#eaf3fb;strokeColor=#4d7fb3;fontStyle=1;" value="Runtime Decision and Evidence" vertex="1">
+          <mxGeometry height="700" width="330" x="720" y="20" as="geometry">
+            <mxRectangle height="200" width="40" x="720" y="20" as="alternateBounds" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-4" parent="1" style="swimlane;horizontal=0;startSize=28;rounded=1;fillColor=#f4eafa;strokeColor=#8b63b6;fontStyle=1;" value="Integration Surfaces" vertex="1">
+          <mxGeometry height="700" width="310" x="1080" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8ef;strokeColor=#c58b3a;" value="Raw exports / archive inputs&#xa;Conversation exports and archive data" vertex="1">
+          <mxGeometry height="60" width="240" x="55" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8ef;strokeColor=#c58b3a;" value="Import tools&#xa;import_memories.py / import_ia_db.py" vertex="1">
+          <mxGeometry height="60" width="240" x="55" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8ef;strokeColor=#c58b3a;" value="Atom store&#xa;Evidence-bearing long-term substrate" vertex="1">
+          <mxGeometry height="60" width="240" x="55" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8ef;strokeColor=#c58b3a;" value="Episode card builder&#xa;build_episode_cards.py" vertex="1">
+          <mxGeometry height="60" width="240" x="55" y="350" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8ef;strokeColor=#c58b3a;" value="Review pack&#xa;TSV / MD human review artifacts" vertex="1">
+          <mxGeometry height="60" width="240" x="55" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8ef;strokeColor=#c58b3a;" value="Compile reviewed cards&#xa;build_episode_review_pack.py --compile-reviewed" vertex="1">
+          <mxGeometry height="70" width="240" x="55" y="530" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff8ef;strokeColor=#c58b3a;" value="Reviewed episode cards&#xa;Curated runtime event memory layer" vertex="1">
+          <mxGeometry height="60" width="240" x="55" y="630" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" value="Immediate context&#xa;Current turn and request-local state" vertex="1">
+          <mxGeometry height="60" width="240" x="405" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" value="STM / session state&#xa;Short-term notes and rolling summary" vertex="1">
+          <mxGeometry height="60" width="240" x="405" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-14" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" value="Provisional memory&#xa;Retrievable, revisable, lower-trust" vertex="1">
+          <mxGeometry height="60" width="240" x="405" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" value="Mutation review queue&#xa;PROPOSE_CREATE bridge target only" vertex="1">
+          <mxGeometry height="60" width="240" x="405" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-16" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" value="Atom store participation&#xa;Evidence substrate used directly at runtime" vertex="1">
+          <mxGeometry height="60" width="240" x="405" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-17" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" value="Reviewed episode participation&#xa;Reviewed event memory used in retrieval" vertex="1">
+          <mxGeometry height="60" width="240" x="405" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-18" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ff;strokeColor=#4d7fb3;" value="Runtime server / RuntimeSession&#xa;Main request entry and orchestration" vertex="1">
+          <mxGeometry height="60" width="240" x="765" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-19" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ff;strokeColor=#4d7fb3;" value="Router&#xa;STM-only, light LTM, deep LTM, hybrid, or none" vertex="1">
+          <mxGeometry height="60" width="240" x="765" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-20" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ff;strokeColor=#4d7fb3;" value="Retrieval fusion&#xa;STM + provisional + atoms + reviewed episodes" vertex="1">
+          <mxGeometry height="60" width="240" x="765" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-21" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ff;strokeColor=#4d7fb3;" value="Evidence / context package&#xa;Sectioned retrieval payload with citations" vertex="1">
+          <mxGeometry height="60" width="240" x="765" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-22" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ff;strokeColor=#4d7fb3;" value="Verifier + answer path&#xa;Gates confident recall and final response" vertex="1">
+          <mxGeometry height="60" width="240" x="765" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-23" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef7ff;strokeColor=#4d7fb3;" value="Writeback / propose-resolve&#xa;Explicit proposal flow, no silent truth mutation" vertex="1">
+          <mxGeometry height="60" width="240" x="765" y="590" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-24" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" value="Desktop shell&#xa;Managed local operator surface" vertex="1">
+          <mxGeometry height="60" width="240" x="1115" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-25" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" value="Headless runtime launcher&#xa;tools/run_live_runtime.py" vertex="1">
+          <mxGeometry height="60" width="240" x="1115" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-26" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" value="MCP sidecar&#xa;stdio or HTTP over a running runtime" vertex="1">
+          <mxGeometry height="60" width="240" x="1115" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-27" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" value="integration-v1 HTTP&#xa;Preferred public orchestration boundary" vertex="1">
+          <mxGeometry height="60" width="240" x="1115" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-28" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" value="Adapters&#xa;openclaw / reference / nanobot compatibility" vertex="1">
+          <mxGeometry height="60" width="240" x="1115" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-29" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-5" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-30" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-6" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-31" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-7" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-32" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-8" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-33" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-9" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-34" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-10" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-35" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-24" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-36" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-25" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-37" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-26" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-38" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-27" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-39" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-28" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-40" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-18" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-41" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-19" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-42" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-20" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-21">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-43" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-21" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-44" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-22" style="endArrow=block;strokeColor=#8a8a8a;" target="Jw7JRCv-ags_bZq6H0Kp-23">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-45" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-12" style="endArrow=block;strokeColor=#6a9b58;" target="Jw7JRCv-ags_bZq6H0Kp-19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-46" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-13" style="endArrow=block;strokeColor=#6a9b58;" target="Jw7JRCv-ags_bZq6H0Kp-19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-47" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-14" style="endArrow=block;strokeColor=#6a9b58;" target="Jw7JRCv-ags_bZq6H0Kp-20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-48" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-16" style="endArrow=block;strokeColor=#6a9b58;" target="Jw7JRCv-ags_bZq6H0Kp-20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-49" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-17" style="endArrow=block;strokeColor=#6a9b58;" target="Jw7JRCv-ags_bZq6H0Kp-20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-50" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-14" style="endArrow=block;strokeColor=#6a9b58;dashed=1;" target="Jw7JRCv-ags_bZq6H0Kp-15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-51" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-7" style="endArrow=block;strokeColor=#c58b3a;dashed=1;" target="Jw7JRCv-ags_bZq6H0Kp-16">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Jw7JRCv-ags_bZq6H0Kp-52" edge="1" parent="1" source="Jw7JRCv-ags_bZq6H0Kp-11" style="endArrow=block;strokeColor=#c58b3a;dashed=1;" target="Jw7JRCv-ags_bZq6H0Kp-17">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="Runtime Memory Layers" id="G5VBT7y0oX4p69kC5NYC">
+    <mxGraphModel dx="2942" dy="802" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="lane1" parent="1" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#eaf7ea;strokeColor=#63a35c;" value="Live Turn And Session" vertex="1">
+          <mxGeometry height="700" width="260" x="20" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="rm_capture" parent="lane1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#63a35c;" value="Post-Turn Capture&#xa;Low-risk capture -&gt; provisional&#xa;High-risk capture -&gt; proposal-only&#xa;Session-boundary sweep from STM" vertex="1">
+          <mxGeometry height="110" width="200" x="40" y="460" as="geometry" />
+        </mxCell>
+        <mxCell id="rm_stm" parent="lane1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#63a35c;fontStyle=1;" value="STM / Session State&#xa;Recent turns&#xa;Short-term notes&#xa;Rolling summary&#xa;Soft-close hint state" vertex="1">
+          <mxGeometry height="120" width="200" x="40" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="rme2" edge="1" parent="lane1" source="rm_stm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;" target="rm_capture" value="post-turn">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rm_incoming" parent="lane1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#63a35c;" value="Incoming Turn&#xa;Current user message&#xa;Current surface and request metadata" vertex="1">
+          <mxGeometry height="80" width="200" x="40" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="rme1" edge="1" parent="lane1" source="rm_incoming" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;" target="rm_stm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lane2" parent="1" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#e8f0fe;strokeColor=#5b8def;" value="Retrievable Runtime Memory" vertex="1">
+          <mxGeometry height="700" width="360" x="310" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="rm_retrieve" parent="lane2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#5b8def;" value="Retrieval Participation&#xa;STM may satisfy or hybridize&#xa;Provisional can merge into LTM pack&#xa;Reviewed episodes and atoms are core LTM sources" vertex="1">
+          <mxGeometry height="100" width="220" x="70" y="545" as="geometry" />
+        </mxCell>
+        <mxCell id="lane3" parent="1" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#fff4e5;strokeColor=#d79b00;" value="Governed / Review Path" vertex="1">
+          <mxGeometry height="700" width="320" x="700" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="rm_rules" parent="lane3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d79b00;align=left;verticalAlign=top;spacing=6;" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;Current runtime trust rules&lt;br&gt;• reviewed episodes &amp;gt; provisional&lt;br&gt;• proposal-only != provisional&lt;br&gt;• no silent truth mutation&lt;br&gt;• queue is the bridge into canonical truth&lt;/font&gt;" vertex="1">
+          <mxGeometry height="130" width="260" x="40" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rm_prop" parent="lane3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Proposal-Only Store&#xa;High-risk claims&#xa;Pending only&#xa;Not normal retrievable truth" vertex="1">
+          <mxGeometry height="90" width="220" x="60" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="lane4" parent="1" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#f3e5f5;strokeColor=#9673a6;" value="Continuity Surfaces" vertex="1">
+          <mxGeometry height="700" width="300" x="-300" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="rm_use" parent="lane4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;" value="Use at runtime&#xa;Cold-start orientation&#xa;Recent continuity recall&#xa;Operator-visible state aids" vertex="1">
+          <mxGeometry height="90" width="220" x="50" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="rm_cont" parent="lane4" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eadcf0;strokeColor=#9673a6;fontStyle=1;" value="Continuity Surfaces&#xa;Pins&#xa;Action log&#xa;Wake-up pack&#xa;Resume pack&#xa;Anchor briefs" vertex="1">
+          <mxGeometry height="120" width="220" x="50" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="rme10" edge="1" parent="lane4" source="rm_cont" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#9673a6;" target="rm_use" value="feeds orientation">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rm_prov" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#5b8def;fontStyle=1;" value="Provisional Memory&#xa;Lower-trust durable memory&#xa;Revisable, conflictable, supersedable&#xa;Participates in retrieval" vertex="1">
+          <mxGeometry height="110" width="200" x="390" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="rm_queue" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d79b00;fontStyle=1;" value="Mutation Review Queue&#xa;Human-gated canonical create/edit/delete&#xa;Bridge from eligible provisional candidates" vertex="1">
+          <mxGeometry height="100" width="220" x="750" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="rme3" edge="1" parent="1" source="rm_capture" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" target="rm_prov" value="low-risk write">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rme4" edge="1" parent="1" source="rm_capture" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#b85450;" target="rm_prop" value="high-risk divert">
+          <mxGeometry relative="1" x="0.2549" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rme5" edge="1" parent="1" source="rm_prov" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#d79b00;" target="rm_queue" value="review candidate / bridge">
+          <mxGeometry relative="1" x="-0.0847" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="660" y="145" />
+              <mxPoint x="660" y="280" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rme6" edge="1" parent="1" source="rm_queue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#d79b00;" target="rm_atoms" value="approved canonical&lt;div&gt;mutation&lt;/div&gt;">
+          <mxGeometry relative="1" x="0.4375" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="660" y="320" />
+              <mxPoint x="660" y="480" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rme7" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="489.5" y="200" as="sourcePoint" />
+            <mxPoint x="489.5" y="565" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rme8" edge="1" parent="1" source="rm_reviewed" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" target="rm_retrieve">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rme9" edge="1" parent="1" source="rm_atoms" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" target="rm_retrieve">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rme11" edge="1" parent="1" source="rm_use" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#9673a6;entryX=0.25;entryY=0;entryDx=0;entryDy=0;" target="rm_stm" value="session continuity">
+          <mxGeometry relative="1" x="-0.0303" y="5" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="100" y="275" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rm_atoms" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#5b8def;fontStyle=1;" value="Canonical Atom Store&#xa;Evidence-backed source atoms&#xa;Canonical long-term substrate" vertex="1">
+          <mxGeometry height="100" width="200" x="390" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="rm_reviewed" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#5b8def;" value="Reviewed Episode Cards&#xa;Human-reviewed event memory&#xa;Trusted above provisional" vertex="1">
+          <mxGeometry height="90" width="200" x="390" y="250" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="Runtime Decision And Evidence Flow" id="rs-qIBEDXoRfCH8E5JId">
+    <mxGraphModel dx="1814" dy="944" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="rd_in" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d79b00;fontStyle=1;" value="Incoming Turn&#xa;Desktop / native chat / integration-v1 / MCP / adapter" vertex="1">
+          <mxGeometry height="80" width="220" x="40" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="rd_router" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#63a35c;fontStyle=1;" value="Runtime Router&#xa;Route preview and route selection&#xa;none / stm_only / ltm_light / ltm_deep / hybrid" vertex="1">
+          <mxGeometry height="100" width="240" x="320" y="100" as="geometry" />
+        </mxCell>
+        <mxCell id="rd_stm" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#63a35c;" value="STM Retrieval&#xa;Token overlap&#xa;ngram overlap&#xa;summary overlap&#xa;stm_primary threshold" vertex="1">
+          <mxGeometry height="110" width="220" x="620" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="rd_ltm" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#5b8def;fontStyle=1;" value="LTM Retrieval&#xa;Atoms + reviewed episodes + continuity&#xa;multi-pass query support when enabled" vertex="1">
+          <mxGeometry height="100" width="220" x="620" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="rd_prov" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#5b8def;" value="Provisional Retrieval&#xa;Optional lower-trust merge into LTM pack" vertex="1">
+          <mxGeometry height="80" width="220" x="620" y="330" as="geometry" />
+        </mxCell>
+        <mxCell id="rd_merge" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#63a35c;fontStyle=1;" value="Evidence Pack Assembly&#xa;core / context / continuity / conflict&#xa;hybrid merge of STM + LTM when applicable" vertex="1">
+          <mxGeometry height="110" width="250" x="910" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="rd_gates" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d79b00;fontStyle=1;" value="Evidence Gates&#xa;query-evidence support&#xa;distributed support checks&#xa;direct citation gate&#xa;consumer-meta pruning" vertex="1">
+          <mxGeometry height="120" width="240" x="1230" y="135" as="geometry" />
+        </mxCell>
+        <mxCell id="rd_responder" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#63a35c;" value="Responder / Draft Answer&#xa;Composes answer from bounded evidence package" vertex="1">
+          <mxGeometry height="80" width="240" x="1540" y="155" as="geometry" />
+        </mxCell>
+        <mxCell id="rd_verifier" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#63a35c;fontStyle=1;" value="Verifier Outcome&#xa;PASS / ABSTAIN / CLARIFY / NO_MEMORY" vertex="1">
+          <mxGeometry height="90" width="220" x="1540" y="345" as="geometry" />
+        </mxCell>
+        <mxCell id="rd_post" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#9673a6;" value="Post-Turn Runtime State Update&#xa;remember short-term&#xa;provisional capture&#xa;proposal-only capture&#xa;soft-close hint update" vertex="1">
+          <mxGeometry height="110" width="320" x="910" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="rd_boundary" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#9673a6;" value="Session Boundary Handling&#xa;runtime_close&#xa;soft close gap&#xa;explicit boundary hook&#xa;STM sweep into provisional when enabled" vertex="1">
+          <mxGeometry height="100" width="300" x="1370" y="475" as="geometry" />
+        </mxCell>
+        <mxCell id="rd_notes" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d79b00;align=left;verticalAlign=top;spacing=6;" value="&lt;font style=&quot;font-size: 16px;&quot;&gt;Important current rules&lt;br&gt;• retrieval success alone does not guarantee PASS&lt;br&gt;• verifier and gates still decide&lt;br&gt;• provisional memory can support retrieval but does not outrank reviewed truth&lt;br&gt;• why/explain surfaces come from stored turn traces and pack metadata&lt;/font&gt;" vertex="1">
+          <mxGeometry height="130" width="570" x="310" y="450" as="geometry" />
+        </mxCell>
+        <mxCell id="rdd1" edge="1" parent="1" source="rd_in" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#d79b00;" target="rd_router">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rdd2" edge="1" parent="1" source="rd_router" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;" target="rd_stm" value="stm path">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rdd3" edge="1" parent="1" source="rd_router" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" target="rd_ltm" value="ltm path">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rdd4" edge="1" parent="1" source="rd_ltm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" target="rd_prov" value="optional provisional merge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rdd5" edge="1" parent="1" source="rd_stm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;" target="rd_merge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rdd6" edge="1" parent="1" source="rd_ltm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" target="rd_merge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rdd7" edge="1" parent="1" source="rd_prov" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" target="rd_merge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rdd8" edge="1" parent="1" source="rd_merge" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#d79b00;" target="rd_gates">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rdd9" edge="1" parent="1" source="rd_gates" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="rd_responder">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rdd10" edge="1" parent="1" source="rd_out" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;" target="rd_verifier">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rdd11" edge="1" parent="1" source="rd_verifier" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#d79b00;" target="rd_out">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rdd12" edge="1" parent="1" source="rd_out" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#9673a6;" target="rd_post" value="after answer">
+          <mxGeometry relative="1" x="-0.28" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1070" y="400" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rdd13" edge="1" parent="1" source="rd_post" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#9673a6;" target="rd_boundary" value="boundary events">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sB8kcmwP3PDRN6bvsZon-1" edge="1" parent="1" source="rd_responder" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;" target="rd_out" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1650" y="280" />
+              <mxPoint x="1360" y="280" />
+            </Array>
+            <mxPoint x="1520" y="170" as="sourcePoint" />
+            <mxPoint x="1320" y="620" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="rd_out" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d79b00;" value="Final Output Surface&#xa;Answer text&#xa;memory cards&#xa;citations&#xa;why/explain data" vertex="1">
+          <mxGeometry height="100" width="220" x="1250" y="340" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

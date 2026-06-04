@@ -7,8 +7,8 @@
   ],
   "entrypoint": "tools/run_live_runtime.py",
   "python_commands": {
-    "default": "runtime/python/bin/python3",
-    "darwin": "runtime/python/bin/python3",
+    "default": "runtime/python/bin/python3.12",
+    "darwin": "runtime/python/bin/python3.12",
     "win32": "runtime/python/python.exe"
   }
 }

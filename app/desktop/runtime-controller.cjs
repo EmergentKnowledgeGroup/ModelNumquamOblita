@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { once } = require('node:events');
 
 const DESKTOP_STATUS_LABELS = Object.freeze({
@@ -12,8 +13,8 @@ const DESKTOP_STATUS_LABELS = Object.freeze({
   error: 'Error',
 });
 
-const VALID_STORE_KINDS = new Set(['sqlite_store', 'json_store']);
-const VALID_INPUT_KINDS = new Set(['ia_archive', 'sqlite_store', 'json_store']);
+const VALID_STORE_KINDS = new Set(['sqlite_store', 'json_store', 'mno_store_sqlite', 'mno_store_json']);
+const VALID_INPUT_KINDS = new Set(['source_input', 'ia_archive', 'sqlite_store', 'json_store', 'mno_store_sqlite', 'mno_store_json']);
 const DEFAULT_CLOSE_BEHAVIOR = 'hide_to_tray';
 const DEFAULT_AUTO_START = 'auto_start_if_ready';
 const DEFAULT_RUNTIME_DESIRED_STATE = 'running';
@@ -121,15 +122,114 @@ function loadJsonObject(filePath, fsImpl = fs) {
   return payload;
 }
 
-function safePathExists(targetPath, fsImpl = fs) {
-  if (!String(targetPath || '').trim()) {
+function normalizePlatformPath(targetPath, { platform = process.platform } = {}) {
+  const raw = String(targetPath || '').trim();
+  if (!raw) {
+    return '';
+  }
+  if (platform === 'win32') {
+    const asPosix = raw.replace(/\\/g, '/');
+    const wslMatch = /^\/mnt\/([a-zA-Z])(?:\/(.*))?$/.exec(asPosix);
+    if (wslMatch) {
+      const drive = String(wslMatch[1] || '').toUpperCase();
+      const rest = String(wslMatch[2] || '').replace(/\//g, '\\');
+      return path.win32.normalize(rest ? `${drive}:\\${rest}` : `${drive}:\\`);
+    }
+    const asWin = raw.replace(/\//g, '\\');
+    const nestedMountMatch = /^([a-zA-Z]):\\mnt\\([a-zA-Z])(?:\\(.*))?$/.exec(asWin);
+    if (nestedMountMatch) {
+      const drive = String(nestedMountMatch[2] || '').toUpperCase();
+      const rest = String(nestedMountMatch[3] || '');
+      return path.win32.normalize(rest ? `${drive}:\\${rest}` : `${drive}:\\`);
+    }
+    if (/^[a-zA-Z]:[\\/]/.test(raw) || raw.startsWith('\\\\')) {
+      return path.win32.normalize(raw);
+    }
+    return path.win32.resolve(raw);
+  }
+  return path.resolve(raw);
+}
+
+function safePathExists(targetPath, fsImpl = fs, { platform = process.platform } = {}) {
+  const normalizedPath = normalizePlatformPath(targetPath, { platform });
+  if (!normalizedPath) {
     return false;
   }
   try {
-    return fsImpl.existsSync(path.resolve(String(targetPath)));
+    return fsImpl.existsSync(normalizedPath);
   } catch (_error) {
     return false;
   }
+}
+
+function safePathStat(targetPath, fsImpl = fs, { platform = process.platform } = {}) {
+  const normalizedPath = normalizePlatformPath(targetPath, { platform });
+  if (!normalizedPath) {
+    return null;
+  }
+  try {
+    return fsImpl.statSync(normalizedPath);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function fileLooksRunnable(targetPath, fsImpl = fs, { platform = process.platform } = {}) {
+  const stat = safePathStat(targetPath, fsImpl, { platform });
+  if (!stat) {
+    return false;
+  }
+  if (typeof stat.isFile === 'function' && !stat.isFile()) {
+    return false;
+  }
+  return Number(stat.size || 0) > 0;
+}
+
+function bundledPythonVersionTag(runtimeVersion = '') {
+  const raw = String(runtimeVersion || '').trim();
+  const match = /cpython-(\d+\.\d+)(?:\.\d+)?/i.exec(raw) || /python-(\d+\.\d+)(?:\.\d+)?/i.exec(raw);
+  return match ? String(match[1] || '').trim() : '';
+}
+
+function resolveBundledPythonPath({ repoRoot, platformCommand = '', runtimeVersion = '', fsImpl = fs, platform = process.platform } = {}) {
+  const raw = String(platformCommand || '').trim();
+  if (!raw) {
+    return '';
+  }
+  const resolvedRoot = resolveRepoRoot(repoRoot);
+  const directPath = path.resolve(resolvedRoot, raw);
+  const candidateSet = new Set([directPath]);
+  const candidateDir = path.dirname(directPath);
+  const candidateExt = path.extname(directPath);
+  const versionTag = bundledPythonVersionTag(runtimeVersion);
+  if (versionTag) {
+    candidateSet.add(path.join(candidateDir, `python${versionTag}${candidateExt}`));
+  }
+  if (!candidateExt) {
+    candidateSet.add(path.join(candidateDir, 'python3'));
+    candidateSet.add(path.join(candidateDir, 'python'));
+  }
+  if (safePathExists(candidateDir, fsImpl, { platform })) {
+    try {
+      const dirEntries = fsImpl.readdirSync(candidateDir, { withFileTypes: true })
+        .filter((entry) => entry && typeof entry.isFile === 'function' && entry.isFile())
+        .map((entry) => String(entry.name || '').trim())
+        .filter(Boolean)
+        .filter((name) => /^python(?:\d+(?:\.\d+)*)?(?:\.exe)?$/i.test(name))
+        .sort();
+      for (const entryName of dirEntries) {
+        candidateSet.add(path.join(candidateDir, entryName));
+      }
+    } catch (_error) {
+      // Fall back to the explicit manifest path if directory enumeration fails.
+    }
+  }
+  for (const candidate of candidateSet) {
+    if (fileLooksRunnable(candidate, fsImpl, { platform })) {
+      return candidate;
+    }
+  }
+  return '';
 }
 
 function pathWithinRoot(targetPath, rootPath) {
@@ -325,20 +425,20 @@ function pidIsAlive(pid, pidProbeImpl = (targetPid) => {
   }
 }
 
-function buildExpectedBinding(wizardState) {
+function buildExpectedBinding(wizardState, { platform = process.platform } = {}) {
   const state = wizardState && typeof wizardState === 'object' ? wizardState : {};
   const storeValidation = state.store_validation && typeof state.store_validation === 'object' ? state.store_validation : {};
   const publishedSet = state.published_set && typeof state.published_set === 'object' ? state.published_set : {};
   return {
-    store_path: String(storeValidation.path || state.store_path || '').trim(),
+    store_path: normalizePlatformPath(storeValidation.path || state.store_path || '', { platform }),
     store_fingerprint: String(storeValidation.store_fingerprint || '').trim(),
-    episodes_path: String(publishedSet.episodes_path || state.last_compiled_reviewed_path || '').trim(),
+    episodes_path: normalizePlatformPath(publishedSet.episodes_path || state.last_compiled_reviewed_path || '', { platform }),
     build_id: String(publishedSet.build_id || '').trim(),
     artifact_mode: String(publishedSet.episodes_path ? 'published' : '').trim(),
   };
 }
 
-function summarizeRuntimeLock(lockPayload, { expectedBinding = {}, expectedHost = '', expectedPort = 0, pidProbeImpl } = {}) {
+function summarizeRuntimeLock(lockPayload, { expectedBinding = {}, expectedHost = '', expectedPort = 0, pidProbeImpl, platform = process.platform } = {}) {
   const payload = lockPayload && typeof lockPayload === 'object' ? lockPayload : {};
   if (!Object.keys(payload).length) {
     return {
@@ -355,12 +455,14 @@ function summarizeRuntimeLock(lockPayload, { expectedBinding = {}, expectedHost 
   const ownerPort = Number(payload.port || 0);
   const alive = pidIsAlive(ownerPid, pidProbeImpl);
   const expectedStoreFingerprint = String(expectedBinding.store_fingerprint || '').trim();
-  const expectedEpisodesPath = String(expectedBinding.episodes_path || '').trim();
-  const expectedStorePath = String(expectedBinding.store_path || '').trim();
+  const expectedEpisodesPath = normalizePlatformPath(expectedBinding.episodes_path || '', { platform });
+  const expectedStorePath = normalizePlatformPath(expectedBinding.store_path || '', { platform });
+  const payloadEpisodesPath = normalizePlatformPath(payload.episodes_path || '', { platform });
+  const payloadStorePath = normalizePlatformPath(payload.store_path || '', { platform });
   const bindingMatches = Boolean(expectedStoreFingerprint && expectedEpisodesPath && expectedStorePath)
     && String(payload.store_fingerprint || '').trim() === expectedStoreFingerprint
-    && String(payload.episodes_path || '').trim() === expectedEpisodesPath
-    && String(payload.store_path || '').trim() === expectedStorePath;
+    && payloadEpisodesPath === expectedEpisodesPath
+    && payloadStorePath === expectedStorePath;
   const addressMatches = (!String(expectedHost || '').trim() || ownerHost === String(expectedHost || '').trim())
     && (!Number(expectedPort) || ownerPort === Number(expectedPort));
   let status = 'stale';
@@ -377,9 +479,9 @@ function summarizeRuntimeLock(lockPayload, { expectedBinding = {}, expectedHost 
     owner_port: ownerPort,
     matches_expected: bindingMatches && addressMatches,
     token: String(payload.token || '').trim(),
-    store_path: String(payload.store_path || '').trim(),
+    store_path: payloadStorePath,
     store_fingerprint: String(payload.store_fingerprint || '').trim(),
-    episodes_path: String(payload.episodes_path || '').trim(),
+    episodes_path: payloadEpisodesPath,
   };
 }
 
@@ -422,7 +524,7 @@ function loadLatestWizardState(paths, fsImpl = fs) {
   }
 }
 
-function collectMissingArtifacts(wizardState, fsImpl = fs) {
+function collectMissingArtifacts(wizardState, fsImpl = fs, { platform = process.platform } = {}) {
   const state = wizardState && typeof wizardState === 'object' ? wizardState : {};
   const selectedInput = state.selected_input && typeof state.selected_input === 'object' ? state.selected_input : {};
   const storeValidation = state.store_validation && typeof state.store_validation === 'object' ? state.store_validation : {};
@@ -430,11 +532,11 @@ function collectMissingArtifacts(wizardState, fsImpl = fs) {
   const publishedSet = state.published_set && typeof state.published_set === 'object' ? state.published_set : {};
   const rows = [];
   function addRow(target, label, rawPath) {
-    const cleanPath = String(rawPath || '').trim();
+    const cleanPath = normalizePlatformPath(rawPath || '', { platform });
     if (!cleanPath) {
       return;
     }
-    const exists = safePathExists(cleanPath, fsImpl);
+    const exists = safePathExists(cleanPath, fsImpl, { platform });
     if (exists) {
       return;
     }
@@ -493,21 +595,24 @@ function deriveShellStartupState({ wizardRunId = '', wizardState = null, prefere
   const verify = resolvedState.verify && typeof resolvedState.verify === 'object' ? resolvedState.verify : {};
   const activation = resolvedState.activation && typeof resolvedState.activation === 'object' ? resolvedState.activation : {};
   const draftOverride = activation.draft_override && typeof activation.draft_override === 'object' ? activation.draft_override : {};
+  const expectedBinding = buildExpectedBinding(resolvedState);
   const missingArtifacts = collectMissingArtifacts(resolvedState, fsImpl);
   const verifyStatus = String(verify.status || 'Unknown').trim();
   const hasValidInput = VALID_INPUT_KINDS.has(String(selectedInput.kind || '').trim()) && Boolean(selectedInput.is_valid);
   const hasValidStore = VALID_STORE_KINDS.has(String(storeValidation.kind || '').trim())
     && Boolean(storeValidation.is_valid)
-    && safePathExists(storeValidation.path || resolvedState.store_path, fsImpl);
-  const hasPublishedSet = safePathExists(publishedSet.episodes_path || resolvedState.last_compiled_reviewed_path, fsImpl);
+    && safePathExists(expectedBinding.store_path || resolvedState.store_path, fsImpl);
+  const hasPublishedSet = safePathExists(expectedBinding.episodes_path || resolvedState.last_compiled_reviewed_path, fsImpl);
   const readyConfiguration = hasValidInput && hasValidStore && hasPublishedSet && verifyStatus === 'Safe' && !Boolean(draftOverride.active) && !Boolean(verify.remap_required) && !missingArtifacts.length;
   const explicitStop = prefs.runtime_desired_state === 'stopped';
+  const staleLockRepairAvailable = String(lockSummary.status || '') === 'stale';
 
-  base.storePath = String(storeValidation.path || resolvedState.store_path || '').trim();
-  base.episodeCardsPath = String(publishedSet.episodes_path || resolvedState.last_compiled_reviewed_path || '').trim();
+  base.storePath = expectedBinding.store_path;
+  base.episodeCardsPath = expectedBinding.episodes_path;
   base.readyConfiguration = readyConfiguration;
   base.autoStartAllowed = readyConfiguration && prefs.auto_start === 'auto_start_if_ready' && !explicitStop;
   base.canStartRuntime = readyConfiguration;
+  base.canRepairRuntime = staleLockRepairAvailable;
   base.missingArtifacts = missingArtifacts;
 
   if (runtimeManifest && !runtimeManifest.runtimeVersion) {
@@ -528,7 +633,7 @@ function deriveShellStartupState({ wizardRunId = '', wizardState = null, prefere
       label: stateLabel('degraded'),
       bootStage: 'A required store or artifact moved or went missing. Repair it before startup.',
       statusReason: 'Artifact repair is required.',
-      canRepairRuntime: String(lockSummary.status || '') === 'stale',
+      canRepairRuntime: staleLockRepairAvailable,
     };
   }
 
@@ -539,7 +644,7 @@ function deriveShellStartupState({ wizardRunId = '', wizardState = null, prefere
       label: stateLabel('degraded'),
       bootStage: 'Developer-only draft activation is recorded. Reset or publish a reviewed set before normal startup.',
       statusReason: 'Draft activation is not normal ready state.',
-      canRepairRuntime: String(lockSummary.status || '') === 'stale',
+      canRepairRuntime: staleLockRepairAvailable,
     };
   }
 
@@ -563,6 +668,7 @@ function deriveShellStartupState({ wizardRunId = '', wizardState = null, prefere
       label: stateLabel('setup_required'),
       bootStage: 'Finish setup before the desktop app can serve memory in the background.',
       statusReason: reasons.join('; '),
+      canRepairRuntime: staleLockRepairAvailable,
     };
   }
 
@@ -655,11 +761,17 @@ function buildRuntimeLaunchPlan({
       command = explicitPython;
     } else if (platformCommand && !path.isAbsolute(platformCommand) && /[\\/]/.test(platformCommand)) {
       const bundledPython = path.resolve(resolvedRoot, platformCommand);
+      const resolvedBundledPython = resolveBundledPythonPath({
+        repoRoot: resolvedRoot,
+        platformCommand,
+        runtimeVersion: manifest.runtimeVersion,
+        platform,
+      });
       if (requireBundledRuntime && !pathWithinRoot(bundledPython, resolvedRoot)) {
         throw new Error(`bundled Python runtime escapes repo root: ${bundledPython}`);
       }
-      if (safePathExists(bundledPython)) {
-        command = bundledPython;
+      if (resolvedBundledPython) {
+        command = resolvedBundledPython;
       } else if (requireBundledRuntime) {
         throw new Error(`bundled Python runtime not found: ${bundledPython}`);
       } else {
@@ -676,14 +788,14 @@ function buildRuntimeLaunchPlan({
   if (setupMode) {
     args.push('--setup-mode');
     if (String(setupModeStorePath || '').trim()) {
-      args.push('--setup-store', path.resolve(String(setupModeStorePath)));
+      args.push('--setup-store', normalizePlatformPath(String(setupModeStorePath), { platform }));
     }
   } else {
     if (String(memories || '').trim()) {
-      args.push('--memories', path.resolve(String(memories)));
+      args.push('--memories', normalizePlatformPath(String(memories), { platform }));
     }
     if (String(episodes || '').trim()) {
-      args.push('--episodes', path.resolve(String(episodes)));
+      args.push('--episodes', normalizePlatformPath(String(episodes), { platform }));
     }
   }
   return {
@@ -700,13 +812,77 @@ function buildRuntimeLaunchPlan({
   };
 }
 
-function buildRuntimeSpawnOptions({ cwd, env = process.env, platform = process.platform } = {}) {
+function buildRuntimeSpawnOptions({ cwd, env = process.env, platform = process.platform, stdio = ['ignore', 'pipe', 'pipe'] } = {}) {
   return {
     cwd,
     env: { ...env, PYTHONUNBUFFERED: '1' },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio,
     shell: false,
+    detached: false,
     windowsHide: platform === 'win32',
+  };
+}
+
+function quotePowerShellSingle(value) {
+  return `'${String(value || '').replace(/'/g, "''")}'`;
+}
+
+function resolveWindowsExecutable(command) {
+  const raw = String(command || '').trim();
+  if (!raw) {
+    throw new Error('windows executable resolution requires a command');
+  }
+  if (path.isAbsolute(raw)) {
+    return raw;
+  }
+  try {
+    const output = execFileSync('where.exe', [raw], { encoding: 'utf8', windowsHide: true });
+    const candidates = String(output || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .filter((line) => fs.existsSync(line));
+    const nonWindowsApps = candidates.filter((line) => !/\\WindowsApps\\/i.test(line));
+    return nonWindowsApps[0] || candidates[0] || raw;
+  } catch (_error) {
+    return raw;
+  }
+}
+
+function resolveWindowsGuiPythonCommand(command) {
+  const resolved = resolveWindowsExecutable(command);
+  if (/python\.exe$/i.test(resolved)) {
+    const pythonw = resolved.replace(/python\.exe$/i, 'pythonw.exe');
+    if (fs.existsSync(pythonw)) {
+      return pythonw;
+    }
+  }
+  return resolved;
+}
+
+function buildWindowsDetachedRuntimeLauncher({ command = '', args = [], cwd = '', stdoutPath = '', stderrPath = '' } = {}) {
+  const filePath = resolveWindowsExecutable(command);
+  if (!filePath) {
+    throw new Error('windows detached runtime launcher requires a command');
+  }
+  const argList = Array.isArray(args) ? args.map((entry) => quotePowerShellSingle(String(entry || ''))) : [];
+  const script = [
+    '$ErrorActionPreference = "Stop"',
+    `$filePath = ${quotePowerShellSingle(filePath)}`,
+    `$argList = @(${argList.join(', ')})`,
+    stdoutPath ? `$stdoutPath = ${quotePowerShellSingle(stdoutPath)}` : '$stdoutPath = $null',
+    stderrPath ? `$stderrPath = ${quotePowerShellSingle(stderrPath)}` : '$stderrPath = $null',
+    cwd ? `$workingDirectory = ${quotePowerShellSingle(cwd)}` : '$workingDirectory = $null',
+    '$startArgs = @{ FilePath = $filePath; ArgumentList = $argList; WindowStyle = "Hidden" }',
+    'if ($workingDirectory) { $startArgs.WorkingDirectory = $workingDirectory }',
+    'if ($stdoutPath) { $startArgs.RedirectStandardOutput = $stdoutPath }',
+    'if ($stderrPath) { $startArgs.RedirectStandardError = $stderrPath }',
+    '$process = Start-Process @startArgs -PassThru',
+    'Write-Output ("launched_pid=" + $process.Id)',
+  ].join('; ');
+  return {
+    command: 'powershell.exe',
+    args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script],
   };
 }
 
@@ -741,15 +917,15 @@ async function fetchRuntimeHealthOnce({ runtimeHealthUrl, fetchImpl = globalThis
   }
 }
 
-function runtimeHealthMatchesExpected(healthPayload, { expectedBinding = {}, expectedRuntimeVersion = '', expectedRuntimeUrl = '' } = {}) {
+function runtimeHealthMatchesExpected(healthPayload, { expectedBinding = {}, expectedRuntimeVersion = '', expectedRuntimeUrl = '', platform = process.platform } = {}) {
   const payload = healthPayload && typeof healthPayload === 'object' ? healthPayload : {};
   const binding = payload.binding && typeof payload.binding === 'object' ? payload.binding : {};
   const runtimeVersion = String(payload.runtime_version || '').trim();
   const runtimeIdentity = String(payload.service || '').trim();
   const runtimeUrl = String(payload.runtime_url || '').trim();
   const expectedStoreFingerprint = String(expectedBinding.store_fingerprint || '').trim();
-  const expectedEpisodesPath = String(expectedBinding.episodes_path || '').trim();
-  const expectedStorePath = String(expectedBinding.store_path || '').trim();
+  const expectedEpisodesPath = normalizePlatformPath(expectedBinding.episodes_path || '', { platform });
+  const expectedStorePath = normalizePlatformPath(expectedBinding.store_path || '', { platform });
   const hasExpectedBinding = Boolean(expectedStoreFingerprint || expectedEpisodesPath || expectedStorePath);
   if (runtimeIdentity !== 'modelnumquamoblita-runtime') {
     return false;
@@ -764,8 +940,8 @@ function runtimeHealthMatchesExpected(healthPayload, { expectedBinding = {}, exp
     return false;
   }
   const actualStoreFingerprint = String(binding.store_fingerprint || '').trim();
-  const actualEpisodesPath = String(binding.episodes_path || '').trim();
-  const actualStorePath = String(binding.store_path || '').trim();
+  const actualEpisodesPath = normalizePlatformPath(binding.episodes_path || '', { platform });
+  const actualStorePath = normalizePlatformPath(binding.store_path || '', { platform });
   return (!expectedStoreFingerprint || actualStoreFingerprint === expectedStoreFingerprint)
     && (!expectedEpisodesPath || actualEpisodesPath === expectedEpisodesPath)
     && (!expectedStorePath || actualStorePath === expectedStorePath);
@@ -852,6 +1028,8 @@ module.exports = {
   assessExistingRuntime,
   buildExpectedBinding,
   buildRuntimeLaunchPlan,
+  resolveWindowsGuiPythonCommand,
+  buildWindowsDetachedRuntimeLauncher,
   buildRuntimeSpawnOptions,
   collectMissingArtifacts,
   defaultPythonCommand,
@@ -871,6 +1049,7 @@ module.exports = {
   pidIsAlive,
   pathWithinRoot,
   normalizeRuntimePort,
+  normalizePlatformPath,
   readRuntimeLock,
   requestRuntimeShutdown,
   resolveRepoRoot,

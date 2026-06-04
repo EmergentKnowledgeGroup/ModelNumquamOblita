@@ -1,6 +1,17 @@
 """Memory subsystem exports."""
 
 from .mutation_queue import MutationProposal, MutationReviewQueue, ProposalStatus
+from .provisional_store import (
+    InMemoryProvisionalMemoryStore,
+    ProvisionalMemoryCandidate,
+    ProvisionalMemoryEvent,
+    ProvisionalMemoryEventType,
+    ProvisionalMemoryKind,
+    ProvisionalMemoryRecord,
+    ProvisionalMemoryStatus,
+    ProvisionalSearchHit,
+    SqliteProvisionalMemoryStore,
+)
 from .sqlite_store import SqliteAtomStore
 from .store import (
     AtomStatus,
@@ -10,6 +21,7 @@ from .store import (
     MemoryAtom,
     ProvenanceEvent,
     ProvenanceLedger,
+    RawContextTurn,
     RecognitionRecord,
 )
 
@@ -22,8 +34,18 @@ __all__ = [
     "MutationProposal",
     "MutationReviewQueue",
     "ProposalStatus",
+    "ProvisionalMemoryCandidate",
+    "ProvisionalMemoryEvent",
+    "ProvisionalMemoryEventType",
+    "ProvisionalMemoryKind",
+    "ProvisionalMemoryRecord",
+    "ProvisionalMemoryStatus",
+    "ProvisionalSearchHit",
     "ProvenanceEvent",
     "ProvenanceLedger",
+    "RawContextTurn",
     "RecognitionRecord",
+    "InMemoryProvisionalMemoryStore",
     "SqliteAtomStore",
+    "SqliteProvisionalMemoryStore",
 ]

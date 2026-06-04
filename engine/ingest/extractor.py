@@ -56,6 +56,14 @@ _PROCEDURAL_TOKENS = {
     "checklist",
 }
 
+_MEMORY_CUE_TOKENS = {
+    "remember",
+    "remind",
+    "note",
+    "important",
+    "keep",
+}
+
 _TOPIC_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("memory", "memory"),
     ("remember", "memory"),
@@ -160,6 +168,8 @@ class DeterministicCandidateExtractor:
         tok = set(tokens)
         signals = 0
         if tok & _EMOTION_TOKENS:
+            signals += 1
+        if tok & _MEMORY_CUE_TOKENS:
             signals += 1
         if tok & _PREFERENCE_TOKENS:
             signals += 1

@@ -14,8 +14,8 @@ from engine.ingest import run_sqlite_import_job, write_import_report
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Import IA-style db.json archive into sqlite store.")
-    parser.add_argument("--input", required=True, help="Path to IA archive JSON (db.json)")
+    parser = argparse.ArgumentParser(description="Import source archive into sqlite store. IA db.json remains a supported input shape.")
+    parser.add_argument("--input", required=True, help="Path to IA archive JSON or other supported source input")
     parser.add_argument(
         "--store",
         default=str(REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3"),
@@ -52,4 +52,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

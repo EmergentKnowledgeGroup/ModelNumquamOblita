@@ -4,6 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ModelNumquamOblita Desktop</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./boot.css" />
   </head>
   <body>
@@ -17,11 +20,13 @@
             <div class="boot-status-row">
               <div id="bootStatus" class="boot-status booting" role="status" aria-live="polite">Starting</div>
               <div id="bootStatusReason" class="boot-status-reason"></div>
+              <button id="btnBootInlineRepair" type="button" class="ghost boot-inline-action visually-hidden">Repair it now</button>
             </div>
             <div id="bootStage" class="boot-stage" role="status" aria-live="polite">Preparing desktop shell.</div>
             <div id="bootError" class="boot-error visually-hidden" role="alert" aria-live="assertive"></div>
             <div class="boot-actions">
               <button id="btnBootPrimaryAction" type="button">Open setup</button>
+              <button id="btnBootOpenSetup" type="button" class="ghost">Open setup workspace</button>
               <button id="btnBootRestart" type="button" class="ghost">Restart runtime</button>
               <button id="btnBootStop" type="button" class="ghost">Stop runtime</button>
               <button id="btnBootOpenUi" type="button" class="ghost">Open browser fallback</button>
@@ -55,6 +60,18 @@
             <section class="boot-panel">
               <div class="boot-panel-title">Current paths</div>
               <div id="bootPaths" class="boot-paths" role="status" aria-live="polite"></div>
+            </section>
+            <section class="boot-panel">
+              <div class="boot-panel-title">assistant/agent / MCP</div>
+              <div class="boot-status-row boot-status-row-compact">
+                <div id="bootMcpStatus" class="boot-status stopped" role="status" aria-live="polite">Not installed</div>
+              </div>
+              <div id="bootMcpSummary" class="boot-status-reason">Not connected yet.</div>
+              <div id="bootMcpMode" class="boot-paths boot-paths-compact"></div>
+              <div id="bootMcpUrl" class="boot-paths boot-paths-compact"></div>
+              <div class="boot-link-row">
+                <button id="btnBootOpenMcpLogs" type="button" class="ghost">Open MCP logs</button>
+              </div>
             </section>
             <section class="boot-panel">
               <div class="boot-panel-title">Helpful shortcuts</div>

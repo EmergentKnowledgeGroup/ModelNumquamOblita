@@ -1,13 +1,13 @@
 :root {
   color-scheme: dark;
-  --bg-0: #04070d;
-  --bg-1: rgba(9, 18, 32, 0.94);
-  --bg-2: rgba(16, 28, 49, 0.9);
-  --bg-3: rgba(10, 19, 34, 0.88);
-  --line: rgba(133, 167, 217, 0.18);
-  --line-strong: rgba(242, 161, 76, 0.34);
-  --text-0: #f6f4ee;
-  --text-1: rgba(225, 232, 244, 0.76);
+  --bg-0: #06090f;
+  --bg-1: #0c1220;
+  --bg-2: #111a2b;
+  --bg-3: #172236;
+  --line: rgba(133, 167, 217, 0.14);
+  --line-strong: rgba(242, 161, 76, 0.55);
+  --text-0: #e8eaed;
+  --text-1: rgba(200, 212, 230, 0.68);
   --accent: #f2a14c;
   --accent-2: #6fd1bf;
   --warn: #ffcc7d;
@@ -15,11 +15,12 @@
   --shadow: 0 28px 90px rgba(0, 0, 0, 0.52);
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; }
 html, body { margin: 0; min-height: 100%; }
 body {
   min-height: 100vh;
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family: "Outfit", sans-serif;
   background:
     radial-gradient(700px 260px at 0% 0%, rgba(242, 161, 76, 0.18), transparent 68%),
     radial-gradient(900px 380px at 100% 0%, rgba(111, 209, 191, 0.12), transparent 74%),
@@ -59,7 +60,7 @@ body {
 }
 
 .boot-eyebrow {
-  font-family: 'Courier New', Courier, monospace;
+  font-family: "IBM Plex Mono", monospace;
   font-size: 0.72rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -68,6 +69,7 @@ body {
 
 h1 {
   margin: 0.7rem 0 0;
+  font-family: "DM Serif Display", serif;
   font-size: clamp(2.2rem, 5vw, 4.2rem);
   line-height: 0.94;
 }
@@ -88,13 +90,21 @@ h1 {
   align-items: center;
 }
 
+.boot-status-row-compact {
+  margin-top: 0.75rem;
+}
+
+.boot-inline-action {
+  min-width: 10.5rem;
+}
+
 .boot-status {
   display: inline-flex;
   min-height: 2.75rem;
   align-items: center;
   border-radius: 999px;
   padding: 0 1rem;
-  font-family: 'Courier New', Courier, monospace;
+  font-family: "IBM Plex Mono", monospace;
   font-size: 0.76rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -137,7 +147,7 @@ h1 {
 .boot-paths,
 .boot-error,
 .boot-warning {
-  font-family: 'Courier New', Courier, monospace;
+  font-family: "IBM Plex Mono", monospace;
   font-size: 0.82rem;
   line-height: 1.6;
 }
@@ -152,7 +162,7 @@ h1 {
 
 .boot-background-note-title,
 .boot-panel-title {
-  font-family: 'Courier New', Courier, monospace;
+  font-family: "IBM Plex Mono", monospace;
   font-size: 0.74rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -238,6 +248,31 @@ select {
 .boot-paths {
   display: grid;
   gap: 0.5rem;
+  max-height: 18rem;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.boot-paths-compact {
+  margin-top: 0.9rem;
+  max-height: 6rem;
+}
+
+.boot-path-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.boot-path-key {
+  color: var(--accent);
+}
+
+.boot-path-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .visually-hidden {

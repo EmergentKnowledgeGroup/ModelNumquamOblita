@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1860" height="1100" viewBox="0 0 1860 1100" role="img" aria-label="MNO Architecture - Build Pipeline">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="52" y="54" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="30" font-weight="800" fill="#1e293b">MNO Architecture - Build Pipeline</text>
+<text x="52" y="86" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#64748b">From messy local sources to reviewed runtime memory, with draft and truth boundaries visible.</text>
+<rect x="45" y="120" width="300" height="705" rx="14" fill="#fffaf0" stroke="#d9a441" stroke-width="2"/>
+<text x="65.0" y="154.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="20" font-weight="800" fill="#5f3b05">Source Staging</text>
+<rect x="390" y="120" width="330" height="705" rx="14" fill="#fff3eb" stroke="#d18a61" stroke-width="2"/>
+<text x="410.0" y="154.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="20" font-weight="800" fill="#5b2b16">Import And Evidence</text>
+<rect x="765" y="120" width="300" height="705" rx="14" fill="#f4fbef" stroke="#82b366" stroke-width="2"/>
+<text x="785.0" y="154.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="20" font-weight="800" fill="#244c1f">Draft Build</text>
+<rect x="1110" y="120" width="330" height="705" rx="14" fill="#fff1ef" stroke="#c8756d" stroke-width="2"/>
+<text x="1130.0" y="154.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="20" font-weight="800" fill="#612823">Human Review Gate</text>
+<rect x="1485" y="120" width="330" height="705" rx="14" fill="#f1f6ff" stroke="#7b9bd6" stroke-width="2"/>
+<text x="1505.0" y="154.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="20" font-weight="800" fill="#263967">Runtime Publication</text>
+<line x1="1088.0" y1="140.0" x2="1088.0" y2="805.0" stroke="#bb5b54" stroke-width="3" stroke-dasharray="10 8"/>
+<rect x="1093.0" y="779.0" width="158" height="24" rx="6" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1098.0" y="797.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="800" fill="#bb5b54">untrusted draft zone</text>
+<polyline points="315.0,219.0 370.0,219.0 370.0,205.8 425.0,205.8" fill="none" stroke="#b97818" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="315.0,617.2 365.0,617.0 365.0,241.0 425.0,241.0" fill="none" stroke="#b97818" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="555.0,263.0 555.0,345.0" fill="none" stroke="#b8693d" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="315.0,384.6 370.0,384.6 370.0,391.0 425.0,391.0" fill="none" stroke="#687989" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="555.0,437.0 555.0,585.0" fill="none" stroke="#4f83bd" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 8"/>
+<rect x="473.0" y="483.0" width="164" height="24" rx="6" fill="#ffffff" fill-opacity="0.92"/>
+<text x="555.0" y="501.0" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#334155">wording receipts</text>
+<polyline points="685.0,377.2 742.5,377.2 742.5,271.4 800.0,271.4" fill="none" stroke="#4f83bd" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="915.0,322.0 915.0,445.0" fill="none" stroke="#5f9d49" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 8"/>
+<polyline points="1030.0,280.6 1087.5,280.6 1087.5,273.2 1145.0,273.2" fill="none" stroke="#5f9d49" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="1030.0,480.0 1087.0,480.0 1087.0,495.0 1087.0,302.0 1145.0,302.0" fill="none" stroke="#8b5fbf" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="1275.0,326.0 1275.0,445.0" fill="none" stroke="#bb5b54" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="1405.0,481.4 1464.0,481.0 1464.0,297.0 1525.0,297.2" fill="none" stroke="#5f9d49" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="1650.0,326.0 1650.0,445.0" fill="none" stroke="#5f9d49" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="685.0,635.6 740.0,636.0 740.0,765.0 1505.0,765.0 1505.0,528.0 1525.0,528.2" fill="none" stroke="#4f83bd" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 8"/>
+<polyline points="1650.0,549.0 1650.0,640.0" fill="none" stroke="#5f78c8" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="75" y="175" width="240" height="88" rx="10" fill="#fff4db" stroke="#b97818" stroke-width="2"/>
+<g class="node-label"><text x="195.0" y="206.3" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="13" font-weight="500" fill="#1f2937">Raw exports and folders</text><text x="195.0" y="223.4" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="13" font-weight="500" fill="#1f2937">JSON, JSONL, TXT, MD, mixed</text><text x="195.0" y="240.6" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="13" font-weight="500" fill="#1f2937">archives</text></g>
+<rect x="75" y="345" width="240" height="88" rx="10" fill="#edf1f5" stroke="#687989" stroke-width="2"/>
+<g class="node-label"><text x="195.0" y="384.5" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2937">Existing MNO store</text><text x="195.0" y="403.0" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2937">append or reuse atoms.sqlite3</text></g>
+<rect x="75" y="585" width="240" height="92" rx="10" fill="#fff4db" stroke="#b97818" stroke-width="2"/>
+<g class="node-label"><text x="195.0" y="617.3" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2937">Picker-first staging</text><text x="195.0" y="635.8" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2937">source list, filters, setup</text><text x="195.0" y="654.2" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2937">workspace</text></g>
+<rect x="425" y="175" width="260" height="88" rx="10" fill="#fde8d6" stroke="#b8693d" stroke-width="2"/>
+<g class="node-label"><text x="555.0" y="213.9" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2937">Loader and normalizer</text><text x="555.0" y="235.0" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2937">clean turns, roles, timestamps</text></g>
+<rect x="425" y="345" width="260" height="92" rx="10" fill="#e7f3ff" stroke="#4f83bd" stroke-width="2"/>
+<g class="node-label"><text x="555.0" y="377.3" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2937">Atom writer</text><text x="555.0" y="395.8" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2937">small evidence units with</text><text x="555.0" y="414.2" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2937">provenance IDs</text></g>
+<rect x="425" y="585" width="260" height="92" rx="10" fill="#e7f3ff" stroke="#4f83bd" stroke-width="2"/>
+<g class="node-label"><text x="555.0" y="625.9" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2937">Raw-context sidecar</text><text x="555.0" y="647.0" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2937">read-only wording receipt lane</text></g>
+<rect x="800" y="230" width="230" height="92" rx="10" fill="#e6f4df" stroke="#5f9d49" stroke-width="2"/>
+<g class="node-label"><text x="915.0" y="262.3" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2937">Episode card builder</text><text x="915.0" y="280.8" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2937">draft event memory from</text><text x="915.0" y="299.2" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2937">atoms</text></g>
+<rect x="800" y="445" width="230" height="100" rx="10" fill="#f3e8ff" stroke="#8b5fbf" stroke-width="2"/>
+<g class="node-label"><text x="915.0" y="479.3" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2937">Optional assistant curation</text><text x="915.0" y="500.4" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2937">draft-only cleanup and</text><text x="915.0" y="521.6" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2937">grouping</text></g>
+<rect x="1145" y="230" width="260" height="96" rx="10" fill="#ffe6e3" stroke="#bb5b54" stroke-width="2"/>
+<g class="node-label"><text x="1275.0" y="272.9" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2937">Review pack and UI</text><text x="1275.0" y="294.0" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2937">approve, edit, reject, annotate</text></g>
+<rect x="1145" y="445" width="260" height="104" rx="10" fill="#ffe6e3" stroke="#bb5b54" stroke-width="2"/>
+<g class="node-label"><text x="1275.0" y="480.3" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="500" fill="#1f2937">Truth-lineage finalizer</text><text x="1275.0" y="502.8" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="500" fill="#1f2937">truth_family_id, current flag,</text><text x="1275.0" y="525.2" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="500" fill="#1f2937">supersedes</text></g>
+<rect x="1525" y="230" width="250" height="96" rx="10" fill="#e6f4df" stroke="#5f9d49" stroke-width="2"/>
+<g class="node-label"><text x="1650.0" y="272.6" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="500" fill="#1f2937">Compiled reviewed cards</text><text x="1650.0" y="295.0" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="500" fill="#1f2937">episode_cards.reviewed.json</text></g>
+<rect x="1525" y="445" width="250" height="104" rx="10" fill="#e8f0ff" stroke="#5f78c8" stroke-width="2"/>
+<g class="node-label"><text x="1650.0" y="480.3" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="500" fill="#1f2937">Runtime memory registry</text><text x="1650.0" y="502.8" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="500" fill="#1f2937">reviewed cards + atoms +</text><text x="1650.0" y="525.2" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="500" fill="#1f2937">quote lane</text></g>
+<rect x="1525" y="640" width="250" height="100" rx="10" fill="#f3e8ff" stroke="#8b5fbf" stroke-width="2"/>
+<g class="node-label"><text x="1650.0" y="674.3" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2937">Launch surfaces</text><text x="1650.0" y="695.4" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2937">desktop, headless HTTP, MCP,</text><text x="1650.0" y="716.6" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2937">integration-v1</text></g>
+<rect x="785" y="860" width="690" height="82" rx="10" fill="#fffbe8" stroke="#d6a21f" stroke-width="2"/>
+<g class="node-label"><text x="1130.0" y="896.5" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#1f2937">Draft boundary</text><text x="1130.0" y="915.0" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#1f2937">Assistant curation can improve drafts, but the review gate is the first authority-producing step.</text></g>
+<polygon points="425.0,205.8 414.2,211.1 414.2,200.5" fill="#b97818"/>
+<polygon points="425.0,241.0 414.2,246.3 414.2,235.7" fill="#b97818"/>
+<polygon points="555.0,345.0 549.7,334.2 560.3,334.2" fill="#b8693d"/>
+<polygon points="425.0,391.0 414.2,396.3 414.2,385.7" fill="#687989"/>
+<polygon points="555.0,585.0 549.7,574.2 560.3,574.2" fill="#4f83bd"/>
+<polygon points="800.0,271.4 789.2,276.7 789.2,266.1" fill="#4f83bd"/>
+<polygon points="915.0,445.0 909.7,434.2 920.3,434.2" fill="#5f9d49"/>
+<polygon points="1145.0,273.2 1134.2,278.5 1134.2,267.9" fill="#5f9d49"/>
+<polygon points="1145.0,302.0 1134.2,307.3 1134.2,296.7" fill="#8b5fbf"/>
+<polygon points="1275.0,445.0 1269.7,434.2 1280.3,434.2" fill="#bb5b54"/>
+<polygon points="1525.0,297.2 1514.2,302.4 1514.2,291.9" fill="#5f9d49"/>
+<polygon points="1650.0,445.0 1644.7,434.2 1655.3,434.2" fill="#5f9d49"/>
+<polygon points="1525.0,528.2 1514.2,533.4 1514.3,522.8" fill="#4f83bd"/>
+<polygon points="1650.0,640.0 1644.7,629.2 1655.3,629.2" fill="#5f78c8"/>
+<rect x="52.0" y="1023.0" width="18" height="18" rx="4" fill="#fff4db" stroke="#b97818" stroke-width="1.5"/>
+<text x="80.0" y="1038.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#5f3b05">source</text>
+<rect x="212.0" y="1023.0" width="18" height="18" rx="4" fill="#e7f3ff" stroke="#4f83bd" stroke-width="1.5"/>
+<text x="240.0" y="1038.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#213f5f">evidence</text>
+<rect x="372.0" y="1023.0" width="18" height="18" rx="4" fill="#e6f4df" stroke="#5f9d49" stroke-width="1.5"/>
+<text x="400.0" y="1038.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#244c1f">reviewed truth</text>
+<rect x="536.0" y="1023.0" width="18" height="18" rx="4" fill="#e8f0ff" stroke="#5f78c8" stroke-width="1.5"/>
+<text x="564.0" y="1038.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#263967">runtime</text>
+<rect x="696.0" y="1023.0" width="18" height="18" rx="4" fill="#f3e8ff" stroke="#8b5fbf" stroke-width="1.5"/>
+<text x="724.0" y="1038.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#3f285e">integration</text>
+<rect x="856.0" y="1023.0" width="18" height="18" rx="4" fill="#ffe6e3" stroke="#bb5b54" stroke-width="1.5"/>
+<text x="884.0" y="1038.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="700" fill="#612823">governance</text>
+</svg>

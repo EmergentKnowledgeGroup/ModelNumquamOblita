@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1550" height="900" viewBox="0 0 1550 900" role="img" aria-label="MNO Launch Pipeline">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="48" y="56" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="28" font-weight="800" fill="#243b53">MNO Launch Pipeline</text>
+<rect x="50" y="90" width="430" height="620" rx="10" fill="#fbf7f1" fill-opacity="0.58" stroke="#d9b37a" stroke-width="2"/>
+<text x="72" y="128" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="21" font-weight="800" fill="#243b53">Input And Build</text>
+<rect x="560" y="90" width="430" height="620" rx="10" fill="#f2f8ef" fill-opacity="0.58" stroke="#8eb184" stroke-width="2"/>
+<text x="582" y="128" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="21" font-weight="800" fill="#243b53">Review And Truth</text>
+<rect x="1070" y="90" width="430" height="620" rx="10" fill="#eef6fd" fill-opacity="0.58" stroke="#86a8cf" stroke-width="2"/>
+<text x="1092" y="128" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="21" font-weight="800" fill="#243b53">Runtime And Use</text>
+<polyline points="265.0,270.0 265.0,300.0 265.0,300.0 265.0,330.0" fill="none" stroke="#d6b656" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="265.0,430.0 265.0,460.0 265.0,460.0 265.0,490.0" fill="none" stroke="#c97b63" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="435.0,540.0 520.0,540.0 520.0,220.0 605.0,220.0" fill="none" stroke="#c97b63" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="775.0,270.0 775.0,300.0 775.0,300.0 775.0,330.0" fill="none" stroke="#b8549e" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="775.0,430.0 775.0,460.0 775.0,460.0 775.0,490.0" fill="none" stroke="#82b366" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="945.0,540.0 1030.0,540.0 1030.0,260.0 1115.0,260.0" fill="none" stroke="#82b366" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="1285.0,310.0 1285.0,370.0 1285.0,370.0 1285.0,430.0" fill="none" stroke="#6c8ebf" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="95" y="170" width="340" height="100" rx="9" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
+<text x="265.0" y="215.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="265.0" dy="0.0">Raw sources or existing store</tspan><tspan x="265.0" dy="22.3">files, folders, exports, atoms.sqlite3</tspan></text>
+<rect x="95" y="330" width="340" height="100" rx="9" fill="#fde9d9" stroke="#c97b63" stroke-width="2"/>
+<text x="265.0" y="364.5" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="265.0" dy="0.0">Import</tspan><tspan x="265.0" dy="22.3">normalize, sanitize, extract evidence</tspan><tspan x="265.0" dy="22.3">atoms</tspan></text>
+<rect x="95" y="490" width="340" height="100" rx="9" fill="#fde9d9" stroke="#c97b63" stroke-width="2"/>
+<text x="265.0" y="535.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="265.0" dy="0.0">Draft episode cards</tspan><tspan x="265.0" dy="22.3">rough memory, not trusted yet</tspan></text>
+<rect x="605" y="170" width="340" height="100" rx="9" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>
+<text x="775.0" y="215.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="775.0" dy="0.0">Optional agent curation</tspan><tspan x="775.0" dy="22.3">draft-only cleanup</tspan></text>
+<rect x="605" y="330" width="340" height="100" rx="9" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+<text x="775.0" y="375.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="775.0" dy="0.0">Human review</tspan><tspan x="775.0" dy="22.3">approve, edit, reject, annotate lineage</tspan></text>
+<rect x="605" y="490" width="340" height="100" rx="9" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+<text x="775.0" y="524.5" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="775.0" dy="0.0">Reviewed cards</tspan><tspan x="775.0" dy="22.3">trusted event memory + correction</tspan><tspan x="775.0" dy="22.3">lineage</tspan></text>
+<rect x="1115" y="210" width="340" height="100" rx="9" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+<text x="1285.0" y="244.5" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="1285.0" dy="0.0">Launch runtime</tspan><tspan x="1285.0" dy="22.3">desktop, headless, integration-v1,</tspan><tspan x="1285.0" dy="22.3">MCP</tspan></text>
+<rect x="1115" y="430" width="340" height="120" rx="9" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+<text x="1285.0" y="474.5" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="1285.0" dy="0.0">Runtime memory sources</tspan><tspan x="1285.0" dy="22.3">reviewed cards + atoms + quote lane</tspan><tspan x="1285.0" dy="22.3">+ helpers</tspan></text>
+<rect x="310" y="760" width="930" height="96" rx="9" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
+<text x="775.0" y="803.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="775.0" dy="0.0">Key rule</tspan><tspan x="775.0" dy="22.3">reviewed cards become trusted runtime memory; helpers and receipts do not replace review</tspan></text>
+<polygon points="265.0,330.0 259.7,319.2 270.3,319.2" fill="#d6b656"/>
+<polygon points="265.0,490.0 259.7,479.2 270.3,479.2" fill="#c97b63"/>
+<polygon points="605.0,220.0 594.2,225.3 594.2,214.7" fill="#c97b63"/>
+<polygon points="775.0,330.0 769.7,319.2 780.3,319.2" fill="#b8549e"/>
+<polygon points="775.0,490.0 769.7,479.2 780.3,479.2" fill="#82b366"/>
+<polygon points="1115.0,260.0 1104.2,265.3 1104.2,254.7" fill="#82b366"/>
+<polygon points="1285.0,430.0 1279.7,419.2 1290.3,419.2" fill="#6c8ebf"/>
+</svg>

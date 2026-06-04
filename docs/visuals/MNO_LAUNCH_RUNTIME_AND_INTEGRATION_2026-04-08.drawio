@@ -1,0 +1,135 @@
+<mxfile host="app.diagrams.net" modified="2026-04-08T12:05:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="launch-runtime-engineering" name="Engineering Runtime And Integration">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="rl1" value="Entry Surfaces" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="20" y="20" width="260" height="760" as="geometry"/>
+        </mxCell>
+        <mxCell id="rl2" value="Memory Layers" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#eaf7ea;strokeColor=#63a35c;" vertex="1" parent="1">
+          <mxGeometry x="310" y="20" width="330" height="760" as="geometry"/>
+        </mxCell>
+        <mxCell id="rl3" value="Retrieval And Decision" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#e8f0fe;strokeColor=#5b8def;" vertex="1" parent="1">
+          <mxGeometry x="670" y="20" width="360" height="760" as="geometry"/>
+        </mxCell>
+        <mxCell id="rl4" value="Outputs And Writeback" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
+          <mxGeometry x="1060" y="20" width="320" height="760" as="geometry"/>
+        </mxCell>
+        <mxCell id="r1" value="Desktop&#xa;Operator UI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="50" y="80" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="r0" value="Guided setup workspace&#xa;one-click setup and target picker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="50" y="430" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="r2" value="integration-v1&#xa;Main public orchestration contract" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="50" y="165" width="200" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="r3" value="MCP&#xa;Tool-driven local agent path" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="50" y="260" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="r4" value="Adapters&#xa;reference / openclaw / nanobot" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="50" y="345" width="200" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="r5" value="STM&#xa;short-term session state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="345" y="80" width="260" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="r6" value="Provisional memory&#xa;lower-trust runtime capture" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="345" y="165" width="260" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="r7" value="Continuity surfaces&#xa;pins / action log / wake-up / resume / feedback" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="345" y="250" width="260" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="r8" value="Reviewed episode cards&#xa;trusted event-memory layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="345" y="350" width="260" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="r9" value="Atoms + bounded ANN helper&#xa;durable evidence + additive candidate helper" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="345" y="450" width="260" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="r10" value="Router + query shaping" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="720" y="90" width="260" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="r11" value="Fusion + guarded shortlist" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="720" y="190" width="260" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="r12" value="Evidence pack&#xa;bounded memory/context bundle" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="720" y="290" width="260" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="r13" value="Responder + verifier" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="720" y="390" width="260" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="r14" value="Response&#xa;answer / abstain / ask to clarify" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="110" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="r15" value="Proposal-only writeback&#xa;never silent truth mutation" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="230" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="r16" value="Human/operator resolve&#xa;review queue stays authoritative" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="340" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="re1" edge="1" parent="1" source="r1" target="r10" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re0" edge="1" parent="1" source="r0" target="r1" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re2" edge="1" parent="1" source="r2" target="r10" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re3" edge="1" parent="1" source="r3" target="r10" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re4" edge="1" parent="1" source="r4" target="r10" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re5" edge="1" parent="1" source="r5" target="r11" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re6" edge="1" parent="1" source="r6" target="r11" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re7" edge="1" parent="1" source="r7" target="r11" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re8" edge="1" parent="1" source="r8" target="r11" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re9" edge="1" parent="1" source="r9" target="r11" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re10" edge="1" parent="1" source="r10" target="r11" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re11" edge="1" parent="1" source="r11" target="r12" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re12" edge="1" parent="1" source="r12" target="r13" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re13" edge="1" parent="1" source="r13" target="r14" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re14" edge="1" parent="1" source="r13" target="r15" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re15" edge="1" parent="1" source="r15" target="r16" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="launch-runtime-caveman" name="Caveman Runtime And Integration">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="cv1" value="1. Agent or user asks MNO for memory help." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="90" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="cv0" value="You can also click one starter file.&#xa;That opens the setup workspace." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="60" y="190" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="cv2" value="2. MNO checks STM.&#xa;STM = short-term memory for this session." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="360" y="90" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="cv3" value="3. MNO checks trusted memory and evidence.&#xa;Reviewed cards + atoms + helper layers." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="660" y="90" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="cv4" value="4. ANN helper finds nearby candidates.&#xa;ANN = approximate nearest neighbor." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="980" y="90" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="cv5" value="5. MNO builds a bounded evidence bundle." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="210" y="270" width="260" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="cv6" value="6. Model answers, abstains, or asks for clarification." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="530" y="270" width="280" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="cv7" value="7. New memory goes to proposal lane only.&#xa;It does not jump straight into truth." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
+          <mxGeometry x="870" y="270" width="300" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="cv8" value="8. Human or operator decides what becomes truth." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
+          <mxGeometry x="450" y="430" width="320" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="cv9" value="Acronyms&#xa;MCP = Model Context Protocol&#xa;STM = short-term memory&#xa;ANN = approximate nearest neighbor" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="455" y="560" width="310" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="cve1" edge="1" parent="1" source="cv1" target="cv2" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="cve0" edge="1" parent="1" source="cv0" target="cv1" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="cve2" edge="1" parent="1" source="cv2" target="cv3" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="cve3" edge="1" parent="1" source="cv3" target="cv4" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="cve4" edge="1" parent="1" source="cv4" target="cv5" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="cve5" edge="1" parent="1" source="cv5" target="cv6" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="cve6" edge="1" parent="1" source="cv6" target="cv7" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="cve7" edge="1" parent="1" source="cv7" target="cv8" style="endArrow=block;html=1;rounded=0;"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

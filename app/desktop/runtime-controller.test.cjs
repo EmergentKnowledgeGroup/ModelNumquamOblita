@@ -7,6 +7,8 @@ const {
   assessExistingRuntime,
   buildExpectedBinding,
   buildRuntimeLaunchPlan,
+  resolveWindowsGuiPythonCommand,
+  buildWindowsDetachedRuntimeLauncher,
   buildRuntimeSpawnOptions,
   collectMissingArtifacts,
   defaultShellPreferences,
@@ -21,6 +23,7 @@ const {
   parseRuntimeStdoutLine,
   parseShellCliArgs,
   normalizeRuntimePort,
+  normalizePlatformPath,
   readRuntimeLock,
   resolveShellPaths,
   runtimeHealthMatchesExpected,
@@ -37,9 +40,9 @@ const { EventEmitter } = require('node:events');
 
 function makeWizardState(overrides = {}) {
   return {
-    selected_input: { kind: 'ia_archive', is_valid: true, path: '/tmp/archive.json' },
+    selected_input: { kind: 'source_input', is_valid: true, path: '/tmp/archive.json' },
     store_validation: {
-      kind: 'sqlite_store',
+      kind: 'mno_store_sqlite',
       is_valid: true,
       path: '/tmp/store.sqlite3',
       store_fingerprint: 'store_fingerprint_v1',
@@ -116,6 +119,42 @@ test('buildRuntimeLaunchPlan supports setup mode with explicit setup store', () 
   assert.ok(plan.args.includes(path.resolve('/repo/runtime/desktop_shell/setup.sqlite3')));
 });
 
+test('normalizePlatformPath converts WSL mount paths into native Windows paths', () => {
+  assert.equal(
+    normalizePlatformPath('/mnt/z/mno-workspace/runtime/imports/atoms.sqlite3', { platform: 'win32' }),
+    'Z:\\mno-workspace\\runtime\\imports\\atoms.sqlite3',
+  );
+  assert.equal(
+    normalizePlatformPath('Z:\\mnt\\z\\mno-workspace\\runtime\\imports\\atoms.sqlite3', { platform: 'win32' }),
+    'Z:\\mno-workspace\\runtime\\imports\\atoms.sqlite3',
+  );
+  assert.equal(
+    normalizePlatformPath('Z:\\mno-workspace\\runtime\\episodes\\episode_cards.reviewed.json', { platform: 'win32' }),
+    'Z:\\mno-workspace\\runtime\\episodes\\episode_cards.reviewed.json',
+  );
+});
+
+test('buildRuntimeLaunchPlan normalizes WSL-authored wizard paths on Windows', () => {
+  const manifest = sanitizeRuntimeBundleManifest({
+    schema: 'modelnumquamoblita.desktop.runtime_bundle.v1',
+    bundle_mode: 'python_entrypoint',
+    runtime_version: '0.1.0',
+    allowed_app_versions: ['0.1.0'],
+    entrypoint: 'tools/run_live_runtime.py',
+    python_commands: { default: 'python' },
+  }, { appVersion: '0.1.0' });
+  const plan = buildRuntimeLaunchPlan({
+    repoRoot: 'Z:\\mno-workspace',
+    runtimeManifest: manifest,
+    platform: 'win32',
+    memories: '/mnt/z/mno-workspace/runtime/imports/atoms.sqlite3',
+    episodes: '/mnt/z/mno-workspace/runtime/episodes/episode_cards.reviewed.json',
+  });
+  assert.ok(plan.args.includes('Z:\\mno-workspace\\runtime\\imports\\atoms.sqlite3'));
+  assert.ok(plan.args.includes('Z:\\mno-workspace\\runtime\\episodes\\episode_cards.reviewed.json'));
+  assert.equal(plan.args.includes('Z:\\mnt\\z\\mno-workspace\\runtime\\imports\\atoms.sqlite3'), false);
+});
+
 test('normalizeRuntimePort accepts only integer ports inside the TCP range', () => {
   assert.equal(normalizeRuntimePort('8450'), 8450);
   assert.equal(normalizeRuntimePort(7340.9), 7340);
@@ -140,6 +179,29 @@ test('buildRuntimeLaunchPlan resolves bundled Python relative to repo root when 
   }, { appVersion: '0.1.0' });
   const plan = buildRuntimeLaunchPlan({ repoRoot, runtimeManifest: manifest });
   assert.equal(plan.command, bundledPython);
+});
+
+test('buildRuntimeLaunchPlan falls back to versioned bundled Python when python3 is an empty shim', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mno-bundled-python-versioned-'));
+  const repoRoot = path.join(tmpDir, 'repo');
+  const bundledPython = path.join(repoRoot, 'runtime', 'python', 'bin', 'python3');
+  const versionedPython = path.join(repoRoot, 'runtime', 'python', 'bin', 'python3.12');
+  const entrypoint = path.join(repoRoot, 'tools', 'run_live_runtime.py');
+  fs.mkdirSync(path.dirname(bundledPython), { recursive: true });
+  fs.mkdirSync(path.dirname(entrypoint), { recursive: true });
+  fs.writeFileSync(bundledPython, '', 'utf8');
+  fs.writeFileSync(versionedPython, '#!/bin/sh\n', 'utf8');
+  fs.writeFileSync(entrypoint, '#!/usr/bin/env python3\n', 'utf8');
+  const manifest = sanitizeRuntimeBundleManifest({
+    schema: 'modelnumquamoblita.desktop.runtime_bundle.v1',
+    bundle_mode: 'python_entrypoint',
+    runtime_version: 'cpython-3.12.13+20260303',
+    allowed_app_versions: ['0.1.0'],
+    entrypoint: 'tools/run_live_runtime.py',
+    python_commands: { default: 'runtime/python/bin/python3' },
+  }, { appVersion: '0.1.0' });
+  const plan = buildRuntimeLaunchPlan({ repoRoot, runtimeManifest: manifest, requireBundledRuntime: true });
+  assert.equal(plan.command, versionedPython);
 });
 
 test('buildRuntimeLaunchPlan refuses packaged startup when bundled Python is required but missing', () => {
@@ -215,13 +277,50 @@ test('sanitizeRuntimeBundleManifest enforces executable bundle metadata', () => 
   );
 });
 
-test('buildRuntimeSpawnOptions enforces no-shell launch and windows hide on win32', () => {
-  const options = buildRuntimeSpawnOptions({ cwd: '/repo', env: { BASE: '1' }, platform: 'win32' });
+test('buildRuntimeSpawnOptions keeps no-shell launch, accepts custom stdio, and hides windows on win32', () => {
+  const options = buildRuntimeSpawnOptions({
+    cwd: '/repo',
+    env: { BASE: '1' },
+    platform: 'win32',
+    stdio: ['ignore', 11, 12],
+  });
   assert.equal(options.cwd, '/repo');
   assert.equal(options.shell, false);
+  assert.equal(options.detached, false);
   assert.equal(options.windowsHide, true);
+  assert.deepEqual(options.stdio, ['ignore', 11, 12]);
   assert.equal(options.env.BASE, '1');
   assert.equal(options.env.PYTHONUNBUFFERED, '1');
+});
+
+test('buildWindowsDetachedRuntimeLauncher wraps the runtime command in Start-Process', () => {
+  const launcher = buildWindowsDetachedRuntimeLauncher({
+    command: 'python',
+    args: ['Z:\\mno-workspace\\tools\\run_live_runtime.py', '--port', '7340'],
+    cwd: 'Z:\\mno-workspace',
+    stdoutPath: 'Z:\\mno-workspace\\runtime\\desktop_shell\\runtime.stdout.log',
+    stderrPath: 'Z:\\mno-workspace\\runtime\\desktop_shell\\runtime.stderr.log',
+  });
+  assert.equal(launcher.command, 'powershell.exe');
+  assert.equal(launcher.args[0], '-NoProfile');
+  assert.equal(launcher.args[3], '-WindowStyle');
+  assert.equal(launcher.args[4], 'Hidden');
+  assert.equal(launcher.args[5], '-Command');
+  assert.match(launcher.args[6], /Start-Process @startArgs -PassThru/);
+  assert.match(launcher.args[6], /launched_pid=/);
+  assert.match(launcher.args[6], /WorkingDirectory/);
+  assert.match(launcher.args[6], /RedirectStandardOutput/);
+  assert.match(launcher.args[6], /RedirectStandardError/);
+  assert.match(launcher.args[6], /run_live_runtime\.py/);
+});
+
+test('resolveWindowsGuiPythonCommand prefers pythonw.exe when it is present', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mno-pythonw-'));
+  const pythonExe = path.join(tmpDir, 'python.exe');
+  const pythonwExe = path.join(tmpDir, 'pythonw.exe');
+  fs.writeFileSync(pythonExe, '', 'utf8');
+  fs.writeFileSync(pythonwExe, '', 'utf8');
+  assert.equal(resolveWindowsGuiPythonCommand(pythonExe), pythonwExe);
 });
 
 test('parseRuntimeStdoutLine accepts key-value output only', () => {
@@ -237,21 +336,26 @@ test('hydratedRuntimeUrl only returns a runtime URL for live health payloads', (
 
 test('resolveShellPaths keeps runtime folders anchored to repo root', () => {
   const paths = resolveShellPaths('/repo');
-  assert.equal(paths.repoRoot, '/repo');
-  assert.equal(paths.runtimeRoot, '/repo/runtime');
-  assert.equal(paths.wizardRunsRoot, '/repo/runtime/wizard_runs');
-  assert.equal(paths.publishedSetsRoot, '/repo/runtime/episodes');
-  assert.equal(paths.desktopShellRoot, '/repo/runtime/desktop_shell');
-  assert.equal(paths.desktopPreferencesPath, '/repo/runtime/desktop_shell/preferences.json');
+  const repoRoot = path.resolve('/repo');
+  const runtimeRoot = path.join(repoRoot, 'runtime');
+  const desktopShellRoot = path.join(runtimeRoot, 'desktop_shell');
+  assert.equal(paths.repoRoot, repoRoot);
+  assert.equal(paths.runtimeRoot, runtimeRoot);
+  assert.equal(paths.wizardRunsRoot, path.join(runtimeRoot, 'wizard_runs'));
+  assert.equal(paths.publishedSetsRoot, path.join(runtimeRoot, 'episodes'));
+  assert.equal(paths.desktopShellRoot, desktopShellRoot);
+  assert.equal(paths.desktopPreferencesPath, path.join(desktopShellRoot, 'preferences.json'));
 });
 
 test('resolveShellPaths can split immutable repo assets from per-user runtime state', () => {
   const paths = resolveShellPaths('/repo', { dataRoot: '/user/state/runtime' });
-  assert.equal(paths.repoRoot, '/repo');
-  assert.equal(paths.runtimeRoot, '/user/state/runtime');
-  assert.equal(paths.wizardRunsRoot, '/user/state/runtime/wizard_runs');
-  assert.equal(paths.publishedSetsRoot, '/user/state/runtime/episodes');
-  assert.equal(paths.desktopShellRoot, '/user/state/runtime/desktop_shell');
+  const repoRoot = path.resolve('/repo');
+  const runtimeRoot = path.resolve('/user/state/runtime');
+  assert.equal(paths.repoRoot, repoRoot);
+  assert.equal(paths.runtimeRoot, runtimeRoot);
+  assert.equal(paths.wizardRunsRoot, path.join(runtimeRoot, 'wizard_runs'));
+  assert.equal(paths.publishedSetsRoot, path.join(runtimeRoot, 'episodes'));
+  assert.equal(paths.desktopShellRoot, path.join(runtimeRoot, 'desktop_shell'));
 });
 
 test('sanitizeShellPreferences clamps invalid values back to safe defaults', () => {
@@ -330,11 +434,44 @@ test('loadRuntimeBundleManifest can resolve the shell-local manifest path for pa
 
 test('buildExpectedBinding extracts the published runtime identity from wizard state', () => {
   const binding = buildExpectedBinding(makeWizardState());
-  assert.equal(binding.store_path, '/tmp/store.sqlite3');
+  assert.equal(binding.store_path, normalizePlatformPath('/tmp/store.sqlite3'));
   assert.equal(binding.store_fingerprint, 'store_fingerprint_v1');
-  assert.equal(binding.episodes_path, '/tmp/episode_cards.reviewed.json');
+  assert.equal(binding.episodes_path, normalizePlatformPath('/tmp/episode_cards.reviewed.json'));
   assert.equal(binding.build_id, 'build_123');
   assert.equal(binding.artifact_mode, 'published');
+});
+
+test('buildExpectedBinding normalizes WSL-authored wizard paths for Windows shells', () => {
+  const binding = buildExpectedBinding(makeWizardState({
+    store_validation: {
+      kind: 'mno_store_sqlite',
+      is_valid: true,
+      path: '/mnt/z/mno-workspace/runtime/imports/atoms.sqlite3',
+      store_fingerprint: 'store_fingerprint_v1',
+    },
+    published_set: {
+      episodes_path: '/mnt/z/mno-workspace/runtime/episodes/episode_cards.reviewed.json',
+      build_id: 'build_123',
+    },
+  }), { platform: 'win32' });
+  assert.equal(binding.store_path, 'Z:\\mno-workspace\\runtime\\imports\\atoms.sqlite3');
+  assert.equal(binding.episodes_path, 'Z:\\mno-workspace\\runtime\\episodes\\episode_cards.reviewed.json');
+});
+
+test('buildExpectedBinding collapses already-mangled Windows mount paths for Windows shells', () => {
+  const binding = buildExpectedBinding(makeWizardState({
+    store_validation: {
+      kind: 'mno_store_sqlite',
+      is_valid: true,
+      path: 'Z:\\mnt\\z\\mno-workspace\\runtime\\imports\\atoms.sqlite3',
+      store_fingerprint: 'store_fingerprint_v1',
+    },
+    published_set: {
+      episodes_path: 'Z:\\mno-workspace\\runtime\\episodes\\episode_cards.reviewed.json',
+      build_id: 'build_123',
+    },
+  }), { platform: 'win32' });
+  assert.equal(binding.store_path, 'Z:\\mno-workspace\\runtime\\imports\\atoms.sqlite3');
 });
 
 test('summarizeRuntimeLock distinguishes matching live, foreign live, and stale locks', () => {
@@ -358,6 +495,35 @@ test('summarizeRuntimeLock distinguishes matching live, foreign live, and stale 
   assert.equal(stale.status, 'stale');
 });
 
+test('summarizeRuntimeLock matches Windows runtime lock paths against WSL-authored wizard bindings', () => {
+  const matching = summarizeRuntimeLock({
+    pid: 120,
+    host: '127.0.0.1',
+    port: 7340,
+    store_path: 'Z:\\mno-workspace\\runtime\\imports\\atoms.sqlite3',
+    store_fingerprint: 'store_fingerprint_v1',
+    episodes_path: 'Z:\\mno-workspace\\runtime\\episodes\\episode_cards.reviewed.json',
+  }, {
+    expectedBinding: buildExpectedBinding(makeWizardState({
+      store_validation: {
+        kind: 'mno_store_sqlite',
+        is_valid: true,
+        path: '/mnt/z/mno-workspace/runtime/imports/atoms.sqlite3',
+        store_fingerprint: 'store_fingerprint_v1',
+      },
+      published_set: {
+        episodes_path: '/mnt/z/mno-workspace/runtime/episodes/episode_cards.reviewed.json',
+        build_id: 'build_123',
+      },
+    }), { platform: 'win32' }),
+    expectedHost: '127.0.0.1',
+    expectedPort: 7340,
+    pidProbeImpl: () => true,
+    platform: 'win32',
+  });
+  assert.equal(matching.status, 'matching_live');
+});
+
 test('deriveShellStartupState returns setup_required when no wizard state exists', () => {
   const state = deriveShellStartupState();
   assert.equal(state.status, 'setup_required');
@@ -371,7 +537,7 @@ test('deriveShellStartupState returns degraded when artifacts are missing or rem
     wizardRunId: 'wizard_1',
     wizardState: makeWizardState({
       verify: { status: 'Blocked', remap_required: true },
-      selected_input: { kind: 'ia_archive', is_valid: true, path: '/tmp/missing_archive.json' },
+      selected_input: { kind: 'source_input', is_valid: true, path: '/tmp/missing_archive.json' },
     }),
     preferences: defaultShellPreferences(),
   });
@@ -390,8 +556,8 @@ test('deriveShellStartupState returns stopped for ready config with manual-start
   const state = deriveShellStartupState({
     wizardRunId: 'wizard_2',
     wizardState: makeWizardState({
-      selected_input: { kind: 'ia_archive', is_valid: true, path: archive },
-      store_validation: { kind: 'sqlite_store', is_valid: true, path: store, store_fingerprint: 'store_fingerprint_v1' },
+      selected_input: { kind: 'source_input', is_valid: true, path: archive },
+      store_validation: { kind: 'mno_store_sqlite', is_valid: true, path: store, store_fingerprint: 'store_fingerprint_v1' },
       published_set: { episodes_path: cards, build_id: 'build_123' },
       verify: { status: 'Safe', remap_required: false },
     }),
@@ -414,8 +580,8 @@ test('deriveShellStartupState does not manufacture a runtime URL for stopped she
   const state = deriveShellStartupState({
     wizardRunId: 'wizard_stopped',
     wizardState: makeWizardState({
-      selected_input: { kind: 'ia_archive', is_valid: true, path: archive },
-      store_validation: { kind: 'sqlite_store', is_valid: true, path: store, store_fingerprint: 'store_fingerprint_v1' },
+      selected_input: { kind: 'source_input', is_valid: true, path: archive },
+      store_validation: { kind: 'mno_store_sqlite', is_valid: true, path: store, store_fingerprint: 'store_fingerprint_v1' },
       published_set: { episodes_path: cards, build_id: 'build_123' },
       verify: { status: 'Safe', remap_required: false },
     }),
@@ -433,8 +599,8 @@ test('deriveShellStartupState preserves the live runtime URL when health is pres
     fs.writeFileSync(filePath, '{}\n', 'utf8');
   }
   const expected = makeWizardState({
-    selected_input: { kind: 'ia_archive', is_valid: true, path: archive },
-    store_validation: { kind: 'sqlite_store', is_valid: true, path: store, store_fingerprint: 'store_fingerprint_v1' },
+    selected_input: { kind: 'source_input', is_valid: true, path: archive },
+    store_validation: { kind: 'mno_store_sqlite', is_valid: true, path: store, store_fingerprint: 'store_fingerprint_v1' },
     published_set: { episodes_path: cards, build_id: 'build_123' },
     verify: { status: 'Safe', remap_required: false },
   });
@@ -462,8 +628,8 @@ test('deriveShellStartupState returns degraded for stale locks even when config 
   const state = deriveShellStartupState({
     wizardRunId: 'wizard_3',
     wizardState: makeWizardState({
-      selected_input: { kind: 'ia_archive', is_valid: true, path: archive },
-      store_validation: { kind: 'sqlite_store', is_valid: true, path: store, store_fingerprint: 'store_fingerprint_v1' },
+      selected_input: { kind: 'source_input', is_valid: true, path: archive },
+      store_validation: { kind: 'mno_store_sqlite', is_valid: true, path: store, store_fingerprint: 'store_fingerprint_v1' },
       published_set: { episodes_path: cards, build_id: 'build_123' },
       verify: { status: 'Safe', remap_required: false },
     }),
@@ -519,6 +685,37 @@ test('runtimeHealthMatchesExpected requires runtime identity, version, and bindi
   assert.equal(setupMatch, true);
 });
 
+test('runtimeHealthMatchesExpected normalizes Windows runtime health against WSL-authored expected binding', () => {
+  const expected = buildExpectedBinding(makeWizardState({
+    store_validation: {
+      kind: 'mno_store_sqlite',
+      is_valid: true,
+      path: '/mnt/z/mno-workspace/runtime/imports/atoms.sqlite3',
+      store_fingerprint: 'store_fingerprint_v1',
+    },
+    published_set: {
+      episodes_path: '/mnt/z/mno-workspace/runtime/episodes/episode_cards.reviewed.json',
+      build_id: 'build_123',
+    },
+  }), { platform: 'win32' });
+  const ok = runtimeHealthMatchesExpected({
+    service: 'modelnumquamoblita-runtime',
+    runtime_version: '0.1.0',
+    runtime_url: 'http://127.0.0.1:7340',
+    binding: {
+      ...expected,
+      store_path: 'Z:\\mno-workspace\\runtime\\imports\\atoms.sqlite3',
+      episodes_path: 'Z:\\mno-workspace\\runtime\\episodes\\episode_cards.reviewed.json',
+    },
+  }, {
+    expectedBinding: expected,
+    expectedRuntimeVersion: '0.1.0',
+    expectedRuntimeUrl: 'http://127.0.0.1:7340',
+    platform: 'win32',
+  });
+  assert.equal(ok, true);
+});
+
 test('assessExistingRuntime reattaches only to a fully matching runtime', () => {
   const expected = buildExpectedBinding(makeWizardState());
   const attach = assessExistingRuntime({
@@ -570,11 +767,32 @@ test('loadLatestWizardState resolves latest wizard run from disk', () => {
 test('collectMissingArtifacts lists missing published artifacts without lying about existing ones', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mno-missing-artifacts-'));
   const rows = collectMissingArtifacts(makeWizardState({
-    selected_input: { kind: 'ia_archive', is_valid: true, path: path.join(tmpDir, 'missing_archive.json') },
-    store_validation: { kind: 'sqlite_store', is_valid: true, path: path.join(tmpDir, 'missing_store.sqlite3'), store_fingerprint: 'store_fingerprint_v1' },
+    selected_input: { kind: 'source_input', is_valid: true, path: path.join(tmpDir, 'missing_archive.json') },
+    store_validation: { kind: 'mno_store_sqlite', is_valid: true, path: path.join(tmpDir, 'missing_store.sqlite3'), store_fingerprint: 'store_fingerprint_v1' },
     published_set: { episodes_path: path.join(tmpDir, 'missing.reviewed.json'), build_id: 'build_123' },
   }));
   assert.deepEqual(rows.map((row) => row.target).sort(), ['published_set', 'selected_input', 'store_validation']);
+});
+
+test('deriveShellStartupState accepts actual wizard-emitted MNO store kinds', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mno-shell-store-kind-'));
+  const archive = path.join(tmpDir, 'archive.json');
+  const store = path.join(tmpDir, 'store.sqlite3');
+  const cards = path.join(tmpDir, 'cards.reviewed.json');
+  for (const filePath of [archive, store, cards]) {
+    fs.writeFileSync(filePath, '{}\n', 'utf8');
+  }
+  const state = deriveShellStartupState({
+    wizardRunId: 'wizard_kind_real',
+    wizardState: makeWizardState({
+      selected_input: { kind: 'source_input', is_valid: true, path: archive },
+      store_validation: { kind: 'mno_store_sqlite', is_valid: true, path: store, store_fingerprint: 'store_fingerprint_v1' },
+      published_set: { episodes_path: cards, build_id: 'build_123' },
+      verify: { status: 'Safe', remap_required: false },
+    }),
+  });
+  assert.equal(state.readyConfiguration, true);
+  assert.equal(state.status, 'stopped');
 });
 
 test('waitForRuntimeReady retries until health responds ok', async () => {

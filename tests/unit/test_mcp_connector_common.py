@@ -27,32 +27,47 @@ def test_build_posix_and_windows_entries_are_stable(tmp_path: Path) -> None:
 
     posix = module.build_posix_stdio_entry(
         python_path="python3",
-        launcher_path="/mnt/z/openaidata/numquamoblita/tools/run_claude_live_mcp.py",
+        launcher_path="/mnt/z/mno-workspace/tools/run_claude_live_mcp.py",
         memories_path=str(memories),
         episodes_path=str(episodes),
         default_role="viewer",
         compat_mode="strict",
         mutations_enabled=True,
     )
+    assert posix["type"] == "stdio"
     assert posix["command"] == "python3"
+    assert posix["env"] == {}
     assert posix["args"][0].endswith("/tools/run_claude_live_mcp.py")
     assert "--mutations-enabled" in posix["args"]
     assert str(memories) in posix["args"]
 
+    class _Proc:
+        def __init__(self, stdout: str):
+            self.returncode = 0
+            self.stdout = stdout
+            self.stderr = ""
+
+    def _runner(cmd, **_kwargs):
+        return _Proc(f"/converted/{Path(str(cmd[-1])).name}\n")
+
     windows = module.build_windows_wsl_stdio_entry(
-        repo_root=Path("/mnt/z/openaidata/numquamoblita"),
+        repo_root="/mnt/z/mno-workspace",
         memories_path=memories,
         episodes_path=episodes,
         default_role="viewer",
         compat_mode="strict",
         mutations_enabled=False,
         distro_name="Ubuntu-24.04",
+        runner=_runner,
     )
+    assert windows["type"] == "stdio"
     assert windows["command"] == r"C:\Windows\System32\wsl.exe"
-    assert windows["args"][:4] == ["-d", "Ubuntu-24.04", "--cd", "/mnt/z/openaidata/numquamoblita"]
+    assert windows["env"] == {}
+    assert windows["args"][:4] == ["-d", "Ubuntu-24.04", "--cd", "/mnt/z/mno-workspace"]
     assert windows["args"][4:6] == ["--exec", "python3"]
     assert "tools/run_claude_live_mcp.py" in windows["args"]
-    assert str(memories) in windows["args"]
+    expected_memories = str(memories) if str(memories).startswith("/") else "/converted/demo.sqlite3"
+    assert expected_memories in windows["args"]
 
 
 def test_unc_wsl_paths_convert_without_shelling_out() -> None:
@@ -72,15 +87,15 @@ def test_windows_drive_paths_convert_through_wslpath_runner() -> None:
             self.stderr = ""
 
     def _runner(cmd, **_kwargs):
-        assert cmd[-2:] == ["-a", "Z:/openaidata/NumquamOblita/runtime/stores/claude_no.sqlite3"]
-        return _Proc("/mnt/z/openaidata/NumquamOblita/runtime/stores/claude_no.sqlite3\n")
+        assert cmd[-2:] == ["-a", "Z:/mno-workspace/runtime/stores/claude_no.sqlite3"]
+        return _Proc("/mnt/z/mno-workspace/runtime/stores/claude_no.sqlite3\n")
 
     converted, distro = module.wsl_path_from_windows(
-        r"Z:\openaidata\NumquamOblita\runtime\stores\claude_no.sqlite3",
+        r"Z:\mno-workspace\runtime\stores\claude_no.sqlite3",
         distro_name="Ubuntu-24.04",
         runner=_runner,
     )
-    assert converted == "/mnt/z/openaidata/NumquamOblita/runtime/stores/claude_no.sqlite3"
+    assert converted == "/mnt/z/mno-workspace/runtime/stores/claude_no.sqlite3"
     assert distro == "Ubuntu-24.04"
 
 
@@ -128,10 +143,65 @@ def test_build_claude_code_add_json_cmd_and_detect_wsl() -> None:
     )
     assert cmd[:5] == ["claude", "mcp", "add-json", "-s", "user"]
     assert cmd[5] == "numquamoblita_live"
-    assert json.loads(cmd[6])["command"] == "python3"
+    payload = json.loads(cmd[6])
+    assert payload["type"] == "stdio"
+    assert payload["command"] == "python3"
 
     distro = module.detect_wsl_distro(env={"WSL_DISTRO_NAME": "Ubuntu-24.04"})
     assert distro == "Ubuntu-24.04"
+
+
+def test_build_http_entry_and_add_json_cmd_preserve_http_shape() -> None:
+    module = _load_module()
+    entry = module.build_http_entry(url="http://127.0.0.1:8765/mcp")
+    assert entry["type"] == "http"
+    assert entry["url"] == "http://127.0.0.1:8765/mcp"
+    cmd = module.build_claude_code_add_json_cmd(
+        server_name="numquamoblita_live",
+        entry=entry,
+        scope="user",
+    )
+    payload = json.loads(cmd[6])
+    assert payload["type"] == "http"
+    assert payload["url"] == "http://127.0.0.1:8765/mcp"
+
+
+def test_run_subprocess_hidden_on_windows_adds_no_console_flags(monkeypatch) -> None:
+    module = _load_module()
+    calls: dict[str, object] = {}
+
+    class _FakeStartupInfo:
+        def __init__(self) -> None:
+            self.dwFlags = 0
+            self.wShowWindow = None
+
+    class _Proc:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def _fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        calls["kwargs"] = kwargs
+        return _Proc()
+
+    monkeypatch.setattr(module, "is_windows_platform", lambda **_kwargs: True)
+    monkeypatch.setattr(module.subprocess, "run", _fake_run)
+    monkeypatch.setattr(module.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(module.subprocess, "STARTF_USESHOWWINDOW", 0x00000001, raising=False)
+    monkeypatch.setattr(module.subprocess, "SW_HIDE", 0, raising=False)
+    monkeypatch.setattr(module.subprocess, "STARTUPINFO", _FakeStartupInfo, raising=False)
+
+    proc = module.run_subprocess_hidden_on_windows(["wsl.exe", "-l", "-q"], check=False, capture_output=True, text=True)
+
+    assert proc.returncode == 0
+    assert calls["cmd"] == ["wsl.exe", "-l", "-q"]
+    kwargs = dict(calls["kwargs"])
+    assert kwargs["creationflags"] == 0x08000000
+    startupinfo = kwargs["startupinfo"]
+    assert isinstance(startupinfo, _FakeStartupInfo)
+    assert startupinfo.dwFlags == 0x00000001
+    assert startupinfo.wShowWindow == 0
 
 
 def test_remove_claude_code_server_is_idempotent_when_missing() -> None:

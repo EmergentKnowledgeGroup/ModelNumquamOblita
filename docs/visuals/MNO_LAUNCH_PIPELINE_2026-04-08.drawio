@@ -1,0 +1,147 @@
+<mxfile host="app.diagrams.net" modified="2026-04-08T12:00:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="launch-pipeline-engineering" name="Engineering Pipeline">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="lane1" value="Input And Build" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#f8f1e7;strokeColor=#c58b3a;" vertex="1" parent="1">
+          <mxGeometry x="20" y="20" width="310" height="720" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane2" value="Review And Truth" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#eef6ea;strokeColor=#6a9b58;" vertex="1" parent="1">
+          <mxGeometry x="360" y="20" width="310" height="720" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane3" value="Runtime Launch" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#eaf3fb;strokeColor=#4d7fb3;" vertex="1" parent="1">
+          <mxGeometry x="700" y="20" width="310" height="720" as="geometry"/>
+        </mxCell>
+        <mxCell id="p1" value="Raw source&#xa;conversations.json / jsonl / txt / md / folders" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="55" y="80" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2" value="Or existing MNO store&#xa;atoms.sqlite3 + optional reviewed cards" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="55" y="175" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p3" value="Import&#xa;normalize + extract evidence -> atoms.sqlite3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde9d9;strokeColor=#c97b63;" vertex="1" parent="1">
+          <mxGeometry x="55" y="275" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p4" value="Build draft episode cards" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde9d9;strokeColor=#c97b63;" vertex="1" parent="1">
+          <mxGeometry x="55" y="370" width="240" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="p5" value="Optional assistant/agent draft curation&#xa;draft-only weld-in between Build and Review" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
+          <mxGeometry x="395" y="105" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="p6" value="Human review&#xa;approve / edit / reject" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="395" y="230" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p7" value="Compile reviewed episode cards&#xa;episode_cards.reviewed.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="395" y="330" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p8" value="Launch runtime&#xa;desktop / headless / integration-v1 / MCP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="735" y="120" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p8a" value="Guided setup workspace&#xa;launch_setup_workspace.* -> desktop setup flow" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="735" y="25" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p9" value="Runtime memory sources&#xa;reviewed cards + atoms + helper layers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="735" y="240" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p10" value="Public contract&#xa;integration-v1 is the main orchestration boundary" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d4f1f9;strokeColor=#2e8ca3;" vertex="1" parent="1">
+          <mxGeometry x="735" y="360" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p11" value="Drafts and helper lanes do not become truth without the explicit human-controlled path." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="395" y="470" width="580" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="p1" target="p3" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="p3" target="p4" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="p4" target="p5" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="p4" target="p6" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="p5" target="p6" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="p6" target="p7" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="p7" target="p8" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7a" edge="1" parent="1" source="p8a" target="p8" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="p2" target="p8" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="p8" target="p9" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="p8" target="p10" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="launch-pipeline-caveman" name="Caveman Pipeline">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="c1" value="1. Give MNO your chats, files, or one folder." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="80" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2" value="2. MNO turns that pile into atoms.&#xa;Atoms = small evidence pieces." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde9d9;strokeColor=#c97b63;" vertex="1" parent="1">
+          <mxGeometry x="360" y="80" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3" value="3. MNO builds draft story cards.&#xa;Draft = rough, not final." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde9d9;strokeColor=#c97b63;" vertex="1" parent="1">
+          <mxGeometry x="660" y="80" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="c4" value="4. Assistant/agent can help clean the draft.&#xa;This is optional and still draft-only." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
+          <mxGeometry x="960" y="80" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="c4a" value="You can also click one starter file.&#xa;That opens the setup workspace." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="960" y="190" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="c5" value="5. Human decides what counts.&#xa;This is the real truth gate." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="210" y="250" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="c6" value="6. Reviewed cards go live.&#xa;Reviewed = trusted story set." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="510" y="250" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="c7" value="7. Runtime serves memory over desktop, HTTP, MCP, or adapters." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="810" y="250" width="280" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="c8" value="Acronyms&#xa;ANN = approximate nearest neighbor&#xa;MCP = Model Context Protocol" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="450" y="420" width="380" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="ce1" edge="1" parent="1" source="c1" target="c2" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ce2" edge="1" parent="1" source="c2" target="c3" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ce3" edge="1" parent="1" source="c3" target="c4" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ce4" edge="1" parent="1" source="c3" target="c5" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ce5" edge="1" parent="1" source="c4" target="c5" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ce5a" edge="1" parent="1" source="c4a" target="c7" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ce6" edge="1" parent="1" source="c5" target="c6" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="ce7" edge="1" parent="1" source="c6" target="c7" style="endArrow=block;html=1;rounded=0;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

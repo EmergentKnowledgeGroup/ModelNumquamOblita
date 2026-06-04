@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1850" height="882" viewBox="0 0 1850 882" role="img" aria-label="Caveman Runtime Memory And Decision">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<polyline points="250.0,385.8 250.0,413.8 256.0,416.0 256.0,688.0 250.0,684.6 250.0,656.6" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="430.0,110.2 458.0,110.2 464.0,112.0 464.0,96.0 912.0,96.0 908.0,102.8 880.0,102.8" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="880.0,117.6 908.0,117.6 912.0,112.0 1360.0,112.0 1360.0,96.0 1358.0,102.8 1330.0,102.8" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1330.0,117.6 1358.0,117.6 1360.0,112.0 1808.0,112.0 1808.0,110.2 1780.0,110.2" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1600.0,150.4 1600.0,385.8" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1420.0,110.2 1392.0,110.2 1392.0,336.0 944.0,336.0 942.0,338.2 970.0,338.2" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1420.0,345.6 1392.0,345.6 1392.0,416.0 496.0,416.0 496.0,336.0 492.0,334.5 520.0,334.5" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="970.0,353.0 942.0,353.0 944.0,352.0 496.0,352.0 492.0,345.6 520.0,345.6" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="520.0,356.7 492.0,356.7 496.0,352.0 48.0,352.0 42.0,345.6 70.0,345.6" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="70.0" y="70.0" width="360.0" height="80.4" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="115.9"><tspan x="250.0" dy="0.0">1. Someone asks MNO for memory help.</tspan></text>
+<rect x="520.0" y="70.0" width="360.0" height="80.4" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="700.0" y="107.7"><tspan x="700.0" dy="0.0">2. MNO checks the short-term chat stuff first.</tspan><tspan x="700.0" dy="16.5">STM = short-term memory for this session.</tspan></text>
+<rect x="970.0" y="70.0" width="360.0" height="80.4" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1150.0" y="107.7"><tspan x="1150.0" dy="0.0">3. MNO checks trusted memory and evidence.</tspan><tspan x="1150.0" dy="16.5">That means reviewed cards and atoms.</tspan></text>
+<rect x="1420.0" y="70.0" width="360.0" height="80.4" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1600.0" y="107.7"><tspan x="1600.0" dy="0.0">4. ANN helps find nearby candidates.</tspan><tspan x="1600.0" dy="16.5">ANN = approximate nearest neighbor.</tspan></text>
+<rect x="1420.0" y="305.4" width="360.0" height="80.4" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1600.0" y="343.1"><tspan x="1600.0" dy="0.0">5. If you ask for exact wording, MNO can open the</tspan><tspan x="1600.0" dy="16.5">wording receipt lane.</tspan></text>
+<rect x="970.0" y="305.4" width="360.0" height="80.4" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1150.0" y="343.1"><tspan x="1150.0" dy="0.0">6. If old and corrected reviewed cards exist, MNO</tspan><tspan x="1150.0" dy="16.5">prefers the current reviewed one.</tspan></text>
+<rect x="520.0" y="305.4" width="360.0" height="80.4" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="700.0" y="343.1"><tspan x="700.0" dy="0.0">7. MNO builds a bounded evidence bundle, not a</tspan><tspan x="700.0" dy="16.5">giant raw dump.</tspan></text>
+<rect x="70.0" y="305.4" width="360.0" height="80.4" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="351.3"><tspan x="250.0" dy="0.0">8. MNO answers, abstains, or asks you to clarify.</tspan></text>
+<rect x="70.0" y="540.8" width="360.0" height="115.8" rx="12" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="596.2"><tspan x="250.0" dy="0.0">9. New risky memory still goes to proposal/review,</tspan><tspan x="250.0" dy="16.5">not straight to truth.</tspan></text>
+<rect x="520.0" y="540.8" width="360.0" height="115.8" rx="12" fill="#e1d5e7" stroke="#9673a6" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="700.0" y="579.7"><tspan x="700.0" dy="0.0">Words to know</tspan><tspan x="700.0" dy="16.5">MCP = Model Context Protocol</tspan><tspan x="700.0" dy="16.5">ANN = approximate nearest neighbor</tspan><tspan x="700.0" dy="16.5">STM = short-term memory</tspan></text>
+<polygon points="250.0,656.6 255.3,667.4 244.7,667.4" fill="#6c8ebf"/>
+<polygon points="880.0,102.8 890.8,97.5 890.8,108.1" fill="#d6b656"/>
+<polygon points="1330.0,102.8 1340.8,97.5 1340.8,108.1" fill="#d6b656"/>
+<polygon points="1780.0,110.2 1790.8,104.9 1790.8,115.5" fill="#82b366"/>
+<polygon points="1600.0,385.8 1594.7,375.0 1605.3,375.0" fill="#82b366"/>
+<polygon points="970.0,338.2 959.2,343.5 959.2,332.9" fill="#82b366"/>
+<polygon points="520.0,334.5 509.2,339.8 509.2,329.2" fill="#6c8ebf"/>
+<polygon points="520.0,345.6 509.2,350.9 509.2,340.3" fill="#6c8ebf"/>
+<polygon points="70.0,345.6 59.2,350.9 59.2,340.3" fill="#6c8ebf"/>
+</svg>

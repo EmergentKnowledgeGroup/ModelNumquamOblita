@@ -1,0 +1,135 @@
+<mxfile host="app.diagrams.net" modified="2026-04-03T05:00:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="runtime-memory-layers" name="Runtime Memory Layers">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="lane1" value="Live Turn And Session" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#eaf7ea;strokeColor=#63a35c;" vertex="1" parent="1">
+          <mxGeometry x="20" y="20" width="260" height="700" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane2" value="Retrievable Runtime Memory" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#e8f0fe;strokeColor=#5b8def;" vertex="1" parent="1">
+          <mxGeometry x="310" y="20" width="360" height="700" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane3" value="Governed / Review Path" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#fff4e5;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="700" y="20" width="320" height="700" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane4" value="Continuity Surfaces" style="swimlane;whiteSpace=wrap;html=1;rounded=0;horizontal=0;startSize=28;fontStyle=1;fillColor=#f3e5f5;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="20" width="300" height="700" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="rm_incoming" value="Incoming Turn&#xa;Current user message&#xa;Current surface and request metadata" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#63a35c;" vertex="1" parent="1">
+          <mxGeometry x="50" y="80" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rm_stm" value="STM / Session State&#xa;Recent turns&#xa;Short-term notes&#xa;Rolling summary&#xa;Soft-close hint state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#63a35c;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="210" width="200" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="rm_capture" value="Post-Turn Capture&#xa;Low-risk capture -> provisional&#xa;High-risk capture -> proposal-only&#xa;Session-boundary sweep from STM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#63a35c;" vertex="1" parent="1">
+          <mxGeometry x="50" y="390" width="200" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="rm_prov" value="Provisional Memory&#xa;Lower-trust durable memory&#xa;Revisable, conflictable, supersedable&#xa;Participates in retrieval" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#5b8def;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="390" y="90" width="200" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="rm_reviewed" value="Reviewed Episode Cards&#xa;Human-reviewed event memory&#xa;Trusted above provisional" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#5b8def;" vertex="1" parent="1">
+          <mxGeometry x="390" y="250" width="200" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="rm_atoms" value="Canonical Atom Store&#xa;Evidence-backed source atoms&#xa;Canonical long-term substrate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#5b8def;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="390" y="390" width="200" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="rm_retrieve" value="Retrieval Participation&#xa;STM may satisfy or hybridize&#xa;Provisional can merge into LTM pack&#xa;Reviewed episodes and atoms are core LTM sources" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#5b8def;" vertex="1" parent="1">
+          <mxGeometry x="390" y="540" width="220" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="rm_prop" value="Proposal-Only Store&#xa;High-risk claims&#xa;Pending only&#xa;Not normal retrievable truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="750" y="100" width="220" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="rm_queue" value="Mutation Review Queue&#xa;Human-gated canonical create/edit/delete&#xa;Bridge from eligible provisional candidates" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d79b00;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="750" y="270" width="220" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="rm_rules" value="Current runtime trust rules&#xa;• reviewed episodes > provisional&#xa;• proposal-only != provisional&#xa;• no silent truth mutation&#xa;• queue is the bridge into canonical truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d79b00;align=left;verticalAlign=top;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="750" y="450" width="220" height="130" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="rm_cont" value="Continuity Surfaces&#xa;Pins&#xa;Action log&#xa;Wake-up pack&#xa;Resume pack&#xa;Anchor briefs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eadcf0;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="110" width="220" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="rm_use" value="Use at runtime&#xa;Cold-start orientation&#xa;Recent continuity recall&#xa;Operator-visible state aids" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="300" width="220" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="rme1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;" edge="1" parent="1" source="rm_incoming" target="rm_stm"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rme2" value="post-turn" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;" edge="1" parent="1" source="rm_stm" target="rm_capture"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rme3" value="low-risk write" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" edge="1" parent="1" source="rm_capture" target="rm_prov"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rme4" value="high-risk divert" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#b85450;" edge="1" parent="1" source="rm_capture" target="rm_prop"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rme5" value="review candidate / bridge" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#d79b00;" edge="1" parent="1" source="rm_prov" target="rm_queue"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rme6" value="approved canonical mutation" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#d79b00;" edge="1" parent="1" source="rm_queue" target="rm_atoms"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rme7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" edge="1" parent="1" source="rm_prov" target="rm_retrieve"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rme8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" edge="1" parent="1" source="rm_reviewed" target="rm_retrieve"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rme9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" edge="1" parent="1" source="rm_atoms" target="rm_retrieve"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rme10" value="feeds orientation" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#9673a6;" edge="1" parent="1" source="rm_cont" target="rm_use"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rme11" value="session continuity" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#9673a6;" edge="1" parent="1" source="rm_use" target="rm_stm"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="runtime-decision-flow" name="Runtime Decision And Evidence Flow">
+    <mxGraphModel dx="1800" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="rd_in" value="Incoming Turn&#xa;Desktop / native chat / integration-v1 / MCP / adapter" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d79b00;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="110" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rd_router" value="Runtime Router&#xa;Route preview and route selection&#xa;none / stm_only / ltm_light / ltm_deep / hybrid" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#63a35c;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="320" y="100" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="rd_stm" value="STM Retrieval&#xa;Token overlap&#xa;ngram overlap&#xa;summary overlap&#xa;stm_primary threshold" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#63a35c;" vertex="1" parent="1">
+          <mxGeometry x="620" y="40" width="220" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="rd_ltm" value="LTM Retrieval&#xa;Atoms + reviewed episodes + continuity&#xa;multi-pass query support when enabled" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#5b8def;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="620" y="190" width="220" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="rd_prov" value="Provisional Retrieval&#xa;Optional lower-trust merge into LTM pack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#5b8def;" vertex="1" parent="1">
+          <mxGeometry x="620" y="330" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rd_merge" value="Evidence Pack Assembly&#xa;core / context / continuity / conflict&#xa;hybrid merge of STM + LTM when applicable" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#63a35c;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="910" y="140" width="250" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="rd_gates" value="Evidence Gates&#xa;query-evidence support&#xa;distributed support checks&#xa;direct citation gate&#xa;consumer-meta pruning" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d79b00;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1230" y="130" width="240" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="rd_responder" value="Responder / Draft Answer&#xa;Composes answer from bounded evidence package" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#63a35c;" vertex="1" parent="1">
+          <mxGeometry x="1230" y="310" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="rd_verifier" value="Verifier Outcome&#xa;PASS / ABSTAIN / CLARIFY / NO_MEMORY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#63a35c;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1530" y="150" width="220" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="rd_out" value="Final Output Surface&#xa;Answer text&#xa;memory cards&#xa;citations&#xa;why/explain data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="1530" y="310" width="220" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="rd_post" value="Post-Turn Runtime State Update&#xa;remember short-term&#xa;provisional capture&#xa;proposal-only capture&#xa;soft-close hint update" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="910" y="440" width="320" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="rd_boundary" value="Session Boundary Handling&#xa;runtime_close&#xa;soft close gap&#xa;explicit boundary hook&#xa;STM sweep into provisional when enabled" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="460" width="300" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="rd_notes" value="Important current rules&#xa;• retrieval success alone does not guarantee PASS&#xa;• verifier and gates still decide&#xa;• provisional memory can support retrieval but does not outrank reviewed truth&#xa;• why/explain surfaces come from stored turn traces and pack metadata" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d79b00;align=left;verticalAlign=top;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="320" y="450" width="520" height="130" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="rdd1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#d79b00;" edge="1" parent="1" source="rd_in" target="rd_router"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rdd2" value="stm path" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;" edge="1" parent="1" source="rd_router" target="rd_stm"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rdd3" value="ltm path" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" edge="1" parent="1" source="rd_router" target="rd_ltm"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rdd4" value="optional provisional merge" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" edge="1" parent="1" source="rd_ltm" target="rd_prov"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rdd5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;" edge="1" parent="1" source="rd_stm" target="rd_merge"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rdd6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" edge="1" parent="1" source="rd_ltm" target="rd_merge"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rdd7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#5b8def;" edge="1" parent="1" source="rd_prov" target="rd_merge"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rdd8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#d79b00;" edge="1" parent="1" source="rd_merge" target="rd_gates"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rdd9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;" edge="1" parent="1" source="rd_gates" target="rd_responder"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rdd10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#63a35c;" edge="1" parent="1" source="rd_responder" target="rd_verifier"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rdd11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#d79b00;" edge="1" parent="1" source="rd_verifier" target="rd_out"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rdd12" value="after answer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#9673a6;" edge="1" parent="1" source="rd_out" target="rd_post"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="rdd13" value="boundary events" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#9673a6;" edge="1" parent="1" source="rd_post" target="rd_boundary"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

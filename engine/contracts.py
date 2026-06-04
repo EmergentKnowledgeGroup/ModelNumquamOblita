@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import math
 from typing import Any, Iterable, Optional
@@ -23,6 +23,7 @@ class WriteAction(str, Enum):
     ADD = "ADD"
     UPDATE = "UPDATE"
     IGNORE = "IGNORE"
+    PROPOSE_CREATE = "PROPOSE_CREATE"
     PROPOSE_EDIT = "PROPOSE_EDIT"
     PROPOSE_DELETE = "PROPOSE_DELETE"
 
@@ -60,6 +61,8 @@ class NormalizedTurn:
     message_id: Optional[str] = None
     timestamp: Optional[datetime] = None
     conversation_id: Optional[str] = None
+    quote_text: Optional[str] = None
+    sequence_index: Optional[int] = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -73,6 +76,12 @@ class NormalizedTurn:
         self.role = role
         if not self.text.strip():
             raise ValueError("text is required")
+        quote_text = self.text if self.quote_text is None else str(self.quote_text)
+        if not quote_text:
+            raise ValueError("quote_text is required")
+        self.quote_text = quote_text
+        if self.sequence_index is not None and self.sequence_index < 0:
+            raise ValueError("sequence_index must be >= 0")
 
 
 @dataclass(slots=True)
@@ -136,7 +145,13 @@ class MemoryPackItem:
     canonical_text: str
     confidence: float
     source_refs: list[SourceRef]
+    record_updated_at: Optional[datetime] = None
     conflict_state: str = "active"
+    conflict_with_ids: list[str] = field(default_factory=list)
+    memory_layer: str = "atom"
+    trust_tier: str = "evidence"
+    raw_context_text: str = ""
+    raw_context_turn_count: int = 0
 
     def __post_init__(self) -> None:
         """Validate memory-pack item integrity."""
@@ -149,6 +164,16 @@ class MemoryPackItem:
             raise ValueError("source_refs is required")
         if self.confidence < 0.0 or self.confidence > 1.0:
             raise ValueError("confidence must be in [0, 1]")
+        if self.record_updated_at is not None and not isinstance(self.record_updated_at, datetime):
+            raise ValueError("record_updated_at must be datetime when provided")
+        if not str(self.memory_layer or "").strip():
+            raise ValueError("memory_layer is required")
+        if not str(self.trust_tier or "").strip():
+            raise ValueError("trust_tier is required")
+        if not isinstance(self.raw_context_turn_count, int) or isinstance(self.raw_context_turn_count, bool):
+            raise ValueError("raw_context_turn_count must be int")
+        if self.raw_context_turn_count < 0:
+            raise ValueError("raw_context_turn_count must be >= 0")
 
 
 @dataclass(slots=True)
@@ -226,15 +251,78 @@ class RetrievalDroppedAtomContract:
 
 
 @dataclass(slots=True)
+class RetrievalHelperLaneContract:
+    """Additive helper-lane diagnostics block for bounded retrieval helpers."""
+
+    name: str
+    enabled: bool = False
+    used: bool = False
+    contribution_count: int = 0
+    fallback_reason: str = ""
+
+    def __post_init__(self) -> None:
+        self.name = str(self.name or "").strip()
+        if not self.name:
+            raise ValueError("name is required")
+        self.enabled = bool(self.enabled)
+        self.used = bool(self.used)
+        self.contribution_count = int(self.contribution_count)
+        if self.contribution_count < 0:
+            raise ValueError("contribution_count must be >= 0")
+        self.fallback_reason = str(self.fallback_reason or "").strip()
+
+
+@dataclass(slots=True)
+class RetrievalDerivedArtifactContract:
+    """Helper-only derived artifact contract that can never become truth authority."""
+
+    helper_name: str
+    source_ids: list[str] = field(default_factory=list)
+    anchor_atom_ids: list[str] = field(default_factory=list)
+    truth_namespace: str = "retrieval_helper_only"
+    authoritative: bool = False
+    sole_evidence_allowed: bool = False
+    rebuildable: bool = True
+
+    def __post_init__(self) -> None:
+        self.helper_name = str(self.helper_name or "").strip()
+        if not self.helper_name:
+            raise ValueError("helper_name is required")
+        self.source_ids = [str(item or "").strip() for item in list(self.source_ids or []) if str(item or "").strip()]
+        self.anchor_atom_ids = [
+            str(item or "").strip() for item in list(self.anchor_atom_ids or []) if str(item or "").strip()
+        ]
+        self.truth_namespace = str(self.truth_namespace or "").strip() or "retrieval_helper_only"
+        if self.truth_namespace != "retrieval_helper_only":
+            raise ValueError("truth_namespace must be retrieval_helper_only")
+        if bool(self.authoritative):
+            raise ValueError("authoritative must be False for derived helper artifacts")
+        if bool(self.sole_evidence_allowed):
+            raise ValueError("sole_evidence_allowed must be False for derived helper artifacts")
+        self.authoritative = False
+        self.sole_evidence_allowed = False
+        self.rebuildable = bool(self.rebuildable)
+
+
+@dataclass(slots=True)
 class RetrievalDiagnosticsContract:
     """Redacted retrieval audit payload for runtime/eval/readout surfaces."""
 
     selected: list[RetrievalSelectedAtomContract] = field(default_factory=list)
     dropped: list[RetrievalDroppedAtomContract] = field(default_factory=list)
+    helper_lanes: list[RetrievalHelperLaneContract] = field(default_factory=list)
     dropped_reason_counts: dict[str, int] = field(default_factory=dict)
+    profile_used: str = ""
     selected_count: int = 0
     dropped_count: int = 0
     raw_text_included: bool = False
+    ann_enabled: bool = False
+    ann_used: bool = False
+    ann_candidate_count: int = 0
+    ann_latency_ms: float = 0.0
+    ann_fallback_reason: str = ""
+    ann_store_fingerprint: str = ""
+    ann_backend_version: str = ""
 
     def __post_init__(self) -> None:
         self.selected_count = int(self.selected_count)
@@ -249,6 +337,20 @@ class RetrievalDiagnosticsContract:
             raise ValueError("dropped_count must be >= 0")
         if not isinstance(self.raw_text_included, bool):
             raise ValueError("raw_text_included must be bool")
+        if not isinstance(self.ann_enabled, bool):
+            raise ValueError("ann_enabled must be bool")
+        if not isinstance(self.ann_used, bool):
+            raise ValueError("ann_used must be bool")
+        self.ann_candidate_count = int(self.ann_candidate_count)
+        if self.ann_candidate_count < 0:
+            raise ValueError("ann_candidate_count must be >= 0")
+        value = float(self.ann_latency_ms)
+        if not math.isfinite(value):
+            raise ValueError("ann_latency_ms must be finite")
+        if value < 0.0:
+            raise ValueError("ann_latency_ms must be >= 0")
+        self.ann_latency_ms = value
+        self.profile_used = str(self.profile_used or "").strip()
         normalized_counts: dict[str, int] = {}
         for key, value in dict(self.dropped_reason_counts or {}).items():
             reason = str(key or "").strip()
@@ -259,6 +361,149 @@ class RetrievalDiagnosticsContract:
                 raise ValueError("dropped_reason_counts values must be >= 0")
             normalized_counts[reason] = normalized_counts.get(reason, 0) + count
         self.dropped_reason_counts = normalized_counts
+        self.helper_lanes = list(self.helper_lanes or [])
+
+
+@dataclass(slots=True)
+class RetrievalPTLItemContract:
+    """Compact ranked-item view for PTL stage payloads."""
+
+    atom_id: str = ""
+    source_id: str = ""
+    kind: str = ""
+    score: float = 0.0
+    rank: int = 0
+    channel: str = ""
+
+    def __post_init__(self) -> None:
+        self.atom_id = str(self.atom_id or "").strip()
+        self.source_id = str(self.source_id or "").strip()
+        self.kind = str(self.kind or "").strip()
+        self.channel = str(self.channel or "").strip()
+        self.rank = max(0, int(self.rank or 0))
+        value = float(self.score or 0.0)
+        if not math.isfinite(value):
+            raise ValueError("score must be finite")
+        self.score = max(0.0, value)
+
+
+@dataclass(slots=True)
+class RetrievalPTLStageContract:
+    """Bounded stage entry for PTL minimal traces."""
+
+    name: str
+    status: str = "skipped"
+    reason_codes: list[str] = field(default_factory=list)
+    counters: dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
+    selected: list[RetrievalPTLItemContract] = field(default_factory=list)
+    rejected: list[RetrievalPTLItemContract] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.name = str(self.name or "").strip()
+        if not self.name:
+            raise ValueError("name is required")
+        status = str(self.status or "").strip().lower()
+        if status not in {"ok", "skipped", "error"}:
+            raise ValueError("status must be ok, skipped, or error")
+        self.status = status
+        self.reason_codes = [str(item or "").strip() for item in list(self.reason_codes or []) if str(item or "").strip()]
+        self.counters = dict(self.counters or {})
+        self.details = dict(self.details or {})
+        self.selected = list(self.selected or [])[:10]
+        self.rejected = list(self.rejected or [])[:10]
+
+
+@dataclass(slots=True)
+class RetrievalPTLAnnContract:
+    """Bounded ANN telemetry block for PTL traces."""
+
+    enabled: bool = False
+    used: bool = False
+    candidate_count: int = 0
+    latency_ms: float = 0.0
+    fallback_reason: str = ""
+    store_fingerprint: str = ""
+    backend_version: str = ""
+
+    def __post_init__(self) -> None:
+        self.enabled = bool(self.enabled)
+        self.used = bool(self.used)
+        self.candidate_count = max(0, int(self.candidate_count or 0))
+        value = float(self.latency_ms or 0.0)
+        if not math.isfinite(value):
+            raise ValueError("latency_ms must be finite")
+        self.latency_ms = max(0.0, value)
+        self.fallback_reason = str(self.fallback_reason or "").strip()
+        self.store_fingerprint = str(self.store_fingerprint or "").strip()
+        self.backend_version = str(self.backend_version or "").strip()
+
+
+@dataclass(slots=True)
+class RetrievalPTLSummaryContract:
+    """Eval-only benchmark overlay attached after retrieval execution."""
+
+    gold_source_ids: list[str] = field(default_factory=list)
+    ranked_source_ids_top10: list[str] = field(default_factory=list)
+    gold_source_present_in_store: bool = False
+    gold_source_shortlisted: bool = False
+    source_recall_at_5: float = 0.0
+    source_recall_at_10: float = 0.0
+    miss_family_hint: str = "unknown"
+
+    def __post_init__(self) -> None:
+        self.gold_source_ids = [str(item or "").strip() for item in list(self.gold_source_ids or []) if str(item or "").strip()]
+        self.ranked_source_ids_top10 = [str(item or "").strip() for item in list(self.ranked_source_ids_top10 or []) if str(item or "").strip()][:10]
+        self.gold_source_present_in_store = bool(self.gold_source_present_in_store)
+        self.gold_source_shortlisted = bool(self.gold_source_shortlisted)
+        for key in ("source_recall_at_5", "source_recall_at_10"):
+            value = float(getattr(self, key) or 0.0)
+            if not math.isfinite(value):
+                raise ValueError(f"{key} must be finite")
+            setattr(self, key, max(0.0, min(1.0, value)))
+        self.miss_family_hint = str(self.miss_family_hint or "unknown").strip() or "unknown"
+
+
+@dataclass(slots=True)
+class RetrievalPTLTraceContract:
+    """Bounded retrieval-only PTL artifact for benchmark diagnostics."""
+
+    trace_version: str = "ptl_min_v1"
+    case_id: str = ""
+    question_id: str = ""
+    profile_requested: str = ""
+    profile_used: str = ""
+    query_text_preview: str = ""
+    query_hash: str = ""
+    timestamp_utc: Optional[datetime] = None
+    trace_scope: str = "retrieval_only"
+    ann: RetrievalPTLAnnContract = field(default_factory=RetrievalPTLAnnContract)
+    stage_order: list[str] = field(default_factory=list)
+    stages: list[RetrievalPTLStageContract] = field(default_factory=list)
+    summary: RetrievalPTLSummaryContract = field(default_factory=RetrievalPTLSummaryContract)
+
+    def __post_init__(self) -> None:
+        self.trace_version = str(self.trace_version or "").strip() or "ptl_min_v1"
+        if self.trace_version != "ptl_min_v1":
+            raise ValueError("trace_version must be ptl_min_v1")
+        self.case_id = str(self.case_id or "").strip()
+        self.question_id = str(self.question_id or "").strip()
+        self.profile_requested = str(self.profile_requested or "").strip()
+        self.profile_used = str(self.profile_used or "").strip()
+        preview = str(self.query_text_preview or "")
+        self.query_text_preview = preview[:157] + "..." if len(preview) > 160 else preview
+        self.query_hash = str(self.query_hash or "").strip()
+        if self.timestamp_utc is None:
+            self.timestamp_utc = datetime.now(timezone.utc)
+        self.trace_scope = str(self.trace_scope or "").strip() or "retrieval_only"
+        if self.trace_scope != "retrieval_only":
+            raise ValueError("trace_scope must be retrieval_only")
+        self.stage_order = [str(item or "").strip() for item in list(self.stage_order or []) if str(item or "").strip()]
+        self.stages = list(self.stages or [])
+        if not isinstance(self.ann, RetrievalPTLAnnContract):
+            raise ValueError("ann must be RetrievalPTLAnnContract")
+        if not isinstance(self.summary, RetrievalPTLSummaryContract):
+            raise ValueError("summary must be RetrievalPTLSummaryContract")
 
 
 @dataclass(slots=True)

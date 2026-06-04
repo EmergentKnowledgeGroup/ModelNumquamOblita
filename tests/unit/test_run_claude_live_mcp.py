@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import select
 import subprocess
 import sys
 from pathlib import Path
@@ -59,12 +61,15 @@ def test_build_claude_config_uses_python_and_memories_path(tmp_path: Path) -> No
     )
 
     entry = config["mcpServers"]["numquamoblita-live"]
+    assert entry["type"] == "stdio"
+    assert entry["type"] == "stdio"
     assert entry["command"] == str(Path(sys.executable).resolve())
+    assert entry["env"] == {}
+    assert entry["env"] == {}
     assert "--memories" in entry["args"]
     assert str(memories) in entry["args"]
     assert "--episodes" in entry["args"]
     assert str(episodes) in entry["args"]
-    assert "env" not in entry
 
 
 def test_print_claude_config_exits_without_starting_runtime(tmp_path: Path) -> None:
@@ -94,3 +99,51 @@ def test_print_claude_config_exits_without_starting_runtime(tmp_path: Path) -> N
     assert entry["command"] == str(Path(sys.executable).resolve())
     assert str(store) in entry["args"]
     assert "runtime_url=" not in result.stderr
+
+
+def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
+    store = tmp_path / "demo.sqlite3"
+    store.write_text("", encoding="utf-8")
+
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--memories",
+            str(store),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0"},
+                },
+            }
+        ).encode("utf-8")
+        framed = f"Content-Length: {len(body)}\r\nContent-Type: application/json\r\n\r\n".encode("utf-8") + body
+        if os.name == "nt":
+            response, stderr = proc.communicate(input=framed, timeout=2.0)
+        else:
+            assert proc.stdin is not None
+            proc.stdin.write(framed)
+            proc.stdin.flush()
+            response = b""
+            if proc.stdout is not None and select.select([proc.stdout.fileno()], [], [], 2.0)[0]:
+                response = os.read(proc.stdout.fileno(), 512)
+            stderr = b""
+            if proc.stderr is not None and select.select([proc.stderr.fileno()], [], [], 0.2)[0]:
+                stderr = os.read(proc.stderr.fileno(), 4096)
+        assert b"protocolVersion" in response
+        assert b"runtime_url=" not in stderr
+    finally:
+        if proc.poll() is None:
+            proc.kill()

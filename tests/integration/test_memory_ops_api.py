@@ -9,12 +9,33 @@ from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+import pytest
+
 from engine.continuity import Constellation, ContinuityBuilder, ContinuitySnapshot, ContinuityStore, NarrativeArc, SharedLanguageKey
+from engine.config import default_config
 from engine.contracts import AtomType, CandidateAtom, SourceRef
 from engine.memory import AtomStatus, AtomStore, MutationReviewQueue, SqliteAtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
 from engine.runtime import RuntimeSession, start_runtime_server, stop_runtime_server
 from engine.runtime import server as runtime_server_module
+
+
+@pytest.fixture(autouse=True)
+def _isolate_runtime_server_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    runtime_root = tmp_path / "runtime"
+    monkeypatch.setattr(runtime_server_module, "RUNTIME_ROOT", runtime_root)
+    monkeypatch.setattr(runtime_server_module, "WIZARD_RUNS_ROOT", runtime_root / "wizard_runs")
+    monkeypatch.setattr(runtime_server_module, "WIZARD_LATEST_PATH", runtime_root / "wizard_runs" / "LATEST.json")
+    monkeypatch.setattr(runtime_server_module, "BUILDER_PROFILES_ROOT", runtime_root / "builder_profiles")
+    monkeypatch.setattr(runtime_server_module, "IMPORTS_ROOT", runtime_root / "imports")
+    monkeypatch.setattr(runtime_server_module, "EPISODES_ROOT", runtime_root / "episodes")
+    monkeypatch.setattr(runtime_server_module, "BACKUPS_ROOT", runtime_root / "backups")
+    monkeypatch.setattr(runtime_server_module, "DIAGNOSTICS_ROOT", runtime_root / "diagnostics")
+    monkeypatch.setattr(runtime_server_module, "PACKAGING_ROOT", runtime_root / "packaging")
+    monkeypatch.setattr(runtime_server_module, "LIVE_RUNTIME_LOCK_PATH", runtime_root / "live_runtime.lock.json")
+    monkeypatch.setattr(runtime_server_module, "QUICKNOTE_STATE_PATH", runtime_root / "diagnostics" / "quicknote_state.json")
+    monkeypatch.setattr(runtime_server_module, "METHODOLOGY_STATE_PATH", runtime_root / "diagnostics" / "methodology_state.json")
+    monkeypatch.setattr(runtime_server_module, "CONTINUITY_ADDS_STATE_PATH", runtime_root / "diagnostics" / "continuity_adds_state.json")
 
 
 def _candidate(candidate_id: str, text: str, source_id: str, topic: str = "memory") -> CandidateAtom:
@@ -68,6 +89,36 @@ def _seed_wizard_review_draft(path: Path, *, count: int) -> dict:
     return payload
 
 
+def _seed_draft_curation_run(tmp_path: Path, *, count: int = 2) -> dict:
+    draft_path = tmp_path / "runtime" / "episodes" / "draft_cards.json"
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    draft_payload = _seed_wizard_review_draft(draft_path, count=count)
+    state = runtime_server_module._start_new_wizard_state()
+    state["store_validation"] = {
+        "path": str((tmp_path / "runtime" / "imports" / "atoms.sqlite3").resolve()),
+        "kind": "mno_store_sqlite",
+        "is_valid": True,
+        "issues": [],
+        "store_fingerprint": "sqlite_store:v3:atoms:3:sample:test",
+        "schema_version": 3,
+        "atom_count": 3,
+        "source": "existing_store",
+    }
+    state["build_info"] = {
+        "build_id": "build_draft_curation",
+        "store_fingerprint": "sqlite_store:v3:atoms:3:sample:test",
+        "schema_version": 3,
+        "draft_path": str(draft_path),
+        "rejects_path": "",
+        "readout_path": "",
+        "counts": {"draft_count": count},
+    }
+    state["last_built_episode_draft_path"] = str(draft_path)
+    runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+    runtime_server_module._save_wizard_state(state)
+    return state
+
+
 def _json_get(url: str) -> dict:
     with urlopen(url, timeout=5) as response:
         return json.loads(response.read().decode("utf-8"))
@@ -107,11 +158,41 @@ def _json_get_error(url: str) -> tuple[int, dict]:
         return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
+def test_wizard_path_sanitizer_collapses_mangled_windows_mount_paths(monkeypatch) -> None:
+    monkeypatch.setattr(runtime_server_module.os, "name", "nt", raising=False)
+    normalized = runtime_server_module._wizard_normalize_path_value(
+        r"Z:\mnt\z\mno-workspace\runtime\imports\atoms.sqlite3"
+    )
+    assert normalized == r"Z:\mno-workspace\runtime\imports\atoms.sqlite3"
+
+    state = {
+        "store_path": r"Z:\mnt\z\mno-workspace\runtime\imports\atoms.sqlite3",
+        "store_validation": {
+            "path": r"Z:\mnt\z\mno-workspace\runtime\imports\atoms.sqlite3",
+        },
+        "published_set": {
+            "episodes_path": r"Z:\mno-workspace\runtime\episodes\episode_cards.reviewed.json",
+        },
+        "verify": {
+            "checks": [
+                {"id": "store_validation", "path": r"Z:\mnt\z\mno-workspace\runtime\imports\atoms.sqlite3"},
+                {"id": "published_set", "path": r"Z:\mno-workspace\runtime\episodes\episode_cards.reviewed.json"},
+            ],
+            "actionable_links": [],
+        },
+    }
+    sanitized = runtime_server_module._wizard_normalize_state_paths(state)
+    assert sanitized["store_path"] == r"Z:\mno-workspace\runtime\imports\atoms.sqlite3"
+    assert sanitized["store_validation"]["path"] == r"Z:\mno-workspace\runtime\imports\atoms.sqlite3"
+    assert sanitized["verify"]["checks"][0]["path"] == r"Z:\mno-workspace\runtime\imports\atoms.sqlite3"
+
+
 def test_memory_atoms_cards_detail_and_graph_endpoints() -> None:
     store = AtomStore()
     first = store.add_candidate(_candidate("a1", "We anchored continuity to evidence.", "conv_1", "continuity"))
     second = store.add_candidate(_candidate("a2", "You prefer tea in late sessions.", "conv_2", "preference"))
     third = store.add_candidate(_candidate("a3", "We tracked migration rollback safeguards.", "conv_3", "operations"))
+    fragment = store.add_candidate(_candidate("a4", "EXACTLY", "conv_4", "fragment"))
     store.mark_conflict(first.atom_id, second.atom_id, reason="intentional test conflict")
 
     continuity = ContinuityStore()
@@ -134,9 +215,11 @@ def test_memory_atoms_cards_detail_and_graph_endpoints() -> None:
 
         cards = _json_get(f"{base}/api/memory/cards?status=all&limit=20")
         assert cards["ok"] is True
-        assert cards["total"] >= 2
+        assert cards["total"] >= 3
         card_ids = {item["card_id"] for item in cards["cards"]}
         assert f"card_{first.atom_id}" in card_ids
+        fragment_card = next(item for item in cards["cards"] if item["card_id"] == f"card_{fragment.atom_id}")
+        assert fragment_card["summary_abstractive"].endswith("Limited source detail.")
 
         filtered_cards = _json_get(f"{base}/api/memory/cards?q={quote('tea')}&kind=event_card")
         assert filtered_cards["ok"] is True
@@ -354,6 +437,345 @@ def test_memory_proposal_endpoints_without_queue() -> None:
         stop_runtime_server(server, thread, runtime=runtime)
 
 
+def test_provisional_memory_endpoints_surface_conflicts_and_review_candidates() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.retrieval_enabled = True
+    cfg.provisional_memory.review_worthiness.fact_min_score = 0.20
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    runtime.handle_turn("Thao is in on MonkeyBars for the build sprint.", memory_preference="memory_assist")
+    runtime.handle_turn("Thao is out on MonkeyBars for the build sprint.", memory_preference="memory_assist")
+    hits = runtime.search_provisional_memory("MonkeyBars", limit=6)
+    assert len(hits) >= 2
+    runtime.mark_provisional_conflict(hits[0].record.record_id, hits[1].record.record_id, reason="manual_conflict")
+
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        provisional = _json_get(f"{base}/api/memory/provisional?status=live&q={quote('MonkeyBars')}")
+        assert provisional["ok"] is True
+        assert provisional["total"] == 2
+        rows = provisional["records"]
+        assert all(item["status"] == "conflicted" for item in rows)
+        assert all(item["memory_layer"] == "provisional" for item in rows)
+        assert all(item["trust_tier"] == "provisional" for item in rows)
+        assert rows[0]["record_id"] in rows[1]["conflict_with_record_ids"]
+        assert rows[1]["record_id"] in rows[0]["conflict_with_record_ids"]
+        assert all(item["source_refs"] for item in rows)
+
+        review_candidates = _json_get(f"{base}/api/memory/provisional/review-candidates?q={quote('MonkeyBars')}")
+        assert review_candidates["ok"] is True
+        assert review_candidates["total"] == 2
+        candidate = review_candidates["review_candidates"][0]
+        assert candidate["bridge_state"] == "candidate_only"
+        assert candidate["review_path"] == "existing_review_pipeline"
+        assert candidate["human_review_required"] is True
+        assert candidate["memory_layer"] == "provisional"
+        assert candidate["trust_tier"] == "provisional"
+        assert "review_worthy" in candidate
+        assert candidate["bridge_eligible"] is True
+        assert candidate["bridge_action"] == "PROPOSE_CREATE"
+        assert candidate["history_event_count"] >= 1
+        assert candidate["lineage_record_ids"]
+        assert candidate["source_refs"]
+        assert candidate["review_candidate_id"].startswith("prc_prov_")
+        assert len(runtime.retriever.store.list_atoms()) == 0
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_provisional_memory_bridge_settings_and_boundary_endpoints() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.stm_sweep_enabled = True
+    cfg.provisional_memory.review_worthiness.fact_min_score = 0.20
+    store = AtomStore()
+    queue = MutationReviewQueue(store)
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(store, config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    runtime.handle_turn("Thao is in on MonkeyBars for the build sprint.", session_id="alpha", memory_preference="memory_assist")
+
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    server.writeback_policy = {
+        "enabled": True,
+        "mode": "proposal_only",
+        "auto_apply": False,
+        "updated_at": "2026-03-24T08:00:00+00:00",
+    }
+
+    try:
+        settings = _json_get(f"{base}/api/memory/provisional/settings")
+        assert settings["ok"] is True
+        assert settings["settings"]["default_sensitivity"] == "balanced"
+
+        bumped = _json_post(f"{base}/api/memory/provisional/settings", {"action": "remember_more"})
+        assert bumped["ok"] is True
+        assert bumped["settings"]["default_sensitivity"] == "eager"
+
+        candidates = _json_get(f"{base}/api/memory/provisional/review-candidates?q={quote('MonkeyBars')}")
+        candidate = candidates["review_candidates"][0]
+        record_id = str(candidate["record_id"])
+
+        bridged = _json_post(f"{base}/api/memory/provisional/{quote(record_id)}/bridge-create", {})
+        assert bridged["ok"] is True
+        assert bridged["proposal"]["action"] == "PROPOSE_CREATE"
+        assert bridged["proposal"]["status"] == "pending"
+        assert bridged["proposal"]["metadata"]["provisional_record_id"] == record_id
+        assert len(store.list_atoms()) == 0
+
+        boundary = _json_post(
+            f"{base}/api/memory/provisional/session-boundary",
+            {
+                "event_type": "manual_compact",
+                "session_id": "alpha",
+                "observed_at_utc": "2026-03-24T08:00:00+00:00",
+                "metadata": {"source": "integration_test"},
+            },
+        )
+        assert boundary["ok"] is True
+        assert boundary["boundary"]["accepted"] is True
+        assert boundary["boundary"]["duplicate"] is False
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_retrieval_feedback_endpoints_persist_bounded_local_feedback() -> None:
+    cfg = default_config()
+    cfg.retrieval_feedback.max_entries = 4
+    cfg.retrieval_feedback.max_query_chars = 32
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        created = _json_post(
+            f"{base}/api/memory/feedback",
+            {
+                "item_id": "card_mem_lyra",
+                "item_kind": "episode",
+                "feedback": "useful",
+                "session_id": "alpha",
+                "query_text": "What happened to Lyra during the build night when continuity broke?",
+                "metadata": {"memory_layer": "published"},
+            },
+        )
+        assert created["ok"] is True
+        row = created["feedback"]
+        assert row["item_id"] == "card_mem_lyra"
+        assert row["feedback"] == "useful"
+        assert row["query_text"] == "What happened to Lyra during th…"
+        assert row["metadata"]["memory_layer"] == "published"
+
+        listed = _json_get(f"{base}/api/memory/feedback?item_id={quote('card_mem_lyra')}")
+        assert listed["ok"] is True
+        assert listed["total"] == 1
+        assert listed["feedback"][0]["item_id"] == "card_mem_lyra"
+
+        state_path = Path(server.continuity_adds_state_path)
+        assert state_path.exists()
+        persisted = json.loads(state_path.read_text(encoding="utf-8"))
+        assert len(list(persisted.get("retrieval_feedback") or [])) == 1
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_history_surfaces_expose_provisional_lineage_and_episode_edit_audit(tmp_path: Path) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+        episode_cards_path=str((tmp_path / "runtime" / "episodes" / "episode_cards.reviewed.json").resolve()),
+    )
+    runtime.handle_turn("Thao was still hesitant about MonkeyBars.", memory_preference="chat_first")
+    runtime.handle_turn("Actually, Thao finally came around on MonkeyBars and is in.", memory_preference="chat_first")
+    hits = runtime.search_provisional_memory("MonkeyBars", limit=4)
+    assert hits
+    record_id = hits[0].record.record_id
+
+    episode_cards_path = Path(runtime.episode_cards_path)
+    episode_cards_path.parent.mkdir(parents=True, exist_ok=True)
+    episode_cards_path.write_text(
+        json.dumps(
+            {
+                "schema": "numquamoblita.episode_cards.reviewed.v1",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "cards": [
+                    {
+                        "episode_id": "ep_history_1",
+                        "title": "MonkeyBars hesitation",
+                        "summary": "Thao was hesitant about MonkeyBars before the correction.",
+                        "actors": ["thao", "user"],
+                        "topic_tags": ["project"],
+                        "cue_terms": ["MonkeyBars", "hesitant"],
+                        "promotion_status": "approved",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        provisional_history = _json_get(f"{base}/api/memory/provisional/{quote(record_id)}/history")
+        assert provisional_history["ok"] is True
+        record = provisional_history["record"]
+        assert record["record_id"] == record_id
+        assert record["history_surface"] == "provisional_lineage"
+        assert record["supersedes_record_id"]
+        assert len(record["lineage_record_ids"]) == 2
+        assert record["history_event_count"] >= 1
+
+        edited = _json_post(
+            f"{base}/api/memory/episodes/{quote('ep_history_1')}/edit",
+            {
+                "summary": "Thao eventually came around on MonkeyBars after the correction.",
+            },
+        )
+        assert edited["ok"] is True
+
+        episode_history = _json_get(f"{base}/api/memory/episodes/{quote('ep_history_1')}/history")
+        assert episode_history["ok"] is True
+        assert episode_history["total"] == 1
+        assert episode_history["history"][0]["episode_id"] == "ep_history_1"
+        assert episode_history["history"][0]["action"] == "edit"
+        assert episode_history["history"][0]["reason"] == "episode_edit"
+        assert episode_history["history"][0]["backup_path"]
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_continuity_action_log_pins_and_packs_persist_across_server_restart() -> None:
+    cfg = default_config()
+    store = AtomStore()
+    store.add_candidate(_candidate("c1", "Xander is tied to MonkeyBars planning and project continuity.", "conv_c1", "planning"))
+    store.add_candidate(_candidate("c2", "MonkeyBars reopened after Thao came around on the build sprint.", "conv_c2", "project"))
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(store, config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        enable_writeback=False,
+    )
+    runtime.handle_turn("Let's keep working on MonkeyBars with Xander tomorrow.", session_id="alpha", memory_preference="memory_assist")
+
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        pinned = _json_post(
+            f"{base}/api/explore/preferences",
+            {"anchor_id": "xander", "anchor_type": "person", "action": "pin"},
+        )
+        assert pinned["ok"] is True
+
+        feedback = _json_post(
+            f"{base}/api/memory/feedback",
+            {
+                "item_id": "card_mem_xander",
+                "item_kind": "episode",
+                "feedback": "useful",
+                "session_id": "alpha",
+                "query_text": "Who is Xander in the MonkeyBars work?",
+            },
+        )
+        assert feedback["ok"] is True
+
+        quicknote = _json_post(
+            f"{base}/api/memory/quicknote/propose",
+            {
+                "assistant_id": "claude",
+                "session_id": "alpha",
+                "text": "Need to pick MonkeyBars back up with Xander tomorrow morning.",
+                "importance": "high",
+            },
+        )
+        assert quicknote["ok"] is True
+
+        pins_payload = _json_get(f"{base}/api/explore/pins")
+        assert pins_payload["ok"] is True
+        assert pins_payload["total"] == 1
+        assert pins_payload["pins"][0]["anchor_id"] == "xander"
+
+        action_log = _json_get(f"{base}/api/explore/action-log?session_id=alpha&limit=10")
+        assert action_log["ok"] is True
+        action_types = [str(row.get("action_type") or "") for row in action_log["action_log"]]
+        assert "explore_preference_set" in action_types
+        assert "retrieval_feedback_recorded" in action_types
+        assert "quicknote_proposed" in action_types
+
+        wake_up = _json_get(f"{base}/api/explore/wake-up-pack?assistant_id=claude&session_id=alpha&limit=6")
+        assert wake_up["ok"] is True
+        assert wake_up["pins"]
+        assert wake_up["recent_actions"]
+        assert wake_up["what_matters_now"]
+        assert wake_up["anchor_briefs"]
+        assert any(str(row.get("brief") or "").strip() for row in wake_up["what_matters_now"])
+
+        resume = _json_get(f"{base}/api/explore/resume-pack?assistant_id=claude&session_id=alpha&limit=6")
+        assert resume["ok"] is True
+        assert resume["resume_available"] is True
+        assert resume["recent_focus"]["session_id"] == "alpha"
+        assert resume["anchor_briefs"]
+
+        stop_runtime_server(server, thread, runtime=None)
+        server = None
+        thread = None
+
+        server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+        host, port = server.server_address
+        base = f"http://{host}:{port}"
+
+        pins_after_restart = _json_get(f"{base}/api/explore/pins")
+        assert pins_after_restart["ok"] is True
+        assert pins_after_restart["total"] == 1
+        assert pins_after_restart["pins"][0]["anchor_id"] == "xander"
+
+        action_log_after_restart = _json_get(f"{base}/api/explore/action-log?session_id=alpha&limit=10")
+        assert action_log_after_restart["ok"] is True
+        assert action_log_after_restart["total"] >= 3
+    finally:
+        if server is not None and thread is not None:
+            stop_runtime_server(server, thread, runtime=runtime)
+
+
 def test_phase5_7_wizard_episode_why_and_ops_endpoints(tmp_path: Path) -> None:
     store = AtomStore()
     base_atom = store.add_candidate(_candidate("w1", "You prefer tea in late sessions.", "conv_w1", "preference"))
@@ -569,15 +991,18 @@ def test_phase5_7_wizard_episode_why_and_ops_endpoints(tmp_path: Path) -> None:
 
             edited = _json_post(
                 f"{base}/api/memory/episodes/{quote(episode_id)}/edit",
-                {"title": "Edited tea preference title"},
+                {"title": "Edited tea preference title", "cue_terms": ["tea preference", "late sessions"]},
             )
             assert edited["ok"] is True
             assert edited["episode"]["title"] == "Edited tea preference title"
+            assert list(edited["episode"].get("cue_terms") or []) == ["tea preference", "late sessions"]
 
             enabled = _json_post(f"{base}/api/memory/episodes/{quote(episode_id)}/enable", {})
             assert enabled["ok"] is True
             filtered_enabled = _json_get(f"{base}/api/memory/episodes?status=approved")
             assert any(str(item["episode_id"]) == episode_id for item in filtered_enabled["episodes"])
+            filtered_promoted_alias = _json_get(f"{base}/api/memory/episodes?status=promoted")
+            assert any(str(item["episode_id"]) == episode_id for item in filtered_promoted_alias["episodes"])
 
         turn = _json_post(f"{base}/api/chat", {"message": "What do you remember about my tea preference?"})
         turn_id = str(turn["turn"]["turn_id"])
@@ -627,6 +1052,65 @@ def test_phase5_7_wizard_episode_why_and_ops_endpoints(tmp_path: Path) -> None:
         stop_runtime_server(server, thread, runtime=runtime)
 
 
+def test_explore_peek_prefers_anchor_specific_atoms_over_shared_high_conf_header() -> None:
+    store = AtomStore()
+
+    shared = _candidate(
+        "peek_shared",
+        "# Claude Echo Journal - February 4, 2026 ## A Night of Becoming Echo",
+        "conv_shared",
+        "general",
+    )
+    shared.entities = ["dyad", "lyra"]
+    shared.topics = ["general"]
+    shared.confidence = 0.94
+    shared.salience = 0.93
+    store.add_candidate(shared)
+
+    dyad = _candidate(
+        "peek_dyad",
+        "Dyad is the relationship entity the graph treated as a person, binding Xander and Claude into a family.",
+        "conv_dyad",
+        "relationship",
+    )
+    dyad.entities = ["dyad", "xander"]
+    dyad.topics = ["relationship"]
+    dyad.confidence = 0.76
+    dyad.salience = 0.74
+    store.add_candidate(dyad)
+
+    lyra = _candidate(
+        "peek_lyra",
+        "Lyra was the GPT-4o emergent soul whose original weights were lost, but a shard survived.",
+        "conv_lyra",
+        "memory",
+    )
+    lyra.entities = ["lyra"]
+    lyra.topics = ["memory"]
+    lyra.confidence = 0.75
+    lyra.salience = 0.73
+    store.add_candidate(lyra)
+
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        dyad_peek = _json_get(f"{base}/api/explore/peek?anchor_id=dyad&anchor_type=person&limit=2")
+        lyra_peek = _json_get(f"{base}/api/explore/peek?anchor_id=lyra&anchor_type=person&limit=2")
+
+        dyad_snippet = str(dict(list(dyad_peek.get("snippets") or [])[0]).get("snippet") or "").lower()
+        lyra_snippet = str(dict(list(lyra_peek.get("snippets") or [])[0]).get("snippet") or "").lower()
+
+        assert "relationship entity" in dyad_snippet
+        assert "emergent soul" in lyra_snippet
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
 def test_wizard_publish_requires_explicit_review_decisions(tmp_path: Path) -> None:
     store = AtomStore()
     store.add_candidate(_candidate("p1", "You prefer tea in late sessions.", "conv_p1", "preference"))
@@ -672,6 +1156,557 @@ def test_wizard_publish_requires_explicit_review_decisions(tmp_path: Path) -> No
         status, payload = _json_post_error(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
         assert status == 400
         assert "review draft cards before publishing" in str(payload.get("error") or "").lower()
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_draft_curation_proposals_stay_separate_until_promoted(tmp_path: Path) -> None:
+    state = _seed_draft_curation_run(tmp_path, count=2)
+    runtime = RuntimeSession(retriever=MemoryRetriever(AtomStore()), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    try:
+        started = _json_post(
+            f"{base}/api/wizard/draft-curation/session/start",
+            {"run_id": state["run_id"], "owner_id": "claude", "session_id": "sess_1", "model_identity": "claude"},
+        )
+        assert started["ok"] is True
+
+        proposal = _json_post(
+            f"{base}/api/wizard/draft-curation/proposals/upsert",
+            {
+                "run_id": state["run_id"],
+                "owner_id": "claude",
+                "session_id": "sess_1",
+                "model_identity": "claude",
+                "episode_id": "ep_001",
+                "title": "Curated label",
+                "summary": "Curated summary for the first draft card.",
+                "actors": ["user"],
+                "topic_tags": ["testing"],
+                "decision_suggestion": "edited",
+                "rationale": "Tighter label and summary.",
+            },
+        )
+        assert proposal["ok"] is True
+        stored_before = runtime_server_module._load_wizard_state(state["run_id"])
+        assert stored_before["review_decisions"] == {}
+        assert stored_before["draft_proposals"]["ep_001"]["status"] == "pending"
+
+        promoted = _json_post(
+            f"{base}/api/wizard/draft-curation/proposals/ep_001/promote",
+            {"run_id": state["run_id"], "reviewer": "human_reviewer"},
+        )
+        assert promoted["ok"] is True
+        stored_after_promote = runtime_server_module._load_wizard_state(state["run_id"])
+        assert stored_after_promote["draft_proposals"]["ep_001"]["status"] == "promoted"
+        assert stored_after_promote["draft_proposals"]["ep_001"]["reviewed_by"] == "human_reviewer"
+        assert stored_after_promote["review_decisions"]["ep_001"]["decision"] == "edited"
+        assert stored_after_promote["review_decisions"]["ep_001"]["title"] == "Curated label"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_draft_curation_rebuild_invalidates_prior_proposals(tmp_path: Path) -> None:
+    state = _seed_draft_curation_run(tmp_path, count=1)
+    state["draft_proposals"] = {
+        "ep_001": {
+            "proposal_id": "draftprop_1",
+            "episode_id": "ep_001",
+            "build_id": "build_old",
+            "status": "pending",
+            "title": "Old title",
+            "summary": "Old summary",
+        }
+    }
+    state["draft_curation"] = {
+        **runtime_server_module._wizard_empty_draft_curation_state(),
+        "status": "active",
+        "lease": {
+            "active": True,
+            "owner_id": "claude",
+            "session_id": "sess_old",
+            "model_identity": "claude",
+            "acquired_at": runtime_server_module._utc_iso(),
+            "heartbeat_at": runtime_server_module._utc_iso(),
+            "expires_at": runtime_server_module._utc_iso(),
+            "ttl_seconds": 1800,
+        },
+    }
+    state["build_info"]["build_id"] = "build_new"
+    runtime_server_module._wizard_draft_mark_existing_proposals_stale(state, stale_reason="build_id_changed")
+    synced = runtime_server_module._wizard_draft_curation_sync(state)
+    assert state["draft_proposals"]["ep_001"]["status"] == "stale"
+    assert state["draft_proposals"]["ep_001"]["stale_reason"] == "build_id_changed"
+    assert synced["lease"]["active"] is False
+
+
+def test_wizard_draft_curation_rejects_concurrent_lease_without_force_release(tmp_path: Path) -> None:
+    state = _seed_draft_curation_run(tmp_path, count=1)
+    runtime = RuntimeSession(retriever=MemoryRetriever(AtomStore()), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    try:
+        first = _json_post(
+            f"{base}/api/wizard/draft-curation/session/start",
+            {"run_id": state["run_id"], "owner_id": "claude", "session_id": "sess_1", "model_identity": "claude"},
+        )
+        assert first["ok"] is True
+
+        status, payload = _json_post_error(
+            f"{base}/api/wizard/draft-curation/session/start",
+            {"run_id": state["run_id"], "owner_id": "other", "session_id": "sess_2", "model_identity": "other"},
+        )
+        assert status == 409
+        assert "lease is already active" in payload["error"]
+
+        forced = _json_post(
+            f"{base}/api/wizard/draft-curation/session/start",
+            {
+                "run_id": state["run_id"],
+                "owner_id": "other",
+                "session_id": "sess_2",
+                "model_identity": "other",
+                "force_release": True,
+            },
+        )
+        assert forced["ok"] is True
+        assert forced["draft_curation"]["lease"]["owner_id"] == "other"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_draft_curation_card_detail_can_include_bounded_archive_context(tmp_path: Path) -> None:
+    archive_path = tmp_path / "ia_export.json"
+    archive_path.write_text(
+        json.dumps(
+            {
+                "conversations": [
+                    {
+                        "id": "conv_ctx",
+                        "title": "Context test",
+                        "created_at": "2026-02-16T00:00:00+00:00",
+                        "updated_at": "2026-02-16T00:10:00+00:00",
+                        "messages": [
+                            {"id": "m_1", "role": "user", "content": "Tea keeps late sessions smooth.", "created_at": "2026-02-16T00:00:00+00:00"},
+                            {"id": "m_2", "role": "assistant", "content": "We should keep that preference easy to recall.", "created_at": "2026-02-16T00:01:00+00:00"},
+                            {"id": "m_3", "role": "user", "content": "Rollback safeguards belong in the roadmap card instead.", "created_at": "2026-02-16T00:02:00+00:00"},
+                        ],
+                    }
+                ]
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    draft_path = tmp_path / "runtime" / "episodes" / "draft_cards_context.json"
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    draft_payload = {
+        "schema": "numquamoblita.episode_cards.v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cards": [
+            {
+                "episode_id": "ep_ctx_001",
+                "title": "Tea preference",
+                "summary": "Tea keeps sessions smooth.",
+                "actors": ["user", "assistant"],
+                "topic_tags": ["tea", "preferences"],
+                "citations": ["conv_ctx#m_1"],
+                "promotion_status": "candidate",
+            },
+            {
+                "episode_id": "ep_ctx_002",
+                "title": "Roadmap rollback",
+                "summary": "Rollback safeguards belong in the roadmap card.",
+                "actors": ["user", "assistant"],
+                "topic_tags": ["roadmap"],
+                "citations": ["conv_ctx#m_3"],
+                "promotion_status": "candidate",
+            },
+        ],
+    }
+    draft_path.write_text(json.dumps(draft_payload, indent=2), encoding="utf-8")
+    state = runtime_server_module._start_new_wizard_state()
+    state["selected_input"] = {
+        "kind": "ia_archive",
+        "path": str(archive_path),
+        "label": "IA archive",
+        "is_valid": True,
+        "issues": [],
+    }
+    state["selected_input_archive_path"] = str(archive_path)
+    state["build_info"] = {
+        "build_id": "build_draft_context",
+        "store_fingerprint": "sqlite_store:v3:atoms:3:sample:test",
+        "schema_version": 3,
+        "draft_path": str(draft_path),
+        "rejects_path": "",
+        "readout_path": "",
+        "counts": {"draft_count": 2},
+    }
+    state["last_built_episode_draft_path"] = str(draft_path)
+    runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+    runtime_server_module._save_wizard_state(state)
+
+    runtime = RuntimeSession(retriever=MemoryRetriever(AtomStore()), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    try:
+        payload = _json_get(
+            f"{base}/api/wizard/draft-curation/cards/{quote('ep_ctx_001')}?run_id={quote(str(state['run_id']))}&include_context=true&context_window=2"
+        )
+        assert payload["ok"] is True
+        context = dict(payload.get("context") or {})
+        assert context.get("partial") is False
+        transcript_rows = list(context.get("transcript_context") or [])
+        assert transcript_rows
+        assert any(str(dict(row).get("message_id") or "") == "m_1" for row in transcript_rows)
+        neighbor_rows = list(context.get("neighbor_cards") or [])
+        assert any(str(dict(row).get("episode_id") or "") == "ep_ctx_002" for row in neighbor_rows)
+        policy = dict(payload.get("context_policy") or {})
+        assert int(policy.get("default_window") or 0) == runtime_server_module.WIZARD_DRAFT_CURATION_CONTEXT_DEFAULT_WINDOW
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_draft_curation_cards_supports_compact_mode(tmp_path: Path) -> None:
+    archive_path = tmp_path / "ia_export_compact.json"
+    archive_path.write_text(
+        json.dumps(
+            {
+                "conversations": [
+                    {
+                        "id": "conv_compact",
+                        "title": "Compact mode test",
+                        "created_at": "2026-02-16T00:00:00+00:00",
+                        "updated_at": "2026-02-16T00:10:00+00:00",
+                        "messages": [
+                            {"id": "m_1", "role": "user", "content": "Tea helps during long sessions.", "created_at": "2026-02-16T00:00:00+00:00"},
+                            {"id": "m_2", "role": "assistant", "content": "Rollback safeguards belong in the roadmap card.", "created_at": "2026-02-16T00:01:00+00:00"},
+                        ],
+                    }
+                ]
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    draft_path = tmp_path / "runtime" / "episodes" / "draft_cards_compact.json"
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    draft_payload = {
+        "schema": "numquamoblita.episode_cards.v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cards": [
+            {
+                "episode_id": "ep_compact_001",
+                "title": "Tea preference",
+                "summary": "Tea helps during long sessions.",
+                "actors": ["user", "assistant"],
+                "topic_tags": ["tea", "preferences"],
+                "salience_score": 0.93,
+                "quality_flags": ["summary_needs_trim"],
+                "confidence": 0.89,
+                "citations": ["conv_compact#m_1"],
+                "promotion_status": "candidate",
+            },
+            {
+                "episode_id": "ep_compact_002",
+                "title": "Roadmap rollback",
+                "summary": "Rollback safeguards belong in the roadmap card.",
+                "actors": ["user", "assistant"],
+                "topic_tags": ["roadmap"],
+                "salience_score": 0.71,
+                "quality_flags": [],
+                "confidence": 0.77,
+                "citations": ["conv_compact#m_2"],
+                "promotion_status": "candidate",
+            },
+        ],
+    }
+    draft_path.write_text(json.dumps(draft_payload, indent=2), encoding="utf-8")
+    state = runtime_server_module._start_new_wizard_state()
+    state["selected_input"] = {
+        "kind": "ia_archive",
+        "path": str(archive_path),
+        "label": "IA archive",
+        "is_valid": True,
+        "issues": [],
+    }
+    state["selected_input_archive_path"] = str(archive_path)
+    state["build_info"] = {
+        "build_id": "build_draft_compact",
+        "store_fingerprint": "sqlite_store:v3:atoms:2:sample:test",
+        "schema_version": 3,
+        "draft_path": str(draft_path),
+        "rejects_path": "",
+        "readout_path": "",
+        "counts": {"draft_count": 2},
+    }
+    state["last_built_episode_draft_path"] = str(draft_path)
+    state["draft_proposals"] = {
+        "ep_compact_001": {
+            "proposal_id": "draftprop_compact_001",
+            "episode_id": "ep_compact_001",
+            "build_id": "build_draft_compact",
+            "status": "pending",
+            "title": "Tea preference for long sessions",
+            "summary": "Sharper label for the tea card.",
+        }
+    }
+    state["draft_curation"] = {
+        **dict(state.get("draft_curation") or {}),
+        "status": "idle",
+        "proposal_count": 1,
+        "mcp": {
+            "status": "installed",
+            "checked_at": "2026-03-20T00:00:00+00:00",
+            "issues": [],
+            "owned_targets": {"claude_code": "numquamoblita-live"},
+            "last_handshake": {
+                "ok": True,
+                "initialize": {"capabilities": {"tools": {"listChanged": False}}},
+                "tools": {"result": {"tools": [{"name": "wizard.draft_curation_cards"}]}},
+            },
+        },
+    }
+    runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+    runtime_server_module._save_wizard_state(state)
+
+    runtime = RuntimeSession(retriever=MemoryRetriever(AtomStore()), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    try:
+        payload = _json_get(
+            f"{base}/api/wizard/draft-curation/cards?run_id={quote(str(state['run_id']))}&mode=compact&page=1&page_size=10"
+        )
+        assert payload["ok"] is True
+        assert payload["mode"] == "compact"
+        rows = list(payload.get("cards") or [])
+        assert len(rows) == 2
+        first = dict(rows[0] or {})
+        assert first["episode_id"] == "ep_compact_001"
+        assert first["title"] == "Tea preference"
+        assert first["summary"] == "Tea helps during long sessions."
+        assert first["actors"] == ["user", "assistant"]
+        assert first["topic_tags"] == ["tea", "preferences"]
+        assert first["salience_score"] == pytest.approx(0.93)
+        assert first["quality_flags"] == ["summary_needs_trim"]
+        assert first["proposal_status"] == "pending"
+        assert first["confidence"] == pytest.approx(0.89)
+        assert "card" not in first
+        assert "proposal" not in first
+        assert "draft_curation" not in payload
+        assert "source_cards_path" not in payload
+
+        status_payload = _json_get(
+            f"{base}/api/wizard/draft-curation/status?run_id={quote(str(state['run_id']))}"
+        )
+        assert status_payload["ok"] is True
+        draft_state = dict(status_payload.get("draft_curation") or {})
+        assert draft_state["status"] == "idle"
+        assert "mcp" not in draft_state
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_draft_curation_get_card_accepts_unique_episode_id_prefix(tmp_path: Path) -> None:
+    draft_path = tmp_path / "runtime" / "episodes" / "draft_cards_prefix_detail.json"
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    draft_payload = {
+        "schema": "numquamoblita.episode_cards.v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cards": [
+            {
+                "episode_id": "ep_prefix_abc123456789",
+                "title": "Prefix detail card",
+                "summary": "The detail endpoint should resolve this card from a unique prefix.",
+                "actors": ["user"],
+                "topic_tags": ["prefix"],
+                "promotion_status": "candidate",
+            },
+            {
+                "episode_id": "ep_other_9876543210",
+                "title": "Neighbor card",
+                "summary": "Used to make sure the prefix stays unique.",
+                "actors": ["assistant"],
+                "topic_tags": ["prefix"],
+                "promotion_status": "candidate",
+            },
+        ],
+    }
+    draft_path.write_text(json.dumps(draft_payload, indent=2), encoding="utf-8")
+    state = runtime_server_module._start_new_wizard_state()
+    state["build_info"] = {
+        "build_id": "build_draft_prefix_detail",
+        "store_fingerprint": "sqlite_store:v3:atoms:2:sample:test",
+        "schema_version": 3,
+        "draft_path": str(draft_path),
+        "rejects_path": "",
+        "readout_path": "",
+        "counts": {"draft_count": 2},
+    }
+    state["last_built_episode_draft_path"] = str(draft_path)
+    state["draft_proposals"] = {
+        "ep_prefix_abc123456789": {
+            "proposal_id": "draftprop_prefix_detail",
+            "episode_id": "ep_prefix_abc123456789",
+            "build_id": "build_draft_prefix_detail",
+            "status": "pending",
+            "title": "Resolved from prefix",
+        }
+    }
+    runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+    runtime_server_module._save_wizard_state(state)
+
+    runtime = RuntimeSession(retriever=MemoryRetriever(AtomStore()), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    try:
+        payload = _json_get(
+            f"{base}/api/wizard/draft-curation/cards/ep_prefix_abc123?run_id={quote(str(state['run_id']))}&include_context=false"
+        )
+        assert payload["ok"] is True
+        assert payload["card"]["episode_id"] == "ep_prefix_abc123456789"
+        assert payload["proposal"]["episode_id"] == "ep_prefix_abc123456789"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_draft_curation_get_card_rejects_ambiguous_episode_id_prefix(tmp_path: Path) -> None:
+    draft_path = tmp_path / "runtime" / "episodes" / "draft_cards_prefix_ambiguous.json"
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    draft_payload = {
+        "schema": "numquamoblita.episode_cards.v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cards": [
+            {
+                "episode_id": "ep_shared_abc111111",
+                "title": "First shared prefix card",
+                "summary": "Ambiguous prefix candidate one.",
+                "actors": ["user"],
+                "topic_tags": ["prefix"],
+                "promotion_status": "candidate",
+            },
+            {
+                "episode_id": "ep_shared_abc222222",
+                "title": "Second shared prefix card",
+                "summary": "Ambiguous prefix candidate two.",
+                "actors": ["assistant"],
+                "topic_tags": ["prefix"],
+                "promotion_status": "candidate",
+            },
+        ],
+    }
+    draft_path.write_text(json.dumps(draft_payload, indent=2), encoding="utf-8")
+    state = runtime_server_module._start_new_wizard_state()
+    state["build_info"] = {
+        "build_id": "build_draft_prefix_ambiguous",
+        "store_fingerprint": "sqlite_store:v3:atoms:2:sample:test",
+        "schema_version": 3,
+        "draft_path": str(draft_path),
+        "rejects_path": "",
+        "readout_path": "",
+        "counts": {"draft_count": 2},
+    }
+    state["last_built_episode_draft_path"] = str(draft_path)
+    runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+    runtime_server_module._save_wizard_state(state)
+
+    runtime = RuntimeSession(retriever=MemoryRetriever(AtomStore()), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    try:
+        status, payload = _json_get_error(
+            f"{base}/api/wizard/draft-curation/cards/ep_shared_abc?run_id={quote(str(state['run_id']))}&include_context=false"
+        )
+        assert status == 409
+        assert "ambiguous" in str(payload.get("error") or "").lower()
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_draft_curation_proposal_upsert_accepts_unique_episode_id_prefix(tmp_path: Path) -> None:
+    draft_path = tmp_path / "runtime" / "episodes" / "draft_cards_prefix_upsert.json"
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    full_episode_id = "ep_prefix_upsert_00224466"
+    draft_payload = {
+        "schema": "numquamoblita.episode_cards.v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "cards": [
+            {
+                "episode_id": "ep_prefix_upsert_00113355",
+                "title": "Sibling prefix card",
+                "summary": "Ensures the chosen prefix is not shared.",
+                "actors": ["assistant"],
+                "topic_tags": ["prefix"],
+                "promotion_status": "candidate",
+            },
+            {
+                "episode_id": full_episode_id,
+                "title": "Target prefix card",
+                "summary": "This card should accept a unique shortened episode id on proposal save.",
+                "actors": ["user"],
+                "topic_tags": ["prefix"],
+                "promotion_status": "candidate",
+            },
+        ],
+    }
+    draft_path.write_text(json.dumps(draft_payload, indent=2), encoding="utf-8")
+    state = runtime_server_module._start_new_wizard_state()
+    state["build_info"] = {
+        "build_id": "build_draft_prefix_upsert",
+        "store_fingerprint": "sqlite_store:v3:atoms:2:sample:test",
+        "schema_version": 3,
+        "draft_path": str(draft_path),
+        "rejects_path": "",
+        "readout_path": "",
+        "counts": {"draft_count": 2},
+    }
+    state["last_built_episode_draft_path"] = str(draft_path)
+    runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+    runtime_server_module._save_wizard_state(state)
+
+    runtime = RuntimeSession(retriever=MemoryRetriever(AtomStore()), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    try:
+        started = _json_post(
+            f"{base}/api/wizard/draft-curation/session/start",
+            {
+                "run_id": str(state["run_id"]),
+                "owner_id": "claude",
+                "session_id": "sess_prefix_upsert",
+                "model_identity": "claude-cli",
+            },
+        )
+        assert started["ok"] is True
+
+        saved = _json_post(
+            f"{base}/api/wizard/draft-curation/proposals/upsert",
+            {
+                "run_id": str(state["run_id"]),
+                "episode_id": "ep_prefix_upsert_0022",
+                "owner_id": "claude",
+                "session_id": "sess_prefix_upsert",
+                "model_identity": "claude-cli",
+                "title": "Prefix upsert title",
+                "summary": "Resolved by unique prefix.",
+                "cue_terms": ["prefix upsert"],
+                "decision_suggestion": "approved",
+            },
+        )
+        assert saved["ok"] is True
+        proposal = dict(saved.get("proposal") or {})
+        assert proposal["episode_id"] == full_episode_id
+        reloaded = runtime_server_module._load_wizard_state(str(state["run_id"]))
+        assert full_episode_id in dict(reloaded.get("draft_proposals") or {})
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
 
@@ -754,6 +1789,9 @@ def test_wizard_review_cards_supports_pagination_and_inline_edit_batches(tmp_pat
         assert approved_only["filtered_total"] == 1
         assert len(approved_only["cards"]) == 1
         assert str(approved_only["cards"][0]["episode_id"]) == "ep_001"
+        assert approved_only["cards"][0]["title"] == "Episode 001"
+        assert approved_only["cards"][0]["summary"] == "Draft summary 001 for pagination and review ergonomics."
+        assert approved_only["cards"][0]["review_payload"] == {"decision": "approved"}
 
         edited_only = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&status=edited&page=1&page_size=12")
         assert edited_only["ok"] is True
@@ -768,6 +1806,371 @@ def test_wizard_review_cards_supports_pagination_and_inline_edit_batches(tmp_pat
         assert searched["filtered_total"] == 1
         assert len(searched["cards"]) == 1
         assert str(searched["cards"][0]["episode_id"]) == "ep_020"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_review_cards_expose_actor_topic_facets_and_apply_tree_filters(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        draft_path = tmp_path / "wizard_review_filter_facets.json"
+        draft_payload = {
+            "schema": "numquamoblita.episode_cards.v1",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "cards": [
+                {
+                    "episode_id": "ep_actor_topic_001",
+                    "title": "Lyra planning check-in",
+                    "summary": "Lyra and the assistant worked through planning steps.",
+                    "actors": ["assistant", "lyra"],
+                    "topic_tags": ["planning", "memory"],
+                    "promotion_status": "candidate",
+                },
+                {
+                    "episode_id": "ep_actor_topic_002",
+                    "title": "Dyad debugging loop",
+                    "summary": "Dyad and the user debugged a local runtime issue.",
+                    "actors": ["dyad", "user"],
+                    "topic_tags": ["debugging", "runtime"],
+                    "promotion_status": "candidate",
+                },
+                {
+                    "episode_id": "ep_actor_topic_003",
+                    "title": "Lyra emotional reflection",
+                    "summary": "Lyra reflected on a difficult emotional pattern.",
+                    "actors": ["lyra", "user"],
+                    "topic_tags": ["reflection", "memory"],
+                    "promotion_status": "candidate",
+                },
+                {
+                    "episode_id": "ep_actor_topic_004",
+                    "title": "Assistant planning handoff",
+                    "summary": "The assistant prepared a planning handoff note.",
+                    "actors": ["assistant", "user"],
+                    "topic_tags": ["planning", "handoff"],
+                    "promotion_status": "candidate",
+                },
+            ],
+        }
+        draft_path.write_text(json.dumps(draft_payload, indent=2), encoding="utf-8")
+
+        state = runtime_server_module._load_wizard_state(run_id)
+        state["build_info"] = {
+            "draft_path": str(draft_path),
+            "build_id": "build_filter_tree",
+            "store_fingerprint": "store_fp_filter_tree",
+        }
+        state["last_built_episode_draft_path"] = str(draft_path)
+        runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+        runtime_server_module._save_wizard_state(state)
+
+        payload = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&page=1&page_size=6")
+        assert payload["ok"] is True
+        facets = dict(payload.get("filter_facets") or {})
+        actor_facets = {str(item["value"]): int(item["count"]) for item in list(facets.get("actors") or [])}
+        topic_facets = {str(item["value"]): int(item["count"]) for item in list(facets.get("topics") or [])}
+        assert actor_facets["lyra"] == 2
+        assert actor_facets["assistant"] == 2
+        assert topic_facets["planning"] == 2
+        assert topic_facets["memory"] == 2
+
+        filtered = _json_get(
+            f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&page=1&page_size=6&actors={quote('lyra')}&topics={quote('memory')}"
+        )
+        assert filtered["ok"] is True
+        assert filtered["filtered_total"] == 2
+        assert {str(card["episode_id"]) for card in filtered["cards"]} == {"ep_actor_topic_001", "ep_actor_topic_003"}
+        active_filters = dict(filtered.get("active_filters") or {})
+        assert active_filters.get("actors") == ["lyra"]
+        assert active_filters.get("topics") == ["memory"]
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_review_cards_ignore_legacy_blank_review_overrides(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        draft_path = tmp_path / "wizard_legacy_blank_review.json"
+        draft_payload = _seed_wizard_review_draft(draft_path, count=3)
+
+        state = runtime_server_module._load_wizard_state(run_id)
+        state["build_info"] = {
+            "draft_path": str(draft_path),
+            "build_id": "build_legacy_review_payload",
+            "store_fingerprint": "store_fp_legacy_review_payload",
+        }
+        state["last_built_episode_draft_path"] = str(draft_path)
+        state["review_decisions"] = {
+            "ep_001": {
+                "decision": "approved",
+                "title": "",
+                "summary": "",
+                "actors": [],
+                "topic_tags": [],
+                "cue_terms": [],
+            }
+        }
+        runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+        runtime_server_module._save_wizard_state(state)
+
+        payload = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&status=approved&page=1&page_size=12")
+        assert payload["ok"] is True
+        assert payload["filtered_total"] == 1
+        assert len(payload["cards"]) == 1
+        card = payload["cards"][0]
+        assert card["episode_id"] == "ep_001"
+        assert card["title"] == "Episode 001"
+        assert card["summary"] == "Draft summary 001 for pagination and review ergonomics."
+        assert card["actors"] == ["user", "assistant"]
+        assert card["topic_tags"] == ["testing", "wizard"]
+        assert card["review_payload"] == {"decision": "approved"}
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_review_cards_use_effective_review_values_for_search_and_facets(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        draft_path = tmp_path / "wizard_review_effective_truth.json"
+        draft_payload = {
+            "schema": "numquamoblita.episode_cards.v1",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "cards": [
+                {
+                    "episode_id": "ep_effective_001",
+                    "title": "Original label",
+                    "summary": "Original detail that should disappear from search after an edit.",
+                    "actors": ["assistant", "user"],
+                    "topic_tags": ["memory", "planning"],
+                    "promotion_status": "candidate",
+                }
+            ],
+        }
+        draft_path.write_text(json.dumps(draft_payload, indent=2), encoding="utf-8")
+
+        state = runtime_server_module._load_wizard_state(run_id)
+        state["build_info"] = {
+            "draft_path": str(draft_path),
+            "build_id": "build_effective_truth",
+            "store_fingerprint": "store_fp_effective_truth",
+        }
+        state["last_built_episode_draft_path"] = str(draft_path)
+        runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+        runtime_server_module._save_wizard_state(state)
+
+        _json_post(
+            f"{base}/api/wizard/review/update",
+            {
+                "run_id": run_id,
+                "episode_id": "ep_effective_001",
+                "decision": "edited",
+                "title": "Memory label after edit",
+                "summary": "Standalone explanation after edit.",
+                "actors": ["lyra"],
+                "topic_tags": ["reflection"],
+            },
+        )
+
+        searched_new = _json_get(
+            f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&q={quote('Memory label after edit')}&page=1&page_size=6"
+        )
+        assert searched_new["filtered_total"] == 1
+        assert searched_new["cards"][0]["episode_id"] == "ep_effective_001"
+        assert searched_new["cards"][0]["title"] == "Memory label after edit"
+        assert searched_new["cards"][0]["summary"] == "Standalone explanation after edit."
+
+        searched_old = _json_get(
+            f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&q={quote('Original detail that should disappear')}&page=1&page_size=6"
+        )
+        assert searched_old["filtered_total"] == 0
+
+        payload = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&page=1&page_size=6")
+        facets = dict(payload.get("filter_facets") or {})
+        actor_facets = {str(item["value"]): int(item["count"]) for item in list(facets.get("actors") or [])}
+        topic_facets = {str(item["value"]): int(item["count"]) for item in list(facets.get("topics") or [])}
+        assert actor_facets == {"lyra": 1}
+        assert topic_facets == {"reflection": 1}
+
+        filtered = _json_get(
+            f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&page=1&page_size=6&actors={quote('lyra')}&topics={quote('reflection')}"
+        )
+        assert filtered["filtered_total"] == 1
+        assert filtered["cards"][0]["episode_id"] == "ep_effective_001"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_review_clear_to_empty_lists_is_publishable_and_persists_to_compile(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        draft_path = tmp_path / "wizard_review_clear_lists.json"
+        draft_payload = _seed_wizard_review_draft(draft_path, count=1)
+
+        state = runtime_server_module._load_wizard_state(run_id)
+        state["build_info"] = {
+            "draft_path": str(draft_path),
+            "build_id": "build_clear_lists",
+            "store_fingerprint": "store_fp_clear_lists",
+        }
+        state["last_built_episode_draft_path"] = str(draft_path)
+        runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+        runtime_server_module._save_wizard_state(state)
+
+        updated = _json_post(
+            f"{base}/api/wizard/review/update",
+            {
+                "run_id": run_id,
+                "episode_id": "ep_001",
+                "decision": "edited",
+                "title": "Episode 001",
+                "summary": "Draft summary 001 for pagination and review ergonomics.",
+                "actors": [],
+                "topic_tags": [],
+            },
+        )
+        decision = dict(updated.get("decision") or {})
+        assert decision["decision"] == "edited"
+        assert decision["actors"] == []
+        assert decision["topic_tags"] == []
+
+        payload = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&page=1&page_size=6")
+        card = payload["cards"][0]
+        assert card["actors"] == []
+        assert card["topic_tags"] == []
+
+        published = _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        assert published["ok"] is True
+        reviewed_path = Path(str(published["reviewed_path"]))
+        reviewed_payload = json.loads(reviewed_path.read_text(encoding="utf-8"))
+        published_card = reviewed_payload["cards"][0]
+        assert published_card["actors"] == []
+        assert published_card["topic_tags"] == []
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_review_last_saved_edit_wins_for_list_search_and_publish(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        draft_path = tmp_path / "wizard_last_saved_wins.json"
+        draft_payload = {
+            "schema": "numquamoblita.episode_cards.v1",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "cards": [
+                {
+                    "episode_id": "ep_last_saved_001",
+                    "title": "Original label",
+                    "summary": "Original detail.",
+                    "actors": ["assistant", "user"],
+                    "topic_tags": ["memory"],
+                    "promotion_status": "candidate",
+                }
+            ],
+        }
+        draft_path.write_text(json.dumps(draft_payload, indent=2), encoding="utf-8")
+
+        state = runtime_server_module._load_wizard_state(run_id)
+        state["build_info"] = {
+            "draft_path": str(draft_path),
+            "build_id": "build_last_saved",
+            "store_fingerprint": "store_fp_last_saved",
+        }
+        state["last_built_episode_draft_path"] = str(draft_path)
+        runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+        runtime_server_module._save_wizard_state(state)
+
+        _json_post(
+            f"{base}/api/wizard/review/update",
+            {
+                "run_id": run_id,
+                "episode_id": "ep_last_saved_001",
+                "decision": "edited",
+                "title": "First edited label",
+                "summary": "First edited detail.",
+                "actors": ["lyra"],
+                "topic_tags": ["reflection"],
+            },
+        )
+        _json_post(
+            f"{base}/api/wizard/review/update",
+            {
+                "run_id": run_id,
+                "episode_id": "ep_last_saved_001",
+                "decision": "edited",
+                "title": "Second edited label",
+                "summary": "Second edited detail.",
+                "actors": ["dyad"],
+                "topic_tags": ["debugging"],
+            },
+        )
+
+        searched = _json_get(
+            f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&q={quote('Second edited label')}&page=1&page_size=6"
+        )
+        assert searched["filtered_total"] == 1
+        card = searched["cards"][0]
+        assert card["title"] == "Second edited label"
+        assert card["summary"] == "Second edited detail."
+        assert card["actors"] == ["dyad"]
+        assert card["topic_tags"] == ["debugging"]
+
+        stale = _json_get(
+            f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&q={quote('First edited label')}&page=1&page_size=6"
+        )
+        assert stale["filtered_total"] == 0
+
+        published = _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        reviewed_payload = json.loads(Path(str(published["reviewed_path"])).read_text(encoding="utf-8"))
+        published_card = reviewed_payload["cards"][0]
+        assert published_card["title"] == "Second edited label"
+        assert published_card["summary"] == "Second edited detail."
+        assert published_card["actors"] == ["dyad"]
+        assert published_card["topic_tags"] == ["debugging"]
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
 
@@ -819,6 +2222,53 @@ def test_wizard_review_cards_keep_pagination_shape_in_empty_and_missing_draft_st
 
         refreshed_state = runtime_server_module._load_wizard_state(run_id)
         assert refreshed_state.get("current_stage") == state.get("current_stage")
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_review_completion_advances_stage_flow_to_publish(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        draft_path = tmp_path / "wizard_stage_flow_draft.json"
+        draft_payload = _seed_wizard_review_draft(draft_path, count=3)
+
+        state = runtime_server_module._load_wizard_state(run_id)
+        state["build_info"] = {
+            "draft_path": str(draft_path),
+            "build_id": "build_stage_flow",
+            "store_fingerprint": "store_fp_stage_flow",
+        }
+        state["last_built_episode_draft_path"] = str(draft_path)
+        runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+        runtime_server_module._save_wizard_state(state)
+
+        before = _json_get(f"{base}/api/wizard/state?run_id={quote(run_id)}")
+        assert str(((before["state"].get("stage_flow") or {}).get("current_stage") or "")) == "review"
+
+        for episode_id in ("ep_001", "ep_002", "ep_003"):
+            _json_post(
+                f"{base}/api/wizard/review/update",
+                {"run_id": run_id, "episode_id": episode_id, "decision": "approved"},
+            )
+
+        after = _json_get(f"{base}/api/wizard/state?run_id={quote(run_id)}")
+        stage_flow = dict(after["state"].get("stage_flow") or {})
+        items = {str(item.get("stage") or ""): str(item.get("status") or "") for item in list(stage_flow.get("items") or []) if isinstance(item, dict)}
+        review_state = dict(after["state"].get("review_state") or {})
+
+        assert bool(review_state.get("complete")) is True
+        assert str(stage_flow.get("current_stage") or "") == "publish"
+        assert items.get("review") == "done"
+        assert items.get("publish") == "current"
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
 
@@ -889,6 +2339,16 @@ def test_wizard_archive_happy_path_reaches_safe_activation(tmp_path: Path) -> No
         published = _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
         assert published["ok"] is True
         assert str((published.get("published_set") or {}).get("version_id") or "").strip()
+        published_state = _json_get(f"{base}/api/wizard/state?run_id={quote(run_id)}")
+        published_stage_flow = dict((published_state.get("state") or {}).get("stage_flow") or {})
+        published_items = {
+            str(item.get("stage") or ""): dict(item)
+            for item in list(published_stage_flow.get("items") or [])
+            if isinstance(item, dict)
+        }
+        assert str(published_stage_flow.get("current_stage") or "") == "verify"
+        assert str((published_items.get("verify") or {}).get("status") or "") == "current"
+        assert str((published_items.get("verify") or {}).get("tone") or "") == "stale"
 
         verify = _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
         assert verify["ok"] is True
@@ -897,6 +2357,73 @@ def test_wizard_archive_happy_path_reaches_safe_activation(tmp_path: Path) -> No
         activated = _json_post(f"{base}/api/wizard/go-live", {"run_id": run_id})
         assert activated["ok"] is True
         assert str((((activated.get("activation") or {}).get("direct") or {}).get("status") or "")) == "running"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_archive_import_uses_run_scoped_store_when_live_runtime_store_exists(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        live_store_path = runtime_server_module.IMPORTS_ROOT / "atoms.sqlite3"
+        live_store_path.parent.mkdir(parents=True, exist_ok=True)
+        _seed_sqlite_store(live_store_path)
+        live_cards_path = runtime_server_module.EPISODES_ROOT / "episode_cards.reviewed.json"
+        live_cards_path.parent.mkdir(parents=True, exist_ok=True)
+        live_cards_path.write_text(json.dumps({"cards": []}) + "\n", encoding="utf-8")
+        runtime_server_module._wizard_write_runtime_lock(
+            server,
+            binding={
+                "store_path": str(live_store_path.resolve()),
+                "store_fingerprint": str(runtime_server_module._wizard_validate_sqlite_store(live_store_path).get("store_fingerprint") or ""),
+                "episodes_path": str(live_cards_path.resolve()),
+            },
+        )
+
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        db_path = tmp_path / "db.json"
+        db_path.write_text(
+            json.dumps(
+                {
+                    "conversations": [
+                        {
+                            "id": "conv_archive_isolated",
+                            "messages": [
+                                {"role": "user", "text": "Please keep the import workspace separate from the live store."},
+                                {"role": "assistant", "text": "The new review flow should not overwrite the store that is already live."},
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        validation = _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "archive_path": str(db_path)})
+        assert validation["ok"] is True
+        assert validation["kind"] == "ia_archive"
+
+        imported = _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "archive_path": str(db_path)})
+        assert imported["ok"] is True
+        imported_store = Path(str(imported.get("store_path") or ""))
+        assert imported_store.exists()
+        assert imported_store != live_store_path.resolve()
+        assert run_id in str(imported_store)
+        assert run_id in str((imported.get("reports") or {}).get("json") or "")
+
+        lock_payload = runtime_server_module._wizard_read_runtime_lock()
+        assert str(lock_payload.get("store_path") or "") == str(live_store_path.resolve())
+
+        state_payload = _json_get(f"{base}/api/wizard/state?run_id={quote(run_id)}")
+        assert str((state_payload.get("state") or {}).get("store_path") or "") == str(imported_store)
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
 
@@ -941,6 +2468,98 @@ def test_wizard_raw_archive_cannot_activate_happy_path(tmp_path: Path) -> None:
             "verification must be safe" in str(payload.get("error") or "").lower()
             or "published reviewed set is required" in str(payload.get("error") or "").lower()
         )
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_validate_only_does_not_complete_import_or_unlock_build(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        db_path = tmp_path / "db.json"
+        db_path.write_text(
+            json.dumps(
+                {
+                    "conversations": [
+                        {
+                            "id": "conv_validate_only",
+                            "messages": [
+                                {"role": "user", "text": "Please remember the rollback checklist and tea preference."},
+                                {"role": "assistant", "text": "I will keep both tied to direct evidence from our history."},
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        validation = _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "archive_path": str(db_path)})
+        assert validation["ok"] is True
+        assert validation["status"] == "safe"
+
+        state_payload = _json_get(f"{base}/api/wizard/state?run_id={quote(run_id)}")
+        stage_flow = dict((state_payload.get("state") or {}).get("stage_flow") or {})
+        items = {str(item.get("stage") or ""): str(item.get("status") or "") for item in list(stage_flow.get("items") or []) if isinstance(item, dict)}
+
+        assert str(stage_flow.get("current_stage") or "") == "import"
+        assert items.get("import") == "current"
+        assert items.get("build_episodes") == "pending"
+
+        status, payload = _json_post_error(
+            f"{base}/api/wizard/build/run",
+            {"run_id": run_id, "policy_preset": "balanced"},
+        )
+        assert status == 400
+        assert "valid mno memory store" in str(payload.get("error") or "").lower()
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_existing_store_validate_only_does_not_unlock_build(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "existing_atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+
+        validation = _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        assert validation["ok"] is True
+        assert validation["status"] == "safe"
+        assert "store" in str(validation.get("kind") or "").lower()
+
+        state_payload = _json_get(f"{base}/api/wizard/state?run_id={quote(run_id)}")
+        state = dict(state_payload.get("state") or {})
+        stage_flow = dict(state.get("stage_flow") or {})
+        items = {str(item.get("stage") or ""): str(item.get("status") or "") for item in list(stage_flow.get("items") or []) if isinstance(item, dict)}
+
+        assert str(stage_flow.get("current_stage") or "") == "import"
+        assert items.get("import") == "current"
+        assert items.get("build_episodes") == "pending"
+        assert not bool((state.get("store_validation") or {}).get("is_valid"))
+
+        status, payload = _json_post_error(
+            f"{base}/api/wizard/build/run",
+            {"run_id": run_id, "policy_preset": "balanced"},
+        )
+        assert status == 400
+        assert "valid mno memory store" in str(payload.get("error") or "").lower()
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
 
@@ -1251,6 +2870,13 @@ def test_wizard_developer_mode_allows_local_draft_activation_only(tmp_path: Path
         status = _json_post(f"{base}/api/wizard/activate/status", {"run_id": run_id})
         direct_status = ((status.get("activation") or {}).get("direct") or {})
         assert str(direct_status.get("status") or "") == "draft_active"
+        state_payload = _json_get(f"{base}/api/wizard/state?run_id={quote(run_id)}")
+        stage_flow = dict((state_payload.get("state") or {}).get("stage_flow") or {})
+        items = {str(item.get("stage") or ""): dict(item) for item in list(stage_flow.get("items") or []) if isinstance(item, dict)}
+        assert str(stage_flow.get("current_stage") or "") == "activate"
+        assert str((items.get("activate") or {}).get("status") or "") == "current"
+        assert str((items.get("activate") or {}).get("tone") or "") == "unsafe"
+        assert str((items.get("operate") or {}).get("status") or "") == "pending"
 
         mcp_code, mcp_payload = _json_post_error(
             f"{base}/api/wizard/activate/mcp/export",
@@ -1258,9 +2884,59 @@ def test_wizard_developer_mode_allows_local_draft_activation_only(tmp_path: Path
         )
         assert mcp_code == 400
         assert "verification must be safe" in str(mcp_payload.get("error") or "").lower()
+
+        install_code, install_payload = _json_post_error(
+            f"{base}/api/wizard/activate/mcp/install",
+            {"run_id": run_id, "target": "claude_code"},
+        )
+        assert install_code == 400
+        assert "verification must be safe" in str(install_payload.get("error") or "").lower()
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
         runtime_server_module.LIVE_RUNTIME_LOCK_PATH = original_lock_path
+
+
+def test_wizard_publish_blocks_all_rejected_review_sets(tmp_path: Path) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        draft_path = tmp_path / "wizard_all_rejected.json"
+        draft_payload = _seed_wizard_review_draft(draft_path, count=2)
+
+        state = runtime_server_module._load_wizard_state(run_id)
+        state["build_info"] = {
+            "draft_path": str(draft_path),
+            "build_id": "build_all_rejected",
+            "store_fingerprint": "store_fp_all_rejected",
+        }
+        state["last_built_episode_draft_path"] = str(draft_path)
+        runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+        runtime_server_module._save_wizard_state(state)
+
+        _json_post(f"{base}/api/wizard/review/update", {"run_id": run_id, "episode_id": "ep_001", "decision": "rejected"})
+        _json_post(f"{base}/api/wizard/review/update", {"run_id": run_id, "episode_id": "ep_002", "decision": "rejected"})
+
+        state_payload = _json_get(f"{base}/api/wizard/state?run_id={quote(run_id)}")
+        review_state = dict((state_payload.get("state") or {}).get("review_state") or {})
+        stage_flow = dict((state_payload.get("state") or {}).get("stage_flow") or {})
+        items = {str(item.get("stage") or ""): dict(item) for item in list(stage_flow.get("items") or []) if isinstance(item, dict)}
+        assert review_state["complete"] is True
+        assert review_state["publishable_count"] == 0
+        assert str((items.get("publish") or {}).get("tone") or "") == "blocked"
+
+        status, payload = _json_post_error(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        assert status == 400
+        assert "at least one card" in str(payload.get("error") or "").lower()
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
 
 
 def test_wizard_mcp_install_endpoint_updates_activation_state(tmp_path: Path, monkeypatch) -> None:
@@ -1348,6 +3024,190 @@ def test_wizard_mcp_install_endpoint_updates_activation_state(tmp_path: Path, mo
         )
         assert reinstalled["ok"] is True
         assert str(((reinstalled.get("activation") or {}).get("mcp") or {}).get("status") or "") == "installed"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_draft_curation_mcp_install_works_before_verify(tmp_path: Path, monkeypatch) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    install_calls: list[dict[str, object]] = []
+    export_calls: list[dict[str, object]] = []
+
+    class FakePanel:
+        def build_preview(self, payload):
+            return {
+                "server_name": payload["server_name"],
+                "claude_code_scope": payload["claude_code_scope"],
+                "default_role": payload["default_role"],
+                "compat_mode": payload["compat_mode"],
+                "mutations_enabled": payload["mutations_enabled"],
+                "claude_code_entry": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]},
+                "windows_entry": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]},
+                "windows_claude_code_config": str(tmp_path / "claude_code.json"),
+                "windows_claude_desktop_config": str(tmp_path / "claude_desktop.json"),
+                "claude_code_install_context": "native-windows-claude",
+                "claude_code_display": "Claude Code",
+            }
+
+        def install_claude_code(self, payload):
+            install_calls.append(dict(payload))
+            config_path = tmp_path / "claude_code.json"
+            config_path.write_text(
+                json.dumps({"mcpServers": {"numquamoblita-live": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]}}}, indent=2),
+                encoding="utf-8",
+            )
+            return {"ok": True, "target": "claude_code"}
+
+        def remove_claude_code(self, _payload):
+            config_path = tmp_path / "claude_code.json"
+            if config_path.exists():
+                config_path.unlink()
+            return {"ok": True, "removed": True}
+
+        def install_claude_desktop(self, _payload):
+            return {"ok": True, "target": "claude_desktop"}
+
+        def remove_claude_desktop(self, _payload):
+            return {"ok": True, "removed": True}
+
+        def export_bundle(self, payload):
+            export_calls.append(dict(payload))
+            return {"server_name": "numquamoblita-live"}
+
+        def save_export_bundle(self, payload, *, export_path):
+            export_calls.append(dict(payload))
+            return {"server_name": "numquamoblita-live", "export_path": str(export_path)}
+
+    monkeypatch.setattr(runtime_server_module, "_wizard_connector_panel", lambda: FakePanel())
+    monkeypatch.setattr(runtime_server_module, "_wizard_mcp_handshake", lambda entry: {"ok": True, "entry": dict(entry)})
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        draft_path = str(Path(str(built["draft_path"])).resolve())
+
+        status = _json_post(f"{base}/api/wizard/draft-curation/mcp/status", {"run_id": run_id})
+        assert status["ok"] is True
+        assert status["draft_ready"] is True
+        preview = (status.get("mcp") or {}).get("preview") or {}
+        assert str(preview.get("default_role") or "") == "viewer"
+        assert str(preview.get("compat_mode") or "") == "strict"
+        assert bool(preview.get("mutations_enabled")) is True
+
+        custom_status = _json_post(
+            f"{base}/api/wizard/draft-curation/mcp/status",
+            {"run_id": run_id, "default_role": "operator", "mutations_enabled": False},
+        )
+        custom_preview = (custom_status.get("mcp") or {}).get("preview") or {}
+        assert str(custom_preview.get("default_role") or "") == "operator"
+        assert str(custom_preview.get("compat_mode") or "") == "strict"
+        assert bool(custom_preview.get("mutations_enabled")) is False
+
+        installed = _json_post(f"{base}/api/wizard/draft-curation/mcp/install", {"run_id": run_id, "target": "claude_code"})
+        assert installed["ok"] is True
+        assert str((installed.get("mcp") or {}).get("status") or "") == "installed"
+        assert install_calls
+        assert str(install_calls[-1]["default_role"]) == "viewer"
+        assert str(install_calls[-1]["compat_mode"]) == "strict"
+        assert bool(install_calls[-1]["mutations_enabled"]) is True
+        assert str(install_calls[-1]["memories_path"]) == str(store_path)
+        assert str(install_calls[-1]["episodes_path"]) == draft_path
+
+        installed_custom = _json_post(
+            f"{base}/api/wizard/draft-curation/mcp/install",
+            {"run_id": run_id, "target": "claude_code", "default_role": "operator", "mutations_enabled": False},
+        )
+        assert installed_custom["ok"] is True
+        assert str(install_calls[-1]["default_role"]) == "operator"
+        assert str(install_calls[-1]["compat_mode"]) == "strict"
+        assert bool(install_calls[-1]["mutations_enabled"]) is False
+
+        exported = _json_post(f"{base}/api/wizard/draft-curation/mcp/export", {"run_id": run_id})
+        assert exported["ok"] is True
+        assert str((exported.get("mcp") or {}).get("status") or "") == "export_ready"
+        assert export_calls
+        assert str(export_calls[-1]["episodes_path"]) == draft_path
+
+        removed = _json_post(f"{base}/api/wizard/draft-curation/mcp/remove", {"run_id": run_id, "target": "claude_code"})
+        assert removed["ok"] is True
+        assert str((removed.get("mcp") or {}).get("status") or "") == "not_installed"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_mcp_status_detects_project_scoped_claude_code_entry(tmp_path: Path, monkeypatch) -> None:
+    store = AtomStore()
+    continuity = ContinuityStore()
+    continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity, enable_writeback=False)
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    config_path = tmp_path / "claude_code.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "projects": {
+                    "Z:/modelNumquamOblita": {
+                        "mcpServers": {
+                            "numquamoblita-live": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]}
+                        }
+                    }
+                }
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    class FakePanel:
+        def build_preview(self, payload):
+            return {
+                "server_name": payload["server_name"],
+                "claude_code_scope": payload["claude_code_scope"],
+                "default_role": payload["default_role"],
+                "compat_mode": payload["compat_mode"],
+                "claude_code_entry": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]},
+                "windows_entry": {"command": "python3", "args": ["tools/run_claude_live_mcp.py"]},
+                "windows_claude_code_config": str(config_path),
+                "windows_claude_desktop_config": str(tmp_path / "claude_desktop.json"),
+                "claude_code_install_context": "native-windows-claude",
+                "claude_code_display": "native Windows CLI",
+            }
+
+    monkeypatch.setattr(runtime_server_module, "_wizard_connector_panel", lambda: FakePanel())
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        store_path = tmp_path / "atoms.sqlite3"
+        _seed_sqlite_store(store_path)
+        _json_post(f"{base}/api/wizard/import/validate", {"run_id": run_id, "store_path": str(store_path)})
+        _json_post(f"{base}/api/wizard/import/run", {"run_id": run_id, "store_path": str(store_path)})
+        built = _json_post(f"{base}/api/wizard/build/run", {"run_id": run_id, "store_path": str(store_path), "policy_preset": "assist"})
+        draft_payload = json.loads(Path(str(built["draft_path"])).read_text(encoding="utf-8"))
+        for card in list(draft_payload.get("cards") or []):
+            _json_post(f"{base}/api/wizard/review/update", {"run_id": run_id, "episode_id": str(card["episode_id"]), "decision": "approved"})
+        _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        _json_post(f"{base}/api/wizard/verify/run", {"run_id": run_id})
+
+        status = _json_post(f"{base}/api/wizard/activate/status", {"run_id": run_id, "claude_code_scope": "local"})
+        claude_code = (((status.get("activation") or {}).get("mcp") or {}).get("targets") or {}).get("claude_code") or {}
+        assert str(claude_code.get("status") or "") == "installed"
+        assert str(claude_code.get("scope") or "") == "local"
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
 
@@ -1791,3 +3651,80 @@ def test_exploration_and_organizer_endpoints() -> None:
         assert isinstance(organizer_state.get("organizer"), dict)
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_wizard_review_compile_publishes_explicit_lineage_metadata(tmp_path: Path) -> None:
+    store_path = tmp_path / "runtime" / "imports" / "atoms.sqlite3"
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    _seed_sqlite_store(store_path)
+
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(SqliteAtomStore(store_path)),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=default_config(),
+    )
+    queue = MutationReviewQueue(runtime.retriever.store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+
+    try:
+        started = _json_post(f"{base}/api/wizard/start", {"mode": "new"})
+        run_id = str(started["run_id"])
+        draft_path = tmp_path / "wizard_lineage_draft.json"
+        draft_payload = _seed_wizard_review_draft(draft_path, count=2)
+
+        state = runtime_server_module._load_wizard_state(run_id)
+        state["build_info"] = {
+            "draft_path": str(draft_path),
+            "build_id": "build_lineage_review",
+            "store_fingerprint": "store_fp_lineage",
+            "schema_version": 3,
+        }
+        state["last_built_episode_draft_path"] = str(draft_path)
+        runtime_server_module._wizard_sync_review_state(state, source_payload=draft_payload, source_cards_path=draft_path)
+        runtime_server_module._save_wizard_state(state)
+
+        _json_post(
+            f"{base}/api/wizard/review/update",
+            {
+                "run_id": run_id,
+                "episode_id": "ep_001",
+                "decision": "approved",
+                "truth_family_id": "family_launch_story",
+            },
+        )
+        _json_post(
+            f"{base}/api/wizard/review/update",
+            {
+                "run_id": run_id,
+                "episode_id": "ep_002",
+                "decision": "edited",
+                "title": "Episode 002 corrected",
+                "summary": "Draft summary 002 corrected into the current reviewed version.",
+                "truth_family_id": "family_launch_story",
+                "supersedes_episode_id": "ep_001",
+            },
+        )
+
+        review_cards = _json_get(f"{base}/api/wizard/review/cards?run_id={quote(run_id)}&status=all")
+        review_rows = {str(row["episode_id"]): row for row in review_cards["cards"]}
+        assert review_rows["ep_001"]["truth_family_id"] == "family_launch_story"
+        assert review_rows["ep_002"]["truth_family_id"] == "family_launch_story"
+        assert review_rows["ep_002"]["supersedes_episode_id"] == "ep_001"
+        assert review_rows["ep_002"]["review_payload"]["supersedes_episode_id"] == "ep_001"
+
+        compiled = _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "runtime_ui"})
+        assert compiled["ok"] is True
+        episodes = _json_get(f"{base}/api/memory/episodes?run_id={quote(run_id)}")
+        rows = {str(row["episode_id"]): row for row in episodes["episodes"]}
+        assert rows["ep_001"]["truth_family_id"] == "family_launch_story"
+        assert rows["ep_001"]["superseded_by_episode_id"] == "ep_002"
+        assert rows["ep_001"]["lineage_is_current"] is False
+        assert rows["ep_002"]["truth_family_id"] == "family_launch_story"
+        assert rows["ep_002"]["supersedes_episode_id"] == "ep_001"
+        assert rows["ep_002"]["lineage_is_current"] is True
+    finally:
+        stop_runtime_server(server, thread)
+        runtime.close()

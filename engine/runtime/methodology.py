@@ -259,6 +259,7 @@ def list_methodology_records(
     state: Mapping[str, Any],
     *,
     status: str = "all",
+    include_retired: bool = True,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -267,6 +268,8 @@ def list_methodology_records(
     rows.sort(key=lambda row: str(row.get("updated_at") or ""), reverse=True)
     if normalized_status != "all":
         rows = [row for row in rows if str(row.get("status") or "").strip().lower() == normalized_status]
+    elif not include_retired:
+        rows = [row for row in rows if str(row.get("status") or "").strip().lower() != "retired"]
     start = max(0, int(offset))
     window = max(1, int(limit))
     page = rows[start : start + window]
@@ -276,6 +279,7 @@ def list_methodology_records(
         "limit": window,
         "total": len(rows),
         "has_more": start + len(page) < len(rows),
+        "include_retired": bool(include_retired),
     }
 
 

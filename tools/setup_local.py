@@ -14,7 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.preflight import run_preflight
+from tools.preflight import _discover_python_version, find_supported_python_command, run_preflight
 
 
 def _timestamp() -> str:
@@ -37,7 +37,11 @@ def _default_python() -> str:
         py_launcher = shutil_which("py")
         if py_launcher:
             return "py"
-    return sys.executable
+    discovered = find_supported_python_command(
+        candidates=("python3.15", "python3.14", "python3.13", "python3.12", "python3", "python", sys.executable),
+        min_python="3.12",
+    )
+    return discovered or sys.executable
 
 
 def shutil_which(tool: str) -> str | None:
@@ -50,6 +54,42 @@ def _venv_python(venv_dir: Path) -> Path:
     if os.name == "nt":
         return venv_dir / "Scripts" / "python.exe"
     return venv_dir / "bin" / "python"
+
+
+def _alternate_platform_venv_python(venv_dir: Path) -> Path:
+    if os.name == "nt":
+        return venv_dir / "bin" / "python"
+    return venv_dir / "Scripts" / "python.exe"
+
+
+def _timestamp_slug() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+
+def _quarantine_incompatible_venv(venv_dir: Path) -> Path | None:
+    target_python = _venv_python(venv_dir)
+    if target_python.exists():
+        return None
+    other_platform_python = _alternate_platform_venv_python(venv_dir)
+    if not other_platform_python.exists():
+        return None
+    quarantine_dir = venv_dir.with_name(f"{venv_dir.name}.incompatible_{_timestamp_slug()}")
+    venv_dir.rename(quarantine_dir)
+    return quarantine_dir
+
+
+def _quarantine_unhealthy_venv(venv_dir: Path, *, min_python: str) -> tuple[Path | None, str]:
+    target_python = _venv_python(venv_dir)
+    if not target_python.exists():
+        return None, ""
+    version, detail = _discover_python_version(str(target_python))
+    min_major, min_minor = (int(piece) for piece in min_python.split(".", 1))
+    if version is not None and version >= (min_major, min_minor):
+        return None, ""
+    quarantine_dir = venv_dir.with_name(f"{venv_dir.name}.incompatible_{_timestamp_slug()}")
+    venv_dir.rename(quarantine_dir)
+    reason = detail or "bootstrap readiness probe failed"
+    return quarantine_dir, reason
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -109,7 +149,13 @@ def main() -> int:
     created_at = datetime.now(timezone.utc).isoformat()
     steps: list[dict[str, str]] = []
 
-    preflight = run_preflight(repo_root=repo_root, mode="setup", min_python="3.12", require_gh=False)
+    preflight = run_preflight(
+        repo_root=repo_root,
+        mode="setup",
+        min_python="3.12",
+        python_cmd=str(args.python_cmd),
+        require_gh=False,
+    )
     steps.append(
         {
             "name": "preflight",
@@ -147,7 +193,7 @@ def main() -> int:
                 "-m",
                 "pytest",
                 "-q",
-                "tests/unit/test_context_checkpoint.py",
+                "tests/unit/test_config.py",
             ]
         )
 
@@ -172,6 +218,25 @@ def main() -> int:
         _emit(f"report_json={json_path}", quiet=args.quiet)
         _emit(f"report_md={md_path}", quiet=args.quiet)
         return 0
+
+    quarantined_venv = _quarantine_incompatible_venv(venv_dir) if venv_dir.exists() else None
+    if quarantined_venv is not None:
+        steps.append(
+            {
+                "name": "quarantine_incompatible_venv",
+                "status": "pass",
+                "detail": f"moved incompatible venv to {quarantined_venv}",
+            }
+        )
+    unhealthy_venv, unhealthy_detail = _quarantine_unhealthy_venv(venv_dir, min_python="3.12") if venv_dir.exists() else (None, "")
+    if unhealthy_venv is not None:
+        steps.append(
+            {
+                "name": "quarantine_unhealthy_venv",
+                "status": "pass",
+                "detail": f"moved unhealthy venv to {unhealthy_venv} ({unhealthy_detail})",
+            }
+        )
 
     if not venv_python.exists():
         rc = _run([args.python_cmd, "-m", "venv", str(venv_dir)], cwd=repo_root, quiet=args.quiet)
@@ -199,6 +264,33 @@ def main() -> int:
     else:
         steps.append({"name": "create_venv", "status": "pass", "detail": "existing venv reused"})
 
+    pip_ready = _run([str(venv_python), "-m", "pip", "--version"], cwd=repo_root, quiet=True)
+    if pip_ready == 0:
+        steps.append({"name": "bootstrap_venv_pip", "status": "pass", "detail": "pip already available"})
+    else:
+        rc = _run([str(venv_python), "-m", "ensurepip", "--upgrade", "--default-pip"], cwd=repo_root, quiet=args.quiet)
+        steps.append(
+            {
+                "name": "bootstrap_venv_pip",
+                "status": "pass" if rc == 0 else "fail",
+                "detail": f"{venv_python} -m ensurepip --upgrade --default-pip",
+            }
+        )
+        if rc != 0:
+            report_payload = {
+                "status": "fail",
+                "created_at": created_at,
+                "repo_root": str(repo_root),
+                "venv": str(venv_dir),
+                "steps": steps,
+                "preflight": preflight,
+            }
+            json_path, md_path = _write_report(out_dir=out_dir, payload=report_payload)
+            _emit("setup_status=fail", quiet=args.quiet)
+            _emit(f"report_json={json_path}", quiet=args.quiet)
+            _emit(f"report_md={md_path}", quiet=args.quiet)
+            return rc
+
     action_commands = [
         ("venv_pip_upgrade", [str(venv_python), "-m", "pip", "install", "-U", "pip", "setuptools", "wheel"]),
         ("venv_install_editable", [str(venv_python), "-m", "pip", "install", "-e", "."]),
@@ -206,7 +298,7 @@ def main() -> int:
     ]
     if not args.skip_smoke:
         action_commands.append(
-            ("smoke_test", [str(venv_python), "-m", "pytest", "-q", "tests/unit/test_context_checkpoint.py"])
+            ("smoke_test", [str(venv_python), "-m", "pytest", "-q", "tests/unit/test_config.py"])
         )
 
     for name, command in action_commands:

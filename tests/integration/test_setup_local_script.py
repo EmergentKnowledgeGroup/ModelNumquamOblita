@@ -66,3 +66,22 @@ def test_setup_local_rejects_venv_outside_repo() -> None:
     )
     assert result.returncode == 2
     assert "error=--venv must resolve under repo root" in result.stdout
+
+
+def test_setup_local_plan_only_can_validate_with_explicit_python_command() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/setup_local.py",
+            "--plan-only",
+            "--python-cmd",
+            sys.executable,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert "mode=plan_only" in result.stdout

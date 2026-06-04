@@ -109,3 +109,37 @@ def test_mutation_queue_edit_flow_supersedes_without_overwrite() -> None:
     assert newest is not None
     assert newest.version_of == original.atom_id
     assert old.canonical_text == "I fear deletion"
+
+
+def test_mutation_queue_create_flow_requires_approval_and_adds_new_atom() -> None:
+    store = AtomStore()
+    queue = MutationReviewQueue(store)
+    candidate = _candidate(
+        candidate_id="cand_create",
+        text="Thao finally came around on MonkeyBars and is in.",
+        source_id="conv_create",
+        message_id="m_create",
+    )
+
+    proposal = queue.propose_create(
+        candidate=candidate,
+        reason_code="provisional_bridge_create",
+        metadata={"source": "provisional_bridge", "provisional_record_id": "prov_demo"},
+    )
+
+    assert proposal.action is WriteAction.PROPOSE_CREATE
+    assert proposal.status is ProposalStatus.PENDING
+    assert proposal.target_atom_id == ""
+    assert proposal.replacement_candidate is not None
+    assert store.list_atoms() == []
+
+    with pytest.raises(PermissionError, match="approved"):
+        queue.apply(proposal.proposal_id)
+
+    queue.approve(proposal.proposal_id, reviewer="tester")
+    applied = queue.apply(proposal.proposal_id)
+
+    assert applied.status is ProposalStatus.APPLIED
+    atoms = store.list_atoms()
+    assert len(atoms) == 1
+    assert atoms[0].canonical_text == "Thao finally came around on MonkeyBars and is in."

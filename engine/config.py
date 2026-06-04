@@ -17,6 +17,11 @@ class GateThresholds:
     add_threshold: float = 0.60
     stage_a_add_floor: float = 0.62
     update_threshold: float = 0.50
+    min_recommendation_relevance: float = 0.45
+    min_assistant_detail_relevance: float = 0.56
+    min_answer_specificity: float = 0.50
+    min_self_fact_relevance: float = 0.58
+    min_self_fact_specificity: float = 0.60
     max_confidence_without_recurrence: float = 0.72
     abstain_threshold: float = 0.55
 
@@ -90,6 +95,15 @@ class RetrievalRouterPolicy:
             candidate_cap_floor=16,
         )
     )
+    verbatim_session_recall: RetrievalProfilePolicy = field(
+        default_factory=lambda: RetrievalProfilePolicy(
+            temporal_scale=0.45,
+            graph_scale=0.40,
+            candidate_pool_floor=160,
+            candidate_cap_ratio=1.0,
+            candidate_cap_floor=32,
+        )
+    )
 
 
 @dataclass(slots=True)
@@ -143,6 +157,92 @@ class RetrievalCachePolicy:
 
 
 @dataclass(slots=True)
+class RetrievalAnnSidecarPolicy:
+    """Bounded local vector sidecar for additive candidate generation only."""
+
+    enabled: bool = False
+    top_k_ann: int = 16
+    candidate_cap_ratio: float = 0.25
+    candidate_cap_floor: int = 4
+    max_latency_ms: float = 35.0
+    embedding_backend: str = "hashed-simhash-sqlite"
+    embedding_store_path: str = ""
+    rebuild_mode: str = "lazy"
+
+
+@dataclass(slots=True)
+class RetrievalRawContextSidecarPolicy:
+    """Read-only raw-context helper for explicit quote/provenance recall."""
+
+    write_enabled: bool = True
+    read_enabled: bool = True
+    neighbor_turns: int = 1
+    max_turns: int = 3
+    max_chars: int = 1200
+
+
+@dataclass(slots=True)
+class RetrievalSourceProjectionPolicy:
+    """Read-only source/round projection helper caps."""
+
+    enabled: bool = False
+    per_source_fanout_cap: int = 4
+    per_query_contribution_cap: int = 12
+
+
+@dataclass(slots=True)
+class RetrievalTemporalLiftPolicy:
+    """Bounded temporal ranking helper policy."""
+
+    enabled: bool = False
+    score_cap: float = 0.18
+
+
+@dataclass(slots=True)
+class RetrievalCrossEncoderRerankerPolicy:
+    """Optional bounded reranker policy."""
+
+    enabled: bool = False
+    top_n: int = 24
+    top_m: int = 8
+    max_latency_ms: float = 75.0
+
+
+@dataclass(slots=True)
+class RetrievalUpdateFamilyResolverPolicy:
+    """Read-only rank-time resolver for correction/update families."""
+
+    enabled: bool = False
+    family_scan_limit: int = 24
+
+
+@dataclass(slots=True)
+class RetrievalObservationProjectionPolicy:
+    """Read-only observation/assertion projection helper caps."""
+
+    enabled: bool = False
+    per_source_fanout_cap: int = 4
+    per_query_contribution_cap: int = 8
+
+
+@dataclass(slots=True)
+class RetrievalDerivedHelpersPolicy:
+    """Config gates for bounded helper lanes imported under the truth contract."""
+
+    source_projection: RetrievalSourceProjectionPolicy = field(default_factory=RetrievalSourceProjectionPolicy)
+    temporal_lift: RetrievalTemporalLiftPolicy = field(default_factory=RetrievalTemporalLiftPolicy)
+    cross_encoder_reranker: RetrievalCrossEncoderRerankerPolicy = field(
+        default_factory=RetrievalCrossEncoderRerankerPolicy
+    )
+    update_family_resolver: RetrievalUpdateFamilyResolverPolicy = field(
+        default_factory=RetrievalUpdateFamilyResolverPolicy
+    )
+    observation_projection: RetrievalObservationProjectionPolicy = field(
+        default_factory=RetrievalObservationProjectionPolicy
+    )
+
+
+@dataclass(slots=True)
 class RetrievalBudget:
     """Top-k and retrieval policy knobs used by retrieval."""
 
@@ -156,6 +256,9 @@ class RetrievalBudget:
     rrf: RetrievalRrfPolicy = field(default_factory=RetrievalRrfPolicy)
     pack: RetrievalPackPolicy = field(default_factory=RetrievalPackPolicy)
     cache: RetrievalCachePolicy = field(default_factory=RetrievalCachePolicy)
+    ann_sidecar: RetrievalAnnSidecarPolicy = field(default_factory=RetrievalAnnSidecarPolicy)
+    raw_context_sidecar: RetrievalRawContextSidecarPolicy = field(default_factory=RetrievalRawContextSidecarPolicy)
+    derived_helpers: RetrievalDerivedHelpersPolicy = field(default_factory=RetrievalDerivedHelpersPolicy)
 
 
 @dataclass(slots=True)
@@ -245,6 +348,113 @@ class RuntimeEfficiencyPolicy:
 
 
 @dataclass(slots=True)
+class ProvisionalSensitivityProfile:
+    """Configurable caps and floors for provisional auto-write sensitivity."""
+
+    worthiness_threshold: float = 0.64
+    self_claim_threshold: float = 0.70
+    max_auto_writes_per_turn: int = 2
+    max_auto_writes_per_session: int = 24
+
+
+@dataclass(slots=True)
+class ProvisionalReviewWorthinessPolicy:
+    """Config-driven scoring thresholds for review-worthiness flagging."""
+
+    enabled: bool = True
+    fact_min_score: float = 0.68
+    preference_min_score: float = 0.64
+    plan_min_score: float = 0.62
+    event_note_min_score: float = 0.70
+    self_claim_min_score: float = 0.88
+    correction_min_score: float = 0.92
+    reinforcement_weight: float = 0.25
+    distinct_session_weight: float = 0.15
+    stability_weight: float = 0.35
+    salience_weight: float = 0.25
+    conflict_penalty: float = 0.35
+    self_claim_penalty: float = 0.20
+
+
+@dataclass(slots=True)
+class ProvisionalNearDuplicatePolicy:
+    """Detect/log-only controls for provisional near-duplicate suspicions."""
+
+    enabled: bool = True
+    similarity_threshold: float = 0.72
+    max_pairs_per_record: int = 2
+
+
+@dataclass(slots=True)
+class ProvisionalMemoryPolicy:
+    """Feature flags and tunable policies for agent-owned provisional memory."""
+
+    enabled: bool = False
+    retrieval_enabled: bool = False
+    stm_sweep_enabled: bool = False
+    proposal_capture_enabled: bool = False
+    allow_self_claim_auto_write: bool = True
+    default_sensitivity: str = "balanced"
+    inactivity_gap_seconds: int = 300
+    review_worthiness: ProvisionalReviewWorthinessPolicy = field(default_factory=ProvisionalReviewWorthinessPolicy)
+    near_duplicate: ProvisionalNearDuplicatePolicy = field(default_factory=ProvisionalNearDuplicatePolicy)
+    conservative: ProvisionalSensitivityProfile = field(
+        default_factory=lambda: ProvisionalSensitivityProfile(
+            worthiness_threshold=0.72,
+            self_claim_threshold=0.80,
+            max_auto_writes_per_turn=1,
+            max_auto_writes_per_session=12,
+        )
+    )
+    balanced: ProvisionalSensitivityProfile = field(
+        default_factory=lambda: ProvisionalSensitivityProfile(
+            worthiness_threshold=0.64,
+            self_claim_threshold=0.70,
+            max_auto_writes_per_turn=2,
+            max_auto_writes_per_session=24,
+        )
+    )
+    eager: ProvisionalSensitivityProfile = field(
+        default_factory=lambda: ProvisionalSensitivityProfile(
+            worthiness_threshold=0.56,
+            self_claim_threshold=0.62,
+            max_auto_writes_per_turn=4,
+            max_auto_writes_per_session=48,
+        )
+    )
+
+
+@dataclass(slots=True)
+class RetrievalFeedbackPolicy:
+    """Local-only capture controls for retrieval feedback signals."""
+
+    enabled: bool = True
+    max_entries: int = 2000
+    max_query_chars: int = 200
+
+
+@dataclass(slots=True)
+class HistorySurfacesPolicy:
+    """Read-only inspectability limits for lineage/history surfaces."""
+
+    enabled: bool = True
+    max_episode_entries: int = 40
+    max_provisional_events: int = 80
+
+
+@dataclass(slots=True)
+class ContinuityAddsPolicy:
+    """Low-risk continuity surfaces layered above existing runtime reads."""
+
+    enabled: bool = True
+    action_log_enabled: bool = True
+    action_log_max_entries: int = 500
+    wake_up_pack_enabled: bool = True
+    resume_pack_enabled: bool = True
+    pinned_preferences_enabled: bool = True
+
+
+@dataclass(slots=True)
 class NumquamOblitaConfig:
     """Top-level typed configuration model."""
 
@@ -252,6 +462,10 @@ class NumquamOblitaConfig:
     retrieval: RetrievalBudget = field(default_factory=RetrievalBudget)
     decay: DecayPolicy = field(default_factory=DecayPolicy)
     runtime: RuntimePolicy = field(default_factory=RuntimePolicy)
+    provisional_memory: ProvisionalMemoryPolicy = field(default_factory=ProvisionalMemoryPolicy)
+    retrieval_feedback: RetrievalFeedbackPolicy = field(default_factory=RetrievalFeedbackPolicy)
+    history_surfaces: HistorySurfacesPolicy = field(default_factory=HistorySurfacesPolicy)
+    continuity_adds: ContinuityAddsPolicy = field(default_factory=ContinuityAddsPolicy)
     efficiency: RuntimeEfficiencyPolicy = field(default_factory=RuntimeEfficiencyPolicy)
 
     def as_dict(self) -> dict[str, Any]:
@@ -387,6 +601,7 @@ def _validate_retrieval_config(retrieval: RetrievalBudget) -> None:
     _validate_profile_policy("retrieval.router.procedural", router.procedural)
     _validate_profile_policy("retrieval.router.factual", router.factual)
     _validate_profile_policy("retrieval.router.mixed", router.mixed)
+    _validate_profile_policy("retrieval.router.verbatim_session_recall", router.verbatim_session_recall)
 
     bm25 = retrieval.bm25
     if not isinstance(bm25, RetrievalBm25Policy):
@@ -461,6 +676,118 @@ def _validate_retrieval_config(retrieval: RetrievalBudget) -> None:
     _validate_bool(
         "retrieval.cache.fail_closed_on_uncertain_continuity_scope",
         cache.fail_closed_on_uncertain_continuity_scope,
+    )
+
+    raw_context = retrieval.raw_context_sidecar
+    if not isinstance(raw_context, RetrievalRawContextSidecarPolicy):
+        raise TypeError("retrieval.raw_context_sidecar must be RetrievalRawContextSidecarPolicy")
+    _validate_bool("retrieval.raw_context_sidecar.write_enabled", raw_context.write_enabled)
+    _validate_bool("retrieval.raw_context_sidecar.read_enabled", raw_context.read_enabled)
+    _validate_int("retrieval.raw_context_sidecar.neighbor_turns", raw_context.neighbor_turns, min_value=0, max_value=4)
+    _validate_int("retrieval.raw_context_sidecar.max_turns", raw_context.max_turns, min_value=1, max_value=8)
+    _validate_int("retrieval.raw_context_sidecar.max_chars", raw_context.max_chars, min_value=64, max_value=4000)
+
+    ann = retrieval.ann_sidecar
+    if not isinstance(ann, RetrievalAnnSidecarPolicy):
+        raise TypeError("retrieval.ann_sidecar must be RetrievalAnnSidecarPolicy")
+    _validate_bool("retrieval.ann_sidecar.enabled", ann.enabled)
+    _validate_int("retrieval.ann_sidecar.top_k_ann", ann.top_k_ann, min_value=1, max_value=256)
+    _validate_float(
+        "retrieval.ann_sidecar.candidate_cap_ratio",
+        ann.candidate_cap_ratio,
+        min_value=0.0,
+        max_value=1.0,
+    )
+    _validate_int("retrieval.ann_sidecar.candidate_cap_floor", ann.candidate_cap_floor, min_value=1, max_value=256)
+    _validate_float("retrieval.ann_sidecar.max_latency_ms", ann.max_latency_ms, min_value=1.0, max_value=60_000.0)
+    if not isinstance(ann.embedding_backend, str):
+        raise TypeError("retrieval.ann_sidecar.embedding_backend must be str")
+    if ann.embedding_backend.strip() != "hashed-simhash-sqlite":
+        raise ValueError("retrieval.ann_sidecar.embedding_backend must be 'hashed-simhash-sqlite'")
+    if not isinstance(ann.embedding_store_path, str):
+        raise TypeError("retrieval.ann_sidecar.embedding_store_path must be str")
+    if not isinstance(ann.rebuild_mode, str):
+        raise TypeError("retrieval.ann_sidecar.rebuild_mode must be str")
+    if ann.rebuild_mode.strip() not in {"lazy", "manual"}:
+        raise ValueError("retrieval.ann_sidecar.rebuild_mode must be one of: lazy, manual")
+
+    derived = retrieval.derived_helpers
+    if not isinstance(derived, RetrievalDerivedHelpersPolicy):
+        raise TypeError("retrieval.derived_helpers must be RetrievalDerivedHelpersPolicy")
+
+    source_projection = derived.source_projection
+    if not isinstance(source_projection, RetrievalSourceProjectionPolicy):
+        raise TypeError("retrieval.derived_helpers.source_projection must be RetrievalSourceProjectionPolicy")
+    _validate_bool("retrieval.derived_helpers.source_projection.enabled", source_projection.enabled)
+    _validate_int(
+        "retrieval.derived_helpers.source_projection.per_source_fanout_cap",
+        source_projection.per_source_fanout_cap,
+        min_value=1,
+        max_value=128,
+    )
+    _validate_int(
+        "retrieval.derived_helpers.source_projection.per_query_contribution_cap",
+        source_projection.per_query_contribution_cap,
+        min_value=1,
+        max_value=256,
+    )
+
+    temporal_lift = derived.temporal_lift
+    if not isinstance(temporal_lift, RetrievalTemporalLiftPolicy):
+        raise TypeError("retrieval.derived_helpers.temporal_lift must be RetrievalTemporalLiftPolicy")
+    _validate_bool("retrieval.derived_helpers.temporal_lift.enabled", temporal_lift.enabled)
+    _validate_float("retrieval.derived_helpers.temporal_lift.score_cap", temporal_lift.score_cap, min_value=0.0, max_value=1.0)
+
+    reranker = derived.cross_encoder_reranker
+    if not isinstance(reranker, RetrievalCrossEncoderRerankerPolicy):
+        raise TypeError(
+            "retrieval.derived_helpers.cross_encoder_reranker must be RetrievalCrossEncoderRerankerPolicy"
+        )
+    _validate_bool("retrieval.derived_helpers.cross_encoder_reranker.enabled", reranker.enabled)
+    _validate_int("retrieval.derived_helpers.cross_encoder_reranker.top_n", reranker.top_n, min_value=1, max_value=256)
+    _validate_int("retrieval.derived_helpers.cross_encoder_reranker.top_m", reranker.top_m, min_value=1, max_value=256)
+    _validate_float(
+        "retrieval.derived_helpers.cross_encoder_reranker.max_latency_ms",
+        reranker.max_latency_ms,
+        min_value=1.0,
+        max_value=60_000.0,
+    )
+    if reranker.top_m > reranker.top_n:
+        raise ValueError(
+            "retrieval.derived_helpers.cross_encoder_reranker.top_m must be <= "
+            "retrieval.derived_helpers.cross_encoder_reranker.top_n"
+        )
+
+    resolver = derived.update_family_resolver
+    if not isinstance(resolver, RetrievalUpdateFamilyResolverPolicy):
+        raise TypeError(
+            "retrieval.derived_helpers.update_family_resolver must be RetrievalUpdateFamilyResolverPolicy"
+        )
+    _validate_bool("retrieval.derived_helpers.update_family_resolver.enabled", resolver.enabled)
+    _validate_int(
+        "retrieval.derived_helpers.update_family_resolver.family_scan_limit",
+        resolver.family_scan_limit,
+        min_value=1,
+        max_value=256,
+    )
+
+    observation = derived.observation_projection
+    if not isinstance(observation, RetrievalObservationProjectionPolicy):
+        raise TypeError(
+            "retrieval.derived_helpers.observation_projection must be RetrievalObservationProjectionPolicy"
+        )
+    _validate_bool("retrieval.derived_helpers.observation_projection.enabled", observation.enabled)
+    _validate_int(
+        "retrieval.derived_helpers.observation_projection.per_source_fanout_cap",
+        observation.per_source_fanout_cap,
+        min_value=1,
+        max_value=128,
+    )
+    _validate_int(
+        "retrieval.derived_helpers.observation_projection.per_query_contribution_cap",
+        observation.per_query_contribution_cap,
+        min_value=1,
+        max_value=256,
     )
 
 
@@ -552,10 +879,113 @@ def _validate_runtime_policy(runtime: RuntimePolicy) -> None:
     _validate_bool("runtime.retrieval.prewarm_caches", retrieval.prewarm_caches)
 
 
+def _validate_provisional_sensitivity(name: str, profile: ProvisionalSensitivityProfile) -> None:
+    if not isinstance(profile, ProvisionalSensitivityProfile):
+        raise TypeError(f"{name} must be ProvisionalSensitivityProfile")
+    _validate_float(f"{name}.worthiness_threshold", profile.worthiness_threshold, min_value=0.0, max_value=1.0)
+    _validate_float(f"{name}.self_claim_threshold", profile.self_claim_threshold, min_value=0.0, max_value=1.0)
+    _validate_int(f"{name}.max_auto_writes_per_turn", profile.max_auto_writes_per_turn, min_value=1, max_value=64)
+    _validate_int(f"{name}.max_auto_writes_per_session", profile.max_auto_writes_per_session, min_value=1, max_value=1024)
+    if profile.max_auto_writes_per_session < profile.max_auto_writes_per_turn:
+        raise ValueError(f"{name}.max_auto_writes_per_session must be >= {name}.max_auto_writes_per_turn")
+
+
+def _validate_provisional_memory_policy(policy: ProvisionalMemoryPolicy) -> None:
+    if not isinstance(policy, ProvisionalMemoryPolicy):
+        raise TypeError("provisional_memory must be ProvisionalMemoryPolicy")
+    _validate_bool("provisional_memory.enabled", policy.enabled)
+    _validate_bool("provisional_memory.retrieval_enabled", policy.retrieval_enabled)
+    _validate_bool("provisional_memory.stm_sweep_enabled", policy.stm_sweep_enabled)
+    _validate_bool("provisional_memory.proposal_capture_enabled", policy.proposal_capture_enabled)
+    _validate_bool("provisional_memory.allow_self_claim_auto_write", policy.allow_self_claim_auto_write)
+    if str(policy.default_sensitivity) not in {"conservative", "balanced", "eager"}:
+        raise ValueError("provisional_memory.default_sensitivity must be one of: conservative, balanced, eager")
+    _validate_int("provisional_memory.inactivity_gap_seconds", policy.inactivity_gap_seconds, min_value=1, max_value=86400)
+    if not isinstance(policy.review_worthiness, ProvisionalReviewWorthinessPolicy):
+        raise TypeError("provisional_memory.review_worthiness must be ProvisionalReviewWorthinessPolicy")
+    _validate_bool("provisional_memory.review_worthiness.enabled", policy.review_worthiness.enabled)
+    for key in (
+        "fact_min_score",
+        "preference_min_score",
+        "plan_min_score",
+        "event_note_min_score",
+        "self_claim_min_score",
+        "correction_min_score",
+        "reinforcement_weight",
+        "distinct_session_weight",
+        "stability_weight",
+        "salience_weight",
+        "conflict_penalty",
+        "self_claim_penalty",
+    ):
+        _validate_float(
+            f"provisional_memory.review_worthiness.{key}",
+            getattr(policy.review_worthiness, key),
+            min_value=0.0,
+            max_value=1.0,
+        )
+    if not isinstance(policy.near_duplicate, ProvisionalNearDuplicatePolicy):
+        raise TypeError("provisional_memory.near_duplicate must be ProvisionalNearDuplicatePolicy")
+    _validate_bool("provisional_memory.near_duplicate.enabled", policy.near_duplicate.enabled)
+    _validate_float(
+        "provisional_memory.near_duplicate.similarity_threshold",
+        policy.near_duplicate.similarity_threshold,
+        min_value=0.0,
+        max_value=1.0,
+    )
+    if float(policy.near_duplicate.similarity_threshold) <= 0.0:
+        raise ValueError("provisional_memory.near_duplicate.similarity_threshold must be > 0.0")
+    _validate_int(
+        "provisional_memory.near_duplicate.max_pairs_per_record",
+        policy.near_duplicate.max_pairs_per_record,
+        min_value=1,
+        max_value=32,
+    )
+    _validate_provisional_sensitivity("provisional_memory.conservative", policy.conservative)
+    _validate_provisional_sensitivity("provisional_memory.balanced", policy.balanced)
+    _validate_provisional_sensitivity("provisional_memory.eager", policy.eager)
+
+
+def _validate_retrieval_feedback_policy(policy: RetrievalFeedbackPolicy) -> None:
+    if not isinstance(policy, RetrievalFeedbackPolicy):
+        raise TypeError("retrieval_feedback must be RetrievalFeedbackPolicy")
+    _validate_bool("retrieval_feedback.enabled", policy.enabled)
+    _validate_int("retrieval_feedback.max_entries", policy.max_entries, min_value=1, max_value=100_000)
+    _validate_int("retrieval_feedback.max_query_chars", policy.max_query_chars, min_value=1, max_value=2_000)
+
+
+def _validate_history_surfaces_policy(policy: HistorySurfacesPolicy) -> None:
+    if not isinstance(policy, HistorySurfacesPolicy):
+        raise TypeError("history_surfaces must be HistorySurfacesPolicy")
+    _validate_bool("history_surfaces.enabled", policy.enabled)
+    _validate_int("history_surfaces.max_episode_entries", policy.max_episode_entries, min_value=1, max_value=500)
+    _validate_int(
+        "history_surfaces.max_provisional_events",
+        policy.max_provisional_events,
+        min_value=1,
+        max_value=500,
+    )
+
+
+def _validate_continuity_adds_policy(policy: ContinuityAddsPolicy) -> None:
+    if not isinstance(policy, ContinuityAddsPolicy):
+        raise TypeError("continuity_adds must be ContinuityAddsPolicy")
+    _validate_bool("continuity_adds.enabled", policy.enabled)
+    _validate_bool("continuity_adds.action_log_enabled", policy.action_log_enabled)
+    _validate_bool("continuity_adds.wake_up_pack_enabled", policy.wake_up_pack_enabled)
+    _validate_bool("continuity_adds.resume_pack_enabled", policy.resume_pack_enabled)
+    _validate_bool("continuity_adds.pinned_preferences_enabled", policy.pinned_preferences_enabled)
+    _validate_int("continuity_adds.action_log_max_entries", policy.action_log_max_entries, min_value=1, max_value=10_000)
+
+
 def _validate_config(cfg: NumquamOblitaConfig) -> None:
     """Validate cross-field bounds that must hold after merges."""
 
     _validate_retrieval_config(cfg.retrieval)
     _validate_runtime_policy(cfg.runtime)
+    _validate_provisional_memory_policy(cfg.provisional_memory)
+    _validate_retrieval_feedback_policy(cfg.retrieval_feedback)
+    _validate_history_surfaces_policy(cfg.history_surfaces)
+    _validate_continuity_adds_policy(cfg.continuity_adds)
     # Re-hydrate to trigger RuntimeEfficiencyPolicy.__post_init__ validations.
     cfg.efficiency = RuntimeEfficiencyPolicy(**asdict(cfg.efficiency))

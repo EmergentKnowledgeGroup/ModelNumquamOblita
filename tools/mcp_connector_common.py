@@ -13,6 +13,7 @@ from typing import Any, Iterable, Mapping
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SERVER_NAME = "numquamoblita-live"
+DEFAULT_HTTP_MCP_URL = "http://127.0.0.1:8765/mcp"
 WINDOWS_WSL_COMMAND = r"C:\Windows\System32\wsl.exe"
 WINDOWS_USERS_ROOT_WSL = Path("/mnt/c/Users")
 WINDOWS_CLAUDE_DESKTOP_REL = Path("AppData/Roaming/Claude/claude_desktop_config.json")
@@ -25,6 +26,31 @@ def _path_text(value: str | Path | None) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _windows_hidden_subprocess_kwargs() -> dict[str, Any]:
+    if not is_windows_platform():
+        return {}
+    kwargs: dict[str, Any] = {}
+    creationflags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0) or 0)
+    if creationflags:
+        kwargs["creationflags"] = creationflags
+    startupinfo_cls = getattr(subprocess, "STARTUPINFO", None)
+    if startupinfo_cls is not None:
+        startupinfo = startupinfo_cls()
+        startf_use_showwindow = int(getattr(subprocess, "STARTF_USESHOWWINDOW", 0) or 0)
+        if startf_use_showwindow:
+            startupinfo.dwFlags |= startf_use_showwindow
+        try:
+            startupinfo.wShowWindow = int(getattr(subprocess, "SW_HIDE", 0) or 0)
+        except Exception:
+            pass
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
+
+
+def run_subprocess_hidden_on_windows(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, **(_windows_hidden_subprocess_kwargs() | dict(kwargs)))
 
 
 
@@ -160,8 +186,8 @@ def discover_memory_candidates(*, repo_root: Path = REPO_ROOT) -> list[dict[str,
 
     for base, source in (
         (runtime_stores, "runtime/stores"),
-        (repo_root / ".runtime" / "imports", ".runtime/imports"),
         (repo_root / "runtime" / "imports", "runtime/imports"),
+        (repo_root / ".runtime" / "imports", ".runtime/imports"),
     ):
         if not base.exists():
             continue
@@ -238,6 +264,7 @@ def build_posix_stdio_entry(
             pass
     launcher = str(launcher_path or (REPO_ROOT / "tools" / "run_claude_live_mcp.py").resolve()).strip()
     return {
+        "type": "stdio",
         "command": command,
         "args": build_launcher_cli_args(
             launcher_path=launcher,
@@ -247,6 +274,7 @@ def build_posix_stdio_entry(
             compat_mode=compat_mode,
             mutations_enabled=mutations_enabled,
         ),
+        "env": {},
     }
 
 
@@ -276,8 +304,9 @@ def wsl_path_from_windows(
     raw_path: str | Path,
     *,
     distro_name: str = "",
-    runner: Any = subprocess.run,
+    runner: Any | None = None,
 ) -> tuple[str, str]:
+    runner = runner or run_subprocess_hidden_on_windows
     raw = _path_text(raw_path)
     if not raw:
         raise ValueError("path is required")
@@ -313,8 +342,9 @@ def build_windows_wsl_stdio_entry(
     compat_mode: str,
     mutations_enabled: bool,
     distro_name: str,
-    runner: Any = subprocess.run,
+    runner: Any | None = None,
 ) -> dict[str, Any]:
+    runner = runner or run_subprocess_hidden_on_windows
     repo_root_arg, distro = wsl_path_from_windows(repo_root, distro_name=distro_name, runner=runner)
     memories_arg, distro = wsl_path_from_windows(memories_path, distro_name=distro, runner=runner)
     episodes_arg: str | None = None
@@ -335,8 +365,10 @@ def build_windows_wsl_stdio_entry(
         )
     )
     return {
+        "type": "stdio",
         "command": WINDOWS_WSL_COMMAND,
         "args": args,
+        "env": {},
     }
 
 
@@ -446,12 +478,86 @@ def find_windows_claude_code_config(*, users_root: Path | None = None) -> Path |
     return None
 
 
+def default_claude_code_scope(*, install_context: str = "") -> str:
+    normalized = str(install_context or "").strip().lower()
+    if normalized == "native-windows-claude":
+        return "user"
+    return "local"
+
+
+def claude_code_project_key(repo_root: str | Path) -> str:
+    raw = str(repo_root or "").strip()
+    if not raw:
+        return ""
+    lowered = raw.lower()
+    if lowered.startswith("/mnt/") and len(raw) > 6:
+        drive = raw[5]
+        suffix = raw[6:].replace("\\", "/")
+        if not suffix.startswith("/"):
+            suffix = "/" + suffix
+        return f"{drive.upper()}:{suffix}"
+    if len(raw) >= 2 and raw[1] == ":":
+        return raw.replace("\\", "/")
+    return raw.replace("\\", "/")
+
+
+def read_claude_code_scope_entries(
+    config_payload: Mapping[str, Any] | None,
+    *,
+    repo_root: str | Path,
+    server_name: str,
+) -> dict[str, dict[str, Any]]:
+    payload = dict(config_payload or {})
+    normalized_server = str(server_name or "").strip()
+    if not normalized_server:
+        return {}
+    found: dict[str, dict[str, Any]] = {}
+    top_level = payload.get("mcpServers")
+    if isinstance(top_level, Mapping):
+        entry = top_level.get(normalized_server)
+        if isinstance(entry, Mapping):
+            found["user"] = dict(entry)
+    project_key = claude_code_project_key(repo_root)
+    projects = payload.get("projects")
+    if isinstance(projects, Mapping) and project_key:
+        project_payload = projects.get(project_key)
+        if not isinstance(project_payload, Mapping):
+            lowered_project_key = project_key.lower()
+            for candidate_key, candidate_payload in projects.items():
+                if str(candidate_key or "").strip().lower() == lowered_project_key:
+                    project_payload = candidate_payload
+                    break
+        if not isinstance(project_payload, Mapping):
+            matching_project_entries: list[dict[str, Any]] = []
+            for candidate_payload in projects.values():
+                if not isinstance(candidate_payload, Mapping):
+                    continue
+                candidate_servers = candidate_payload.get("mcpServers")
+                if not isinstance(candidate_servers, Mapping):
+                    continue
+                entry = candidate_servers.get(normalized_server)
+                if isinstance(entry, Mapping):
+                    matching_project_entries.append(dict(entry))
+            if len(matching_project_entries) == 1:
+                project_payload = {"mcpServers": {normalized_server: matching_project_entries[0]}}
+        if isinstance(project_payload, Mapping):
+            project_servers = project_payload.get("mcpServers")
+            if isinstance(project_servers, Mapping):
+                entry = project_servers.get(normalized_server)
+                if isinstance(entry, Mapping):
+                    project_entry = dict(entry)
+                    found["local"] = project_entry
+                    found["project"] = dict(project_entry)
+    return found
+
+
 
 def detect_wsl_distro(
     *,
     env: Mapping[str, str] | None = None,
-    runner: Any = subprocess.run,
+    runner: Any | None = None,
 ) -> str:
+    runner = runner or run_subprocess_hidden_on_windows
     env_map = dict(env or os.environ)
     current = str(env_map.get("WSL_DISTRO_NAME") or "").strip()
     if current:
@@ -479,6 +585,45 @@ def ensure_valid_server_name(value: str) -> str:
     return name
 
 
+def build_http_entry(
+    *,
+    url: str,
+    managed_by: str = "modelnumquamoblita-desktop",
+) -> dict[str, Any]:
+    normalized_url = str(url or "").strip()
+    if not normalized_url:
+        raise ValueError("http MCP url is required")
+    return {
+        "type": "http",
+        "url": normalized_url,
+        "managed_by": str(managed_by or "").strip() or "modelnumquamoblita-desktop",
+    }
+
+
+def normalize_mcp_entry(entry: Mapping[str, Any] | None) -> dict[str, Any]:
+    payload = dict(entry or {})
+    entry_type = str(payload.get("type") or "").strip().lower() or "stdio"
+    if entry_type == "http":
+        normalized: dict[str, Any] = {
+            "type": "http",
+            "url": str(payload.get("url") or "").strip(),
+        }
+    else:
+        command = str(payload.get("command") or "").strip()
+        args = payload.get("args")
+        env = payload.get("env")
+        normalized = {
+            "type": "stdio",
+            "command": command,
+            "args": list(args) if isinstance(args, list) else [],
+            "env": dict(env) if isinstance(env, Mapping) else {},
+        }
+    for key, value in payload.items():
+        if key in {"type", "command", "args", "env", "url"}:
+            continue
+        normalized[key] = value
+    return normalized
+
 
 def build_claude_code_add_json_cmd(
     *,
@@ -495,7 +640,7 @@ def build_claude_code_add_json_cmd(
         "-s",
         normalized_scope,
         ensure_valid_server_name(server_name),
-        json.dumps(entry, separators=(",", ":"), ensure_ascii=False),
+        json.dumps(normalize_mcp_entry(entry), separators=(",", ":"), ensure_ascii=False),
     ]
 
 
@@ -512,9 +657,10 @@ def install_claude_code_server(
     entry: dict[str, Any],
     scope: str,
     claude_bin: str = "claude",
-    runner: Any = subprocess.run,
+    runner: Any | None = None,
     which: Any = shutil.which,
 ) -> dict[str, Any]:
+    runner = runner or run_subprocess_hidden_on_windows
     if which(str(claude_bin)) is None:
         raise RuntimeError(f"claude CLI not found: {claude_bin}")
     remove_cmd = build_claude_code_remove_cmd(server_name=server_name, scope=scope, claude_bin=claude_bin)
@@ -540,9 +686,10 @@ def remove_claude_code_server(
     server_name: str,
     scope: str,
     claude_bin: str = "claude",
-    runner: Any = subprocess.run,
+    runner: Any | None = None,
     which: Any = shutil.which,
 ) -> dict[str, Any]:
+    runner = runner or run_subprocess_hidden_on_windows
     if which(str(claude_bin)) is None:
         raise RuntimeError(f"claude CLI not found: {claude_bin}")
     remove_cmd = build_claude_code_remove_cmd(server_name=server_name, scope=scope, claude_bin=claude_bin)

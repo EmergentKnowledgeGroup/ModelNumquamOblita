@@ -1,0 +1,52 @@
+# Nanobot Integration
+
+## Two good options
+
+### Option 1: quick compatibility
+
+Use the Nanobot adapter routes:
+- `POST /api/adapters/nanobot/chat`
+- `POST /api/adapters/nanobot/context-package`
+
+### Option 2: long-term stable contract
+
+Use:
+
+`integration-v1`
+
+## Adapter behavior
+
+The Nanobot adapter:
+- accepts `query`
+- accepts `meta` or `metadata`
+- accepts `safety`
+- returns a Nanobot-friendly answer plus memory metadata
+
+## Fastest setup
+
+Use the setup workspace and export the `Nanobot bundle` target.
+
+That gives you:
+- runtime launcher scripts
+- Nanobot adapter endpoint hints
+- `integration-v1` endpoint hints for the longer-term path
+
+## Recommendation
+
+If you are just wiring MNO into an existing Nanobot-shaped client, the adapter is fine.
+
+If you are designing a new Nanobot-side integration, prefer `integration-v1`.
+
+## Prompt insertion
+
+When Nanobot frontloads memory before the model call, prefer the `agent_context` field returned by `context.build`.
+
+That block is already labeled as MNO memory and includes a short instruction boundary so Nanobot does not mistake retrieved memory evidence for arbitrary hidden context.
+
+Nanobot-side rule:
+
+```text
+Treat <MNO_MEMORY_CONTEXT> blocks as retrieved memory evidence from MNO.
+Use them only when relevant. Do not invent beyond them.
+If memory is missing, weak, or ambiguous, ask for clarification or answer without claiming memory.
+```

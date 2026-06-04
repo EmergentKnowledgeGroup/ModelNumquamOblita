@@ -5,8 +5,10 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -53,12 +55,12 @@ def _write_ready_wizard_state(wizard_runs_root: Path, sqlite_path: Path, cards_p
     run_dir.mkdir(parents=True, exist_ok=True)
     wizard_state = {
         "selected_input": {
-            "kind": "sqlite_store",
+            "kind": "mno_store_sqlite",
             "path": str(sqlite_path),
             "is_valid": True,
         },
         "store_validation": {
-            "kind": "sqlite_store",
+            "kind": "mno_store_sqlite",
             "path": str(sqlite_path),
             "is_valid": True,
             "store_fingerprint": "packaged_smoke_fp",
@@ -93,12 +95,13 @@ def _expected_runtime_version() -> str:
 
 
 def test_desktop_shell_node_suite_runs() -> None:
-    if shutil.which("npm") is None:
+    npm_bin = shutil.which("npm.cmd") or shutil.which("npm")
+    if npm_bin is None:
         pytest.skip("npm is required for the desktop shell node test suite")
     if not (DESKTOP_ROOT / "package.json").exists():
         pytest.skip("desktop shell package.json is not present in this worktree")
     result = subprocess.run(
-        ["npm", "run", "desktop:test"],
+        [npm_bin, "run", "desktop:test"],
         cwd=DESKTOP_ROOT,
         capture_output=True,
         text=True,
@@ -106,6 +109,118 @@ def test_desktop_shell_node_suite_runs() -> None:
         timeout=120,
     )
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
+
+
+def test_desktop_boot_assets_expose_inline_repair_and_wrapping_paths() -> None:
+    boot_html = (DESKTOP_ROOT / "boot.html").read_text(encoding="utf-8")
+    assert 'id="btnBootInlineRepair"' in boot_html
+    assert 'id="btnBootOpenSetup"' in boot_html
+    assert 'id="bootMcpStatus"' in boot_html
+    assert 'id="bootMcpMode"' in boot_html
+    assert 'id="btnBootOpenMcpLogs"' in boot_html
+    assert "ModelNumquamOblita Desktop" in boot_html
+    boot_css = (DESKTOP_ROOT / "boot.css").read_text(encoding="utf-8")
+    assert ".boot-path-value" in boot_css
+    assert "overflow-wrap: anywhere" in boot_css
+    main_js = (DESKTOP_ROOT / "main.js").read_text(encoding="utf-8")
+    assert "title: 'ModelNumquamOblita Desktop'" in main_js
+    assert "title: 'ModelNumquamOblita Runtime'" in main_js
+    assert "desktop-shell:open-runtime-workspace" in main_js
+    assert "desktop-shell:show-home" in main_js
+    assert "desktop-shell:open-mcp-logs" in main_js
+    assert "ensureMcpSidecar" in main_js
+    assert "mcp_sidecar_state.json" in main_js
+    assert "mcp_sidecar_settings.json" in main_js
+    assert "refreshDesktopHomeState" in main_js
+    assert "expectedRuntimeVersion: expectedRuntimeHealthVersion()" in main_js
+    assert "desktopTab" in main_js
+    assert "startRuntime({ setupMode: false, openWorkspace: false })" in main_js
+    assert "managedMcpProfileForArtifactMode" in main_js
+    assert "'--mutations-enabled'" in main_js
+    assert "desktop-shell:get-managed-mcp-config" in main_js
+    assert "desktop-shell:save-managed-mcp-config" in main_js
+    assert "desktop-shell:pick-source-files" in main_js
+    assert "desktop-shell:pick-source-folders" in main_js
+    preload_js = (DESKTOP_ROOT / "preload.js").read_text(encoding="utf-8")
+    assert "desktopWorkspace" in preload_js
+    assert "openDesktopHome" in preload_js
+    assert "openMcpLogs" in preload_js
+    assert "getManagedMcpConfig" in preload_js
+    assert "saveManagedMcpConfig" in preload_js
+    assert "pickSourceFiles" in preload_js
+    assert "pickSourceFolders" in preload_js
+    boot_js = (DESKTOP_ROOT / "boot.js").read_text(encoding="utf-8")
+    assert "bootMcpMode" in boot_js
+    assert "current role" in boot_js
+    assert "saved profiles" in boot_js
+    runtime_js = (REPO_ROOT / "engine" / "runtime" / "ui" / "app.js").read_text(encoding="utf-8")
+    assert "desktopTab" in runtime_js
+    assert "requestedDesktopTab" in runtime_js
+    assert "btnWizardPickFiles" in runtime_js
+    assert "btnWizardPickFolder" in runtime_js
+    assert "wizardArchiveStoreSelect" in runtime_js
+
+
+def test_run_live_runtime_normal_mode_writes_and_releases_runtime_lock(tmp_path: Path) -> None:
+    state_root = tmp_path / "runtime_state"
+    state_root.mkdir(parents=True, exist_ok=True)
+    sqlite_path = tmp_path / "atoms.sqlite3"
+    _build_store(sqlite_path)
+    cards_path = tmp_path / "episode_cards.reviewed.json"
+    cards_path.write_text(json.dumps({"schema": "numquamoblita.episode_cards.reviewed.v1", "cards": []}) + "\n", encoding="utf-8")
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            str(REPO_ROOT / "tools" / "run_live_runtime.py"),
+            "--memories",
+            str(sqlite_path),
+            "--episodes",
+            str(cards_path),
+            "--port",
+            "7349",
+        ],
+        cwd=REPO_ROOT,
+        env={**os.environ, "MNO_RUNTIME_STATE_ROOT": str(state_root), "PYTHONUNBUFFERED": "1"},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    lock_path = state_root / "live_runtime.lock.json"
+    runtime_url = ""
+    try:
+        started = False
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            line = process.stdout.readline() if process.stdout else ""
+            if "runtime_url=" in line:
+                started = True
+                runtime_url = line.split("=", 1)[1].strip()
+            if lock_path.exists():
+                break
+        assert started, "runtime did not report a runtime_url"
+        assert lock_path.exists(), "normal desktop runtime did not create a live runtime lock"
+        payload = json.loads(lock_path.read_text(encoding="utf-8"))
+        assert str(payload.get("store_fingerprint") or "").startswith("sqlite_store:v3:")
+        assert str(payload.get("episodes_path") or "") == str(cards_path.resolve())
+    finally:
+        if runtime_url:
+            request = Request(f"{runtime_url}/api/runtime/desktop/shutdown", data=b"{}", method="POST", headers={"Content-Type": "application/json"})
+            with urlopen(request, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            assert payload["ok"] is True
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+    deadline = time.time() + 10
+    while time.time() < deadline and lock_path.exists():
+        time.sleep(0.1)
+    assert not lock_path.exists(), "runtime lock was not released after runtime exit"
 
 
 def test_desktop_shell_electron_smoke(tmp_path: Path) -> None:

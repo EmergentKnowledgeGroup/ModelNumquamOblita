@@ -72,6 +72,23 @@ MNO can help you build a local memory layer for:
 
 It can start from raw files and folders, or from an existing MNO store. The setup flow can import source material, build draft memory, let you review what should become durable, and then run a local memory runtime over that reviewed set.
 
+## Benchmark Snapshot
+
+MNO's benchmark story is about evidence, not bragging rights.
+
+The useful question is: when the system remembers something, can it find the source material that supports that memory?
+
+Current public aggregate runs:
+
+- LongMemEval-S retrieval/source support: R@5 `0.9660`, R@10 `0.9760`, gold source in store `1.0000`
+- LoCoMo retrieval/source support: eligible R@1 `0.6075`, R@5 `0.8491`, R@10 `0.9258`, MRR `0.7157`
+
+These are retrieval and source-support scores, not final answer F1. They show that MNO can usually recover the right evidence before an assistant speaks. That is the part this project cares about most: less "trust me", more "here is what I found."
+
+Read the benchmark notes and public-safe aggregate summaries here:
+
+- [Benchmarks](docs/BENCHMARKS.md)
+
 ## What It Does
 
 MNO can:
@@ -189,6 +206,7 @@ Generated runtime data is intentionally not committed. Your imported stores, set
 If you are new to the project:
 
 - [Quickstart](docs/QUICKSTART.md)
+- [Benchmarks](docs/BENCHMARKS.md)
 - [Pipeline Guide](docs/PIPELINE_GUIDE.md)
 - [Public Overview](docs/public/README.md)
 - [Public Architecture](docs/public/ARCHITECTURE.md)

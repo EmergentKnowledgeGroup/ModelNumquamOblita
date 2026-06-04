@@ -1,0 +1,77 @@
+{
+  "ann_enabled": false,
+  "benchmark": "LongMemEval-S",
+  "dataset_cases": 500,
+  "duration_s": 830.543,
+  "metric_scope": "retrieval/source-support only; not final answer F1",
+  "metrics": {
+    "gold_source_present_in_store_rate": 1.0,
+    "gold_source_shortlisted_rate": 0.98,
+    "misses_at_5_count": 17,
+    "misses_without_gold_in_shortlist_count": 10,
+    "misses_without_gold_in_store_count": 0,
+    "source_ndcg_at_10": 0.9038,
+    "source_ndcg_at_5": 0.9067,
+    "source_recall_at_10": 0.976,
+    "source_recall_at_5": 0.966
+  },
+  "notes": [
+    "This artifact is a sanitized aggregate summary derived from the dev evaluation output.",
+    "The benchmark asks whether MNO retrieved the source evidence needed for a memory claim.",
+    "It should not be read as a scored natural-language answer benchmark."
+  ],
+  "omitted_from_public_artifact": [
+    "raw benchmark dataset files",
+    "per-case results jsonl",
+    "sample miss questions",
+    "source identifiers",
+    "local filesystem paths"
+  ],
+  "profile": "auto",
+  "question_type_breakdown": {
+    "knowledge-update": {
+      "cases": 78,
+      "gold_source_present_in_store_rate": 1.0,
+      "gold_source_shortlisted_rate": 1.0,
+      "source_recall_at_10": 1.0,
+      "source_recall_at_5": 1.0
+    },
+    "multi-session": {
+      "cases": 133,
+      "gold_source_present_in_store_rate": 1.0,
+      "gold_source_shortlisted_rate": 0.9925,
+      "source_recall_at_10": 0.985,
+      "source_recall_at_5": 0.9774
+    },
+    "single-session-assistant": {
+      "cases": 56,
+      "gold_source_present_in_store_rate": 1.0,
+      "gold_source_shortlisted_rate": 0.9821,
+      "source_recall_at_10": 0.9821,
+      "source_recall_at_5": 0.9821
+    },
+    "single-session-preference": {
+      "cases": 30,
+      "gold_source_present_in_store_rate": 1.0,
+      "gold_source_shortlisted_rate": 0.9,
+      "source_recall_at_10": 0.8667,
+      "source_recall_at_5": 0.8
+    },
+    "single-session-user": {
+      "cases": 70,
+      "gold_source_present_in_store_rate": 1.0,
+      "gold_source_shortlisted_rate": 0.9857,
+      "source_recall_at_10": 0.9857,
+      "source_recall_at_5": 0.9857
+    },
+    "temporal-reasoning": {
+      "cases": 133,
+      "gold_source_present_in_store_rate": 1.0,
+      "gold_source_shortlisted_rate": 0.9699,
+      "source_recall_at_10": 0.9699,
+      "source_recall_at_5": 0.9549
+    }
+  },
+  "run_date": "2026-04-08",
+  "run_id": "longmemeval_retrieval_full_auto_core_ranksprint_restore_20260408"
+}

@@ -1,0 +1,460 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="1720"
+   height="980"
+   viewBox="0 0 1720 980"
+   role="img"
+   aria-label="Current Pipeline, Clean View"
+   version="1.1"
+   id="svg41"
+   sodipodi:docname="mno-current-pipeline-clean.svg"
+   inkscape:version="1.4.2 (f4327f4, 2025-05-13)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs41" />
+  <sodipodi:namedview
+     id="namedview41"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     showgrid="false"
+     inkscape:zoom="1.8284884"
+     inkscape:cx="860"
+     inkscape:cy="489.74881"
+     inkscape:window-width="3840"
+     inkscape:window-height="2120"
+     inkscape:window-x="4468"
+     inkscape:window-y="2508"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg41" />
+  <rect
+     width="100%"
+     height="100%"
+     fill="#ffffff"
+     id="rect1" />
+  <text
+     x="48"
+     y="56"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="28"
+     font-weight="800"
+     fill="#243b53"
+     id="text1">Current Pipeline, Clean View</text>
+  <rect
+     x="50"
+     y="90"
+     width="360"
+     height="700"
+     rx="10"
+     fill="#fbf7f1"
+     fill-opacity="0.58"
+     stroke="#d9b37a"
+     stroke-width="2"
+     id="rect2" />
+  <text
+     x="72"
+     y="128"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="21"
+     font-weight="800"
+     fill="#243b53"
+     id="text2">Source Intake</text>
+  <rect
+     x="470"
+     y="90"
+     width="360"
+     height="700"
+     rx="10"
+     fill="#f2f8ef"
+     fill-opacity="0.58"
+     stroke="#8eb184"
+     stroke-width="2"
+     id="rect3" />
+  <text
+     x="492"
+     y="128"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="21"
+     font-weight="800"
+     fill="#243b53"
+     id="text3">Truth Build</text>
+  <rect
+     x="890"
+     y="90"
+     width="360"
+     height="700"
+     rx="10"
+     fill="#eef6fd"
+     fill-opacity="0.58"
+     stroke="#86a8cf"
+     stroke-width="2"
+     id="rect4" />
+  <text
+     x="912"
+     y="128"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="21"
+     font-weight="800"
+     fill="#243b53"
+     id="text4">Runtime</text>
+  <rect
+     x="1310"
+     y="90"
+     width="360"
+     height="700"
+     rx="10"
+     fill="#f5effb"
+     fill-opacity="0.58"
+     stroke="#b39ad0"
+     stroke-width="2"
+     id="rect5" />
+  <text
+     x="1332"
+     y="128"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="21"
+     font-weight="800"
+     fill="#243b53"
+     id="text5">Integration</text>
+  <polyline
+     points="230.0,280.0 230.0,320.0 230.0,320.0 230.0,360.0"
+     fill="none"
+     stroke="#d6b656"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="polyline5" />
+  <polyline
+     points="230.0,470.0 230.0,510.0 230.0,510.0 230.0,550.0"
+     fill="none"
+     stroke="#c97b63"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="polyline6" />
+  <polyline
+     points="370.0,415.0 440.0,415.0 440.0,235.0 510.0,235.0"
+     fill="none"
+     stroke="#c97b63"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="polyline7" />
+  <polyline
+     points="650.0,290.0 650.0,340.0 650.0,340.0 650.0,390.0"
+     fill="none"
+     stroke="#b8549e"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="polyline8" />
+  <path
+     id="polyline9"
+     style="fill:none;stroke:#82b366;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round"
+     d="m 790,450 h 70 l 0.5469,-152.65501 69.4531,0"
+     sodipodi:nodetypes="cccc" />
+  <polyline
+     points="370.0,610.0 650.0,610.0 650.0,270.0 930.0,270.0"
+     fill="none"
+     stroke="#c97b63"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="polyline10" />
+  <polyline
+     points="1070.0,330.0 1070.0,390.0 1070.0,390.0 1070.0,450.0"
+     fill="none"
+     stroke="#6c8ebf"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="polyline11" />
+  <polyline
+     points="1210.0,510.0 1280.0,510.0 1280.0,375.0 1350.0,375.0"
+     fill="none"
+     stroke="#9673b9"
+     stroke-width="2.6"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="polyline12" />
+  <rect
+     x="90"
+     y="180"
+     width="280"
+     height="100"
+     rx="9"
+     fill="#fff2cc"
+     stroke="#d6b656"
+     stroke-width="2"
+     id="rect12" />
+  <text
+     x="230.0"
+     y="225.7"
+     text-anchor="middle"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="18"
+     font-weight="500"
+     fill="#1f2933"
+     id="text13"><tspan
+       x="230.0"
+       dy="0.0"
+       id="tspan12">Files / folders / conversation</tspan><tspan
+       x="230.0"
+       dy="22.3"
+       id="tspan13">exports / existing store</tspan></text>
+  <rect
+     x="90"
+     y="360"
+     width="280"
+     height="110"
+     rx="9"
+     fill="#fde9d9"
+     stroke="#c97b63"
+     stroke-width="2"
+     id="rect13" />
+  <text
+     x="230.0"
+     y="399.5"
+     text-anchor="middle"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="18"
+     font-weight="500"
+     fill="#1f2933"
+     id="text16"><tspan
+       x="230.0"
+       dy="0.0"
+       id="tspan14">Atom store</tspan><tspan
+       x="230.0"
+       dy="22.3"
+       id="tspan15">small evidence pieces with</tspan><tspan
+       x="230.0"
+       dy="22.3"
+       id="tspan16">provenance</tspan></text>
+  <rect
+     x="90"
+     y="550"
+     width="280"
+     height="120"
+     rx="9"
+     fill="#fde9d9"
+     stroke="#c97b63"
+     stroke-width="2"
+     id="rect16" />
+  <text
+     x="230.0"
+     y="594.5"
+     text-anchor="middle"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="18"
+     font-weight="500"
+     fill="#1f2933"
+     id="text19"><tspan
+       x="230.0"
+       dy="0.0"
+       id="tspan17">Raw-context receipt lane</tspan><tspan
+       x="230.0"
+       dy="22.3"
+       id="tspan18">original wording support, not</tspan><tspan
+       x="230.0"
+       dy="22.3"
+       id="tspan19">truth authority</tspan></text>
+  <rect
+     x="510"
+     y="180"
+     width="280"
+     height="110"
+     rx="9"
+     fill="#fce5f1"
+     stroke="#b8549e"
+     stroke-width="2"
+     id="rect19" />
+  <text
+     x="650.0"
+     y="230.7"
+     text-anchor="middle"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="18"
+     font-weight="500"
+     fill="#1f2933"
+     id="text21"><tspan
+       x="650.0"
+       dy="0.0"
+       id="tspan20">Draft episode cards</tspan><tspan
+       x="650.0"
+       dy="22.3"
+       id="tspan21">agent curation stays draft-only</tspan></text>
+  <rect
+     x="510"
+     y="390"
+     width="280"
+     height="120"
+     rx="9"
+     fill="#d5e8d4"
+     stroke="#82b366"
+     stroke-width="2"
+     id="rect21" />
+  <text
+     x="650.0"
+     y="445.7"
+     text-anchor="middle"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="18"
+     font-weight="500"
+     fill="#1f2933"
+     id="text23"><tspan
+       x="650.0"
+       dy="0.0"
+       id="tspan22">Human-reviewed cards</tspan><tspan
+       x="650.0"
+       dy="22.3"
+       id="tspan23">current/superseded lineage</tspan></text>
+  <rect
+     x="930"
+     y="210"
+     width="280"
+     height="120"
+     rx="9"
+     fill="#dae8fc"
+     stroke="#6c8ebf"
+     stroke-width="2"
+     id="rect23" />
+  <text
+     x="1070.0"
+     y="254.5"
+     text-anchor="middle"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="18"
+     font-weight="500"
+     fill="#1f2933"
+     id="text26"><tspan
+       x="1070.0"
+       dy="0.0"
+       id="tspan24">Runtime retrieval</tspan><tspan
+       x="1070.0"
+       dy="22.3"
+       id="tspan25">reviewed cards + atoms +</tspan><tspan
+       x="1070.0"
+       dy="22.3"
+       id="tspan26">helper layers</tspan></text>
+  <rect
+     x="930"
+     y="450"
+     width="280"
+     height="120"
+     rx="9"
+     fill="#dae8fc"
+     stroke="#6c8ebf"
+     stroke-width="2"
+     id="rect26" />
+  <text
+     x="1070.0"
+     y="505.7"
+     text-anchor="middle"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="18"
+     font-weight="500"
+     fill="#1f2933"
+     id="text28"><tspan
+       x="1070.0"
+       dy="0.0"
+       id="tspan27">Evidence pack + verifier</tspan><tspan
+       x="1070.0"
+       dy="22.3"
+       id="tspan28">answer, abstain, or clarify</tspan></text>
+  <rect
+     x="1350"
+     y="300"
+     width="280"
+     height="150"
+     rx="9"
+     fill="#eadcf8"
+     stroke="#9673b9"
+     stroke-width="2"
+     id="rect28" />
+  <text
+     x="1490.0"
+     y="359.5"
+     text-anchor="middle"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="18"
+     font-weight="500"
+     fill="#1f2933"
+     id="text31"><tspan
+       x="1490.0"
+       dy="0.0"
+       id="tspan29">integration-v1 / MCP / desktop</tspan><tspan
+       x="1490.0"
+       dy="22.3"
+       id="tspan30">bounded context package +</tspan><tspan
+       x="1490.0"
+       dy="22.3"
+       id="tspan31">writeback proposals</tspan></text>
+  <rect
+     x="390"
+     y="840"
+     width="950"
+     height="100"
+     rx="9"
+     fill="#f8cecc"
+     stroke="#b85450"
+     stroke-width="2"
+     id="rect31" />
+  <text
+     x="865.0"
+     y="874.5"
+     text-anchor="middle"
+     font-family="Segoe UI, Inter, Arial, sans-serif"
+     font-size="18"
+     font-weight="500"
+     fill="#1f2933"
+     id="text34"><tspan
+       x="865.0"
+       dy="0.0"
+       id="tspan32">Truth boundary</tspan><tspan
+       x="865.0"
+       dy="22.3"
+       id="tspan33">drafts, helper memory, and raw wording receipts can support evidence but do not become trusted truth without</tspan><tspan
+       x="865.0"
+       dy="22.3"
+       id="tspan34">review</tspan></text>
+  <polygon
+     points="230.0,360.0 224.7,349.2 235.3,349.2"
+     fill="#d6b656"
+     id="polygon34" />
+  <polygon
+     points="230.0,550.0 224.7,539.2 235.3,539.2"
+     fill="#c97b63"
+     id="polygon35" />
+  <polygon
+     points="510.0,235.0 499.2,240.3 499.2,229.7"
+     fill="#c97b63"
+     id="polygon36" />
+  <polygon
+     points="650.0,390.0 644.7,379.2 655.3,379.2"
+     fill="#b8549e"
+     id="polygon37" />
+  <polygon
+     points="919.2,264.7 930,270 919.2,275.3 "
+     fill="#82b366"
+     id="polygon38"
+     transform="translate(0,28)" />
+  <polygon
+     points="919.2,275.3 919.2,264.7 930,270 "
+     fill="#c97b63"
+     id="polygon39" />
+  <polygon
+     points="1070.0,450.0 1064.7,439.2 1075.3,439.2"
+     fill="#6c8ebf"
+     id="polygon40" />
+  <polygon
+     points="1350.0,375.0 1339.2,380.3 1339.2,369.7"
+     fill="#9673b9"
+     id="polygon41" />
+</svg>

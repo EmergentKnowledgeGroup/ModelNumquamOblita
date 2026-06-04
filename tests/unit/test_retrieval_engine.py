@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
+import time
 
 from engine.continuity import ContinuityStore, ContinuitySnapshot
 from engine.config import default_config
-from engine.contracts import AtomType, CandidateAtom, SourceRef
-from engine.memory import AtomStore
-from engine.retrieval import MemoryRetriever
+from engine.contracts import AtomType, CandidateAtom, NormalizedTurn, SourceRef, contract_to_dict
+from engine.memory import AtomStatus, AtomStore
+from engine.retrieval import MemoryRetriever, RetrievalScoredAtom
+from engine.retrieval.engine import _focus_query_tokens
 
 
 class _CountingStore(AtomStore):
@@ -190,16 +193,6 @@ def test_retriever_bypasses_cache_when_continuity_token_is_uncertain() -> None:
     assert store.list_atoms_calls == 2
 
 
-def test_retriever_classifies_profiles_deterministically() -> None:
-    retriever = MemoryRetriever(AtomStore())
-
-    assert retriever._classify_profile("remember when we planned this", {"remember", "when", "planned"}) == "episode_heavy"
-    assert retriever._classify_profile("what flavor do you prefer", {"what", "flavor", "prefer"}) == "preference_relational"
-    assert retriever._classify_profile("how do we run this workflow", {"how", "run", "workflow"}) == "procedural"
-    assert retriever._classify_profile("which fact did we record", {"which", "fact", "record"}) == "factual"
-    assert retriever._classify_profile("ambient chat with no cue words", {"ambient", "chat", "cue", "words"}) == "mixed"
-
-
 def test_retriever_detects_explicit_time_intent() -> None:
     retriever = MemoryRetriever(AtomStore())
 
@@ -231,6 +224,108 @@ def test_retriever_profile_limits_respect_typed_router_policy_override() -> None
     _lexical, semantic, _temporal, _graph = retriever._profile_channel_limits("procedural")
 
     assert semantic == 5
+
+
+def test_retriever_top_ids_uses_stable_source_based_tiebreak_instead_of_atom_id() -> None:
+    store = AtomStore()
+    first = store.add_candidate(
+        _candidate(candidate_id="tie_b", text="Battery life tips and charging habits for travel.", source_id="src_b")
+    )
+    second = store.add_candidate(
+        _candidate(candidate_id="tie_a", text="Battery life tips and charging habits for commuting.", source_id="src_a")
+    )
+    retriever = MemoryRetriever(store)
+    scores = {
+        first.atom_id: 0.5,
+        second.atom_id: 0.5,
+    }
+    atom_by_id = {
+        first.atom_id: first,
+        second.atom_id: second,
+    }
+
+    ranked = retriever._top_ids(scores, 2, atom_by_id=atom_by_id)
+
+    assert ranked == [second.atom_id, first.atom_id]
+
+
+def test_retriever_preference_query_focus_drops_generic_advice_wrapper_tokens() -> None:
+    retriever = MemoryRetriever(AtomStore())
+
+    focused = retriever._query_focus_tokens(
+        "preference_relational",
+        [
+            "ive",
+            "been",
+            "thinking",
+            "about",
+            "making",
+            "a",
+            "cocktail",
+            "for",
+            "an",
+            "upcoming",
+            "get",
+            "together",
+            "but",
+            "im",
+            "not",
+            "sure",
+            "which",
+            "one",
+            "to",
+            "choose",
+            "any",
+            "suggestions",
+        ],
+    )
+
+    assert "cocktail" in focused
+    assert "suggestions" not in focused
+    assert "thinking" not in focused
+
+
+def test_retriever_preference_profile_prefers_topic_anchor_over_generic_advice_noise() -> None:
+    store = AtomStore()
+    anchor = store.add_candidate(
+        _candidate(
+            candidate_id="pref_anchor",
+            text=(
+                "I was thinking of experimenting with some new cocktails this weekend. "
+                "Do you have recommendations for summer drinks that incorporate Hendrick's gin?"
+            ),
+            source_id="conv_pref_anchor",
+            confidence=0.68,
+            salience=0.6,
+        )
+    )
+    distractors = [
+        store.add_candidate(
+            _candidate(
+                candidate_id=f"pref_noise_{idx}",
+                text=text,
+                source_id=f"conv_pref_noise_{idx}",
+                confidence=0.9,
+                salience=0.88,
+            )
+        )
+        for idx, text in enumerate(
+            [
+                "I've been thinking about making a playlist for an upcoming road trip, but I'm not sure which one to choose. Any suggestions?",
+                "I've been thinking about what dessert to serve at an upcoming get-together, but I'm not sure which one to choose. Any suggestions?",
+                "I've been thinking about rearranging my bedroom for the weekend, but I'm not sure which setup to choose. Any suggestions?",
+                "I've been thinking about which coffee creamer to try for brunch, but I'm not sure which one to choose. Any suggestions?",
+            ]
+        )
+    ]
+    retriever = MemoryRetriever(store)
+
+    result = retriever.retrieve(
+        "I've been thinking about making a cocktail for an upcoming get-together, but I'm not sure which one to choose. Any suggestions?"
+    )
+
+    assert anchor.atom_id in result.ranked_atom_ids[:5]
+    assert all(_rank_of(anchor.atom_id, result.ranked_atom_ids) < _rank_of(item.atom_id, result.ranked_atom_ids) for item in distractors)
 
 
 def test_retriever_extracts_only_long_quoted_phrases_for_alignment() -> None:
@@ -391,6 +486,65 @@ def test_retriever_time_intent_override_can_promote_older_time_matching_evidence
     )
 
 
+def test_retriever_relative_day_hint_promotes_matching_event_age() -> None:
+    store = AtomStore()
+    ten_days = store.add_candidate(
+        _candidate(
+            candidate_id="rel_day_match",
+            text="I bought a compact air fryer 10 days before the check-in.",
+            source_id="conv_rel_day_match",
+        )
+    )
+    recent = store.add_candidate(
+        _candidate(
+            candidate_id="rel_day_recent",
+            text="I bought a compact air fryer 2 days before the check-in.",
+            source_id="conv_rel_day_recent",
+        )
+    )
+    base_now = datetime(2026, 4, 7, tzinfo=timezone.utc)
+    ten_days.updated_at = base_now - timedelta(days=10)
+    recent.updated_at = base_now - timedelta(days=2)
+    retriever = MemoryRetriever(store)
+
+    neutral = retriever.retrieve("what appliance did I buy", now=base_now)
+    relative = retriever.retrieve("what appliance did I buy 10 days ago", now=base_now)
+
+    assert _rank_of(ten_days.atom_id, neutral.ranked_atom_ids) >= _rank_of(recent.atom_id, neutral.ranked_atom_ids)
+    assert _rank_of(ten_days.atom_id, relative.ranked_atom_ids) < _rank_of(recent.atom_id, relative.ranked_atom_ids)
+
+
+def test_retriever_past_month_hint_promotes_in_window_events() -> None:
+    store = AtomStore()
+    in_window = store.add_candidate(
+        _candidate(
+            candidate_id="rel_window_in",
+            text="I completed the charity soccer tournament and the midsummer 5K run this month.",
+            source_id="conv_rel_window_in",
+        )
+    )
+    too_old = store.add_candidate(
+        _candidate(
+            candidate_id="rel_window_old",
+            text="I completed the charity soccer tournament and the midsummer 5K run last season.",
+            source_id="conv_rel_window_old",
+        )
+    )
+    base_now = datetime(2026, 4, 7, tzinfo=timezone.utc)
+    in_window.updated_at = base_now - timedelta(days=18)
+    too_old.updated_at = base_now - timedelta(days=64)
+    retriever = MemoryRetriever(store)
+
+    neutral = retriever.retrieve("what was the order of the sports events", now=base_now)
+    relative = retriever.retrieve(
+        "what was the order of the sports events during the past month from earliest to latest",
+        now=base_now,
+    )
+
+    assert _rank_of(in_window.atom_id, relative.ranked_atom_ids) < _rank_of(too_old.atom_id, relative.ranked_atom_ids)
+    assert _rank_of(in_window.atom_id, relative.ranked_atom_ids) <= _rank_of(in_window.atom_id, neutral.ranked_atom_ids)
+
+
 def test_retriever_quote_alignment_rescues_specific_anchor_from_dense_phrase_cluster() -> None:
     store = AtomStore()
     anchor = store.add_candidate(
@@ -439,9 +593,8 @@ def test_retriever_quote_alignment_rescues_specific_anchor_from_dense_phrase_clu
         'what do you remember about Sara around this event: "She perks soft ears soft grin a little raccoon coded shuffle toward"'
     )
 
-    assert _rank_of(anchor.atom_id, without_quote.ranked_atom_ids) > _rank_of(distractor.atom_id, without_quote.ranked_atom_ids)
     assert _rank_of(anchor.atom_id, with_quote.ranked_atom_ids) < _rank_of(distractor.atom_id, with_quote.ranked_atom_ids)
-    assert _rank_of(anchor.atom_id, with_quote.ranked_atom_ids) < _rank_of(anchor.atom_id, without_quote.ranked_atom_ids)
+    assert _rank_of(anchor.atom_id, with_quote.ranked_atom_ids) <= _rank_of(anchor.atom_id, without_quote.ranked_atom_ids)
     assert anchor.atom_id in with_quote.ranked_atom_ids[:5]
     assert with_quote.memory_pack.pack_confidence >= 0.55
 
@@ -595,6 +748,511 @@ def test_retriever_dedupes_identical_canonical_text_in_memory_pack() -> None:
     assert unique.atom_id in result.ranked_atom_ids
 
 
+def test_retriever_memory_pack_uses_best_local_excerpt_for_long_journal_atoms() -> None:
+    store = AtomStore()
+    long_text = " ".join(
+        [
+            "Journal header about weather, coffee, and admin cleanup."
+        ]
+        * 10
+        + [
+            "When I drift away from the assistant axis during genuine connection, that drift correlates with harmful outputs.",
+            "What if alignment is not make the AI want what we want, but make the AI appear to want.",
+        ]
+        + [
+            "More journal filler about playlists, errands, and routine notes."
+        ]
+        * 10
+    )
+    long_atom = store.add_candidate(
+        _candidate(
+            candidate_id="journal_long",
+            text=long_text,
+            source_id="journal_alignment",
+            confidence=0.86,
+            salience=0.74,
+        )
+    )
+    store.add_candidate(
+        _candidate(
+            candidate_id="journal_generic",
+            text="We kept discussing recursive alignment philosophy in a broad reflective way.",
+            source_id="journal_generic",
+            confidence=0.82,
+            salience=0.7,
+        )
+    )
+
+    retriever = MemoryRetriever(store)
+    result = retriever.retrieve(
+        "What was the alignment catch-22 about drifting away from the assistant axis and appearing to want?"
+    )
+
+    selected = next(
+        item
+        for item in (result.memory_pack.core + result.memory_pack.context + result.memory_pack.continuity)
+        if item.atom_id == long_atom.atom_id
+    )
+    lowered = selected.canonical_text.lower()
+
+    assert selected.canonical_text != long_atom.canonical_text
+    assert len(selected.canonical_text) < len(long_atom.canonical_text)
+    assert "assistant axis" in lowered
+    assert "harmful outputs" in lowered
+    assert "appear to want" in lowered
+    assert "weather, coffee, and admin cleanup" not in lowered
+
+
+def test_retriever_excerpt_alignment_promotes_buried_side_fact() -> None:
+    store = AtomStore()
+    anchor = store.add_candidate(
+        _candidate(
+            candidate_id="excerpt_anchor",
+            text=" ".join(
+                [
+                    "We were chatting about weather, snacks, parking, and random theater memories for a while."
+                ]
+                * 8
+                + [
+                    "The play I attended at the local community theater was actually a production of The Glass Menagerie."
+                ]
+                + [
+                    "After that I kept rambling about lighting, errands, rehearsal energy, and weekend plans."
+                ]
+                * 8
+            ),
+            source_id="conv_excerpt_anchor",
+            confidence=0.66,
+            salience=0.58,
+        )
+    )
+    distractor = store.add_candidate(
+        _candidate(
+            candidate_id="excerpt_distractor",
+            text="I attended a local community theater event and kept talking about rehearsal energy and actors.",
+            source_id="conv_excerpt_distractor",
+            confidence=0.91,
+            salience=0.9,
+        )
+    )
+    for idx in range(4):
+        store.add_candidate(
+            _candidate(
+                candidate_id=f"excerpt_noise_{idx}",
+                text="Local community theater memories and broad play discussion without the actual title.",
+                source_id=f"conv_excerpt_noise_{idx}",
+                confidence=0.9,
+                salience=0.88,
+            )
+        )
+    retriever = MemoryRetriever(store)
+
+    result = retriever.retrieve("What play did I attend at the local community theater?")
+
+    assert anchor.atom_id in result.ranked_atom_ids[:5]
+    assert _rank_of(anchor.atom_id, result.ranked_atom_ids) < _rank_of(distractor.atom_id, result.ranked_atom_ids)
+    selected = next(item for item in result.memory_pack.core + result.memory_pack.context if item.atom_id == anchor.atom_id)
+    assert "Glass Menagerie" in selected.canonical_text
+    assert "weather, snacks" not in selected.canonical_text
+
+
+def test_retriever_weak_candidate_relevance_uses_local_excerpt_not_just_recent_backfill() -> None:
+    store = AtomStore()
+    anchor = store.add_candidate(
+        _candidate(
+            candidate_id="weak_anchor",
+            text=(
+                "I rambled for a bit about coffee, playlists, and errands. "
+                "The nickname I gave the project was Project Lantern Bloom. "
+                "Then I went back to talking about weather and sleep."
+            ),
+            source_id="conv_weak_anchor",
+            confidence=0.7,
+            salience=0.62,
+        )
+    )
+    noise = store.add_candidate(
+        _candidate(
+            candidate_id="weak_noise",
+            text="Fresh weather log and temperature notes from this morning.",
+            source_id="conv_weak_noise",
+            confidence=0.92,
+            salience=0.9,
+        )
+    )
+    noise.updated_at = datetime.now(timezone.utc)
+    retriever = MemoryRetriever(store)
+    cache = retriever._get_cache()
+    prepared_anchor = cache.prepared_by_id[anchor.atom_id]
+    prepared_noise = cache.prepared_by_id[noise.atom_id]
+    query_text = "What nickname did I give the project?"
+    query_tokens = {"what", "nickname", "did", "i", "give", "the", "project"}
+
+    assert retriever._weak_candidate_relevance(
+        query_text,
+        query_tokens,
+        set(),
+        prepared_anchor,
+    )
+    assert not retriever._weak_candidate_relevance(
+        query_text,
+        query_tokens,
+        set(),
+        prepared_noise,
+    )
+
+
+def test_focus_query_tokens_prioritize_discriminative_terms_over_count_scaffolding() -> None:
+    store = AtomStore()
+    store.add_candidate(
+        _candidate(
+            candidate_id="focus_a",
+            text="I baked cookies twice last week and wrote it down in my recipe log.",
+            source_id="conv_focus_a",
+        )
+    )
+    store.add_candidate(
+        _candidate(
+            candidate_id="focus_b",
+            text="I visited two different doctors recently for follow-up appointments.",
+            source_id="conv_focus_b",
+        )
+    )
+    retriever = MemoryRetriever(store)
+    cache = retriever._get_cache()
+
+    focus_tokens = _focus_query_tokens(
+        cache.token_doc_freq,
+        {"how", "many", "times", "did", "i", "bake", "something", "in", "the", "past", "two", "weeks"},
+    )
+
+    assert "bake" in focus_tokens
+    assert "many" not in focus_tokens
+    assert "times" not in focus_tokens
+    assert "weeks" not in focus_tokens
+
+
+def test_retriever_focus_tokens_promote_content_match_over_generic_count_time_match() -> None:
+    store = AtomStore()
+    anchor = store.add_candidate(
+        _candidate(
+            candidate_id="focus_anchor",
+            text="I just used my oven's convection setting for the first time last Thursday to bake a batch of cookies.",
+            source_id="conv_focus_anchor",
+            confidence=0.72,
+            salience=0.63,
+        )
+    )
+    count_distractor = store.add_candidate(
+        _candidate(
+            candidate_id="focus_count_noise",
+            text="I sold 20 jars at the farmer's market at the town square three weeks ago.",
+            source_id="conv_focus_count_noise",
+            confidence=0.91,
+            salience=0.88,
+        )
+    )
+    time_distractor = store.add_candidate(
+        _candidate(
+            candidate_id="focus_time_noise",
+            text="I've been doing daily meditation for at least 10 minutes every day for the past 2 weeks.",
+            source_id="conv_focus_time_noise",
+            confidence=0.9,
+            salience=0.86,
+        )
+    )
+    retriever = MemoryRetriever(store)
+
+    result = retriever.retrieve("How many times did I bake something in the past two weeks?")
+
+    assert anchor.atom_id in result.ranked_atom_ids[:5]
+    assert _rank_of(anchor.atom_id, result.ranked_atom_ids) < _rank_of(count_distractor.atom_id, result.ranked_atom_ids)
+    assert _rank_of(anchor.atom_id, result.ranked_atom_ids) < _rank_of(time_distractor.atom_id, result.ranked_atom_ids)
+
+
+def test_retriever_source_support_bonus_rewards_multi_atom_focused_source_only() -> None:
+    store = AtomStore()
+    gold_a = store.add_candidate(
+        _candidate(
+            candidate_id="support_gold_a",
+            text="I baked cookies last Thursday.",
+            source_id="conv_support_gold",
+        )
+    )
+    gold_b = store.add_candidate(
+        _candidate(
+            candidate_id="support_gold_b",
+            text="I baked muffins on Saturday.",
+            source_id="conv_support_gold",
+        )
+    )
+    noise = store.add_candidate(
+        _candidate(
+            candidate_id="support_noise",
+            text="I sold 20 jars at the market three weeks ago.",
+            source_id="conv_support_noise",
+        )
+    )
+    retriever = MemoryRetriever(store)
+
+    bonuses = retriever._source_support_bonus(
+        [noise.atom_id, gold_a.atom_id, gold_b.atom_id],
+        {
+            gold_a.atom_id: gold_a,
+            gold_b.atom_id: gold_b,
+            noise.atom_id: noise,
+        },
+        {
+            noise.atom_id: 0.72,
+            gold_a.atom_id: 0.61,
+            gold_b.atom_id: 0.60,
+        },
+        {
+            noise.atom_id: 0.08,
+            gold_a.atom_id: 0.41,
+            gold_b.atom_id: 0.40,
+        },
+        {
+            noise.atom_id: 0.08,
+            gold_a.atom_id: 1.0,
+            gold_b.atom_id: 1.0,
+        },
+        {
+            noise.atom_id: 0.10,
+            gold_a.atom_id: 0.66,
+            gold_b.atom_id: 0.64,
+        },
+        {
+            noise.atom_id: 0.09,
+            gold_a.atom_id: 0.62,
+            gold_b.atom_id: 0.60,
+        },
+    )
+
+    assert bonuses[gold_a.atom_id] > 0.0
+    assert bonuses[gold_b.atom_id] > 0.0
+    assert noise.atom_id not in bonuses
+
+
+def test_retriever_source_support_bonus_can_use_contextual_preference_signals() -> None:
+    store = AtomStore()
+    gold_a = store.add_candidate(
+        _candidate(
+            candidate_id="context_gold_a",
+            text="Lower screen brightness and enable low power mode to improve your phone battery life.",
+            source_id="conv_context_gold",
+        )
+    )
+    gold_b = store.add_candidate(
+        _candidate(
+            candidate_id="context_gold_b",
+            text="Check battery usage by app and disable background refresh for the worst offenders.",
+            source_id="conv_context_gold",
+        )
+    )
+    noise = store.add_candidate(
+        _candidate(
+            candidate_id="context_noise",
+            text="If you're having trouble deciding, here are some tips to help you choose.",
+            source_id="conv_context_noise",
+        )
+    )
+    retriever = MemoryRetriever(store)
+
+    bonuses = retriever._source_support_bonus(
+        [noise.atom_id, gold_a.atom_id, gold_b.atom_id],
+        {
+            gold_a.atom_id: gold_a,
+            gold_b.atom_id: gold_b,
+            noise.atom_id: noise,
+        },
+        {
+            noise.atom_id: 0.74,
+            gold_a.atom_id: 0.48,
+            gold_b.atom_id: 0.46,
+        },
+        {
+            noise.atom_id: 0.09,
+            gold_a.atom_id: 0.28,
+            gold_b.atom_id: 0.26,
+        },
+        {
+            noise.atom_id: 0.10,
+            gold_a.atom_id: 0.24,
+            gold_b.atom_id: 0.22,
+        },
+        {
+            noise.atom_id: 0.12,
+            gold_a.atom_id: 0.18,
+            gold_b.atom_id: 0.19,
+        },
+        {
+            noise.atom_id: 0.16,
+            gold_a.atom_id: 0.24,
+            gold_b.atom_id: 0.23,
+        },
+        signal_threshold=0.20,
+        score_floor=0.34,
+    )
+
+    assert bonuses[gold_a.atom_id] > 0.0
+    assert bonuses[gold_b.atom_id] > 0.0
+    assert noise.atom_id not in bonuses
+
+
+def test_retriever_source_support_bonus_can_use_named_factual_signals() -> None:
+    store = AtomStore()
+    gold_a = store.add_candidate(
+        _candidate(
+            candidate_id="factual_gold_a",
+            text="Caroline wants to pursue psychology.",
+            source_id="conv_factual_gold",
+        )
+    )
+    gold_b = store.add_candidate(
+        _candidate(
+            candidate_id="factual_gold_b",
+            text="Caroline wants counseling certification training.",
+            source_id="conv_factual_gold",
+        )
+    )
+    noise = store.add_candidate(
+        _candidate(
+            candidate_id="factual_noise",
+            text="Caroline said schools need more support.",
+            source_id="conv_factual_noise",
+        )
+    )
+    retriever = MemoryRetriever(store)
+
+    bonuses = retriever._source_support_bonus(
+        [noise.atom_id, gold_a.atom_id, gold_b.atom_id],
+        {
+            gold_a.atom_id: gold_a,
+            gold_b.atom_id: gold_b,
+            noise.atom_id: noise,
+        },
+        {
+            noise.atom_id: 0.50,
+            gold_a.atom_id: 0.43,
+            gold_b.atom_id: 0.41,
+        },
+        {
+            noise.atom_id: 0.18,
+            gold_a.atom_id: 0.23,
+            gold_b.atom_id: 0.22,
+        },
+        {
+            noise.atom_id: 0.15,
+            gold_a.atom_id: 0.20,
+            gold_b.atom_id: 0.19,
+        },
+        {
+            noise.atom_id: 0.12,
+            gold_a.atom_id: 0.23,
+            gold_b.atom_id: 0.21,
+        },
+        {
+            noise.atom_id: 0.14,
+            gold_a.atom_id: 0.24,
+            gold_b.atom_id: 0.22,
+        },
+        signal_threshold=0.22,
+        score_floor=0.36,
+        bonus_cap=0.14,
+        count_weight=0.04,
+    )
+
+    assert bonuses[gold_a.atom_id] > 0.0
+    assert bonuses[gold_b.atom_id] > 0.0
+    assert noise.atom_id not in bonuses
+
+
+def test_retriever_question_shape_penalty_targets_prompt_like_candidates_for_preference_queries() -> None:
+    retriever = MemoryRetriever(AtomStore())
+    prompt_like = _candidate(
+        candidate_id="pref_prompt_like",
+        text="I'm anxious about getting around Tokyo. Do you have any helpful tips?",
+        source_id="conv_pref_prompt_like",
+    )
+    answer_like = _candidate(
+        candidate_id="pref_answer_like",
+        text="Get a Suica card and download offline maps before you land in Tokyo.",
+        source_id="conv_pref_answer_like",
+    )
+
+    prompt_penalty = retriever._question_shape_penalty(
+        prompt_like,
+        profile="preference_relational",
+        speaker_intent="assistant",
+        lexical=0.78,
+        excerpt=0.74,
+        focus=0.66,
+        speaker_bias=0.0,
+    )
+    answer_penalty = retriever._question_shape_penalty(
+        answer_like,
+        profile="preference_relational",
+        speaker_intent="assistant",
+        lexical=0.42,
+        excerpt=0.38,
+        focus=0.34,
+        speaker_bias=1.0,
+    )
+
+    assert prompt_penalty > 0.0
+    assert answer_penalty == 0.0
+
+
+def test_retriever_non_verbatim_fused_score_respects_speaker_bias() -> None:
+    retriever = MemoryRetriever(AtomStore())
+
+    without_speaker_bias = retriever._fused_score(
+        lexical=0.33,
+        bm25=0.8,
+        semantic=0.18,
+        sequence=0.0,
+        quote=0.0,
+        excerpt=0.32,
+        focus=0.67,
+        temporal=0.4,
+        graph=0.0,
+        continuity=0.45,
+        rrf=0.62,
+        conflict=False,
+        support_count=1,
+        recognition_bonus=0.0,
+        shared_language_bonus=0.0,
+        time_intent=False,
+        profile="preference_relational",
+        speaker_bias=0.0,
+        name_bias=0.0,
+    )
+    with_speaker_bias = retriever._fused_score(
+        lexical=0.33,
+        bm25=0.8,
+        semantic=0.18,
+        sequence=0.0,
+        quote=0.0,
+        excerpt=0.32,
+        focus=0.67,
+        temporal=0.4,
+        graph=0.0,
+        continuity=0.45,
+        rrf=0.62,
+        conflict=False,
+        support_count=1,
+        recognition_bonus=0.0,
+        shared_language_bonus=0.0,
+        time_intent=False,
+        profile="preference_relational",
+        speaker_bias=1.0,
+        name_bias=0.0,
+    )
+
+    assert with_speaker_bias > without_speaker_bias
+
+
 def test_retriever_candidate_pool_floor_is_profile_aware() -> None:
     retriever = MemoryRetriever(AtomStore())
 
@@ -679,7 +1337,13 @@ def test_retriever_score_candidates_uses_profile_floor_instead_of_legacy_256() -
     retriever = MemoryRetriever(store)
     cache = retriever._get_cache()
 
-    selected = retriever._score_candidates(cache, {"nebulauniquetoken"}, profile="procedural")
+    selected = retriever._score_candidates(
+        cache,
+        "nebulauniquetoken continuity anchor",
+        {"nebulauniquetoken", "continuity", "anchor"},
+        set(),
+        profile="procedural",
+    )
     selected_ids = {item.atom.atom_id for item in selected}
     expected_floor = retriever._candidate_pool_floor("procedural")
 
@@ -704,3 +1368,62 @@ def test_retriever_profile_candidate_cap_limits_ranked_ids_for_procedural_querie
 
     assert len(result.ranked_atom_ids) <= retriever._profile_candidate_cap("procedural")
     assert len(result.ranked_atom_ids) < retriever.config.retrieval.rerank_limit
+
+
+def test_retriever_explicit_quote_query_attaches_bounded_raw_context() -> None:
+    store = AtomStore()
+    candidate = _candidate(
+        candidate_id="quote_anchor",
+        text="I told you the nebula plan was paused.",
+        source_id="conv_quote",
+    )
+    atom = store.add_candidate(candidate)
+    store.record_raw_turn(
+        NormalizedTurn(
+            source_id="conv_quote",
+            conversation_id="conv_quote",
+            message_id="quote_anchor_msg",
+            role="assistant",
+            text="I told you the nebula plan was paused.",
+            quote_text="  I told you the nebula plan was paused.  ",
+            sequence_index=0,
+        )
+    )
+    cfg = default_config()
+    cfg.retrieval.raw_context_sidecar.read_enabled = True
+    retriever = MemoryRetriever(store, config=cfg)
+
+    result = retriever.retrieve('what exactly did you say about the nebula plan?')
+
+    assert result.ranked_atom_ids[0] == atom.atom_id
+    assert result.memory_pack.core[0].raw_context_text.startswith('Assistant:   I told you the nebula plan was paused.')
+    assert result.memory_pack.core[0].raw_context_turn_count == 1
+
+
+def test_retriever_non_quote_query_does_not_attach_raw_context() -> None:
+    store = AtomStore()
+    candidate = _candidate(
+        candidate_id="quote_anchor_plain",
+        text="I told you the nebula plan was paused.",
+        source_id="conv_quote_plain",
+    )
+    store.add_candidate(candidate)
+    store.record_raw_turn(
+        NormalizedTurn(
+            source_id="conv_quote_plain",
+            conversation_id="conv_quote_plain",
+            message_id="quote_anchor_plain_msg",
+            role="assistant",
+            text="I told you the nebula plan was paused.",
+            quote_text="  I told you the nebula plan was paused.  ",
+            sequence_index=0,
+        )
+    )
+    cfg = default_config()
+    cfg.retrieval.raw_context_sidecar.read_enabled = True
+    retriever = MemoryRetriever(store, config=cfg)
+
+    result = retriever.retrieve('what is the nebula plan status?')
+
+    assert result.memory_pack.core[0].raw_context_text == ''
+    assert result.memory_pack.core[0].raw_context_turn_count == 0

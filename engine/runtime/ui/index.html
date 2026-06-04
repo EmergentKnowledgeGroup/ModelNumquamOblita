@@ -4,49 +4,56 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>NumquamOblita Runtime</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
     <div class="shell">
+
+      <!-- ─── MASTHEAD ─── -->
       <header class="masthead">
-        <div class="brand">
-          <div class="brand-orb" aria-hidden="true"></div>
-          <div>
-            <h1>NumquamOblita Runtime</h1>
-            <p id="modelName">memory-backed stateless chat</p>
+        <div class="masthead-left">
+          <div class="brand">
+            <div class="brand-orb" aria-hidden="true"></div>
+            <div>
+              <h1>NumquamOblita</h1>
+              <p id="modelName">memory-backed stateless chat</p>
+            </div>
+          </div>
+          <div class="metrics">
+            <article class="metric"><span>Turns</span><strong id="metricTurns">0</strong></article>
+            <article class="metric"><span>Tokens</span><strong id="metricTokens">0</strong></article>
+            <article class="metric"><span>Cost</span><strong id="metricCost">$0.0000</strong></article>
+            <article class="metric"><span>P95</span><strong id="metricP95">0 ms</strong></article>
+            <article class="metric"><span>Recog</span><strong id="metricRecognition">0% / 0</strong></article>
           </div>
         </div>
-        <div class="ui-mode-bar" role="group" aria-label="Interface mode">
-          <button id="btnSimpleMode" class="btn ghost ui-mode-btn" type="button">Simple mode</button>
-          <button id="btnAdvancedMode" class="btn ghost ui-mode-btn" type="button">Advanced mode</button>
-          <span id="modeHint" class="ui-mode-hint">Simple mode keeps essentials visible and hides advanced controls.</span>
-        </div>
-        <div class="metrics">
-          <article class="metric">
-            <span>Turns</span>
-            <strong id="metricTurns">0</strong>
-          </article>
-          <article class="metric">
-            <span>Tokens</span>
-            <strong id="metricTokens">0</strong>
-          </article>
-          <article class="metric">
-            <span>Cost</span>
-            <strong id="metricCost">$0.0000</strong>
-          </article>
-          <article class="metric">
-            <span>P95 Latency</span>
-            <strong id="metricP95">0 ms</strong>
-          </article>
-          <article class="metric">
-            <span>Recognition</span>
-            <strong id="metricRecognition">0% / 0</strong>
-          </article>
+        <div class="masthead-right">
+          <button id="btnDesktopHome" class="btn ghost desktop-home-btn" type="button" hidden>Desktop Home</button>
+          <div class="ui-mode-bar" role="group" aria-label="Interface mode">
+            <button id="btnSimpleMode" class="btn ghost ui-mode-btn" type="button">Simple</button>
+            <button id="btnAdvancedMode" class="btn ghost ui-mode-btn" type="button">Advanced</button>
+          </div>
+          <span id="modeHint" class="ui-mode-hint">Simple mode keeps essentials visible.</span>
         </div>
       </header>
 
-      <main class="layout">
-        <section class="chat-column">
+      <!-- ─── TAB BAR ─── -->
+      <nav class="tab-bar" role="tablist" aria-label="Primary navigation">
+        <button class="tab-btn active" type="button" role="tab" aria-selected="true" data-tab="setup">Setup</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="chat">Chat</button>
+        <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab="memory">Memory</button>
+        <button class="tab-btn trace-only" type="button" role="tab" aria-selected="false" data-tab="trace">Trace</button>
+        <button class="tab-btn ops-only" type="button" role="tab" aria-selected="false" data-tab="ops">Ops</button>
+      </nav>
+
+      <!-- ─── TAB PANES ─── -->
+      <main class="tab-content">
+
+        <!-- ══════════ SETUP TAB ══════════ -->
+        <section class="tab-pane active" data-pane="setup">
           <section class="wizard-shell" id="wizardShell">
             <div class="wizard-head">
               <div>
@@ -61,27 +68,108 @@
                 <button id="btnWizardArtifacts" class="btn ghost" type="button">Show Run Folder</button>
               </div>
             </div>
-            <div id="wizardRunMeta" class="wizard-run-meta">No wizard run loaded.</div>
+            <div id="wizardRunMeta" class="wizard-run-meta" role="status" aria-live="polite">No wizard run loaded.</div>
             <div id="wizardStageRail" class="wizard-stage-rail"></div>
             <div class="wizard-grid">
-              <article class="wizard-card wizard-card-entry">
+              <!-- Step 1: Import -->
+              <article class="wizard-card wizard-card-entry wizard-active" data-wizard-step="0">
                 <div class="wizard-card-head">
-                  <h3>Import</h3>
+                  <div class="wizard-card-title-group">
+                    <h3>Import</h3>
+                    <button class="btn ghost wizard-inline-info" type="button" data-dialog-open="wizardImportDialog">More Info</button>
+                  </div>
                   <span class="wizard-step">Step 1</span>
                 </div>
-                <p class="wizard-card-copy">Pick a fresh IA archive or reuse an existing MNO store. The normal path never asks you to type a path by hand.</p>
-                <input id="wizardArchivePath" class="input wizard-hidden-input" type="text" aria-label="Selected input path" readonly />
+                <p class="wizard-card-copy wizard-card-copy-strong">Choose the source MNO should validate, then turn it into a ready-to-build memory store.</p>
+                <dialog id="wizardImportDialog" class="wizard-dialog" data-inline-dialog="true" aria-labelledby="wizardImportDialogTitle">
+                  <div class="wizard-dialog-shell">
+                    <div class="wizard-dialog-head">
+                      <div>
+                        <p class="wizard-dialog-kicker">Step 1 Guide</p>
+                        <h4 id="wizardImportDialogTitle">Import: get clean source data into MNO</h4>
+                      </div>
+                      <button class="btn ghost wizard-dialog-close" type="button" data-dialog-close="wizardImportDialog">Close</button>
+                    </div>
+                    <p class="wizard-dialog-copy">This step decides what you are feeding into MNO. The goal is simple: start from a valid source and end with a valid MNO memory store.</p>
+                    <div class="wizard-policy-grid wizard-info-grid">
+                      <section class="wizard-policy-card balanced">
+                        <div class="wizard-policy-topline">
+                          <strong>Use Raw Source Files</strong>
+                          <span class="wizard-policy-badge">most common</span>
+                        </div>
+                        <p>Pick raw files or a folder when you are starting from conversation exports, logs, or transcripts.</p>
+                        <ul class="wizard-policy-list">
+                          <li>Best for first-time imports.</li>
+                          <li>The app validates the file or folder before building the MNO store.</li>
+                          <li>You should not point MCP directly at this raw source data.</li>
+                        </ul>
+                      </section>
+                      <section class="wizard-policy-card strict">
+                        <div class="wizard-policy-topline">
+                          <strong>Use Existing MNO Store</strong>
+                          <span class="wizard-policy-badge">skip re-import</span>
+                        </div>
+                        <p>Pick this when the memory data is already in MNO format and you want to continue from there.</p>
+                        <ul class="wizard-policy-list">
+                          <li>Good for reopening an existing memory system.</li>
+                          <li>Lets you skip archive import entirely.</li>
+                          <li>Still validate before moving on.</li>
+                        </ul>
+                      </section>
+                    </div>
+                    <div class="wizard-dialog-note">
+                      <strong>Simple rule:</strong> new data usually starts with <code>raw source files or a folder</code>. Existing MNO memory systems start with <code>Use Existing MNO Store</code>.
+                    </div>
+                  </div>
+                </dialog>
+                <input id="wizardArchivePath" class="input wizard-source-path-input" type="text" aria-label="Advanced source path" placeholder="/absolute/path/to/file-or-folder" hidden />
                 <div class="wizard-entry-lanes">
-                  <button id="btnWizardLaneArchive" class="btn ghost wizard-lane active" type="button">Import IA Archive</button>
+                  <button id="btnWizardLaneArchive" class="btn ghost wizard-lane active" type="button">Import Raw Source</button>
                   <button id="btnWizardLaneStore" class="btn ghost wizard-lane" type="button">Use Existing MNO Store</button>
                 </div>
                 <div id="wizardArchivePanel" class="wizard-lane-panel active">
-                  <label class="wizard-file-picker" for="wizardArchiveFile">
-                    <span>Pick IA `db.json`</span>
-                    <small>Use the archive exported from IA. The app stages it locally, checks it, then builds the MNO store for you.</small>
-                  </label>
-                  <input id="wizardArchiveFile" class="wizard-file-input" type="file" accept=".json,application/json" aria-label="Pick IA archive" />
-                  <div id="wizardArchiveSummary" class="wizard-card-result">No archive uploaded yet.</div>
+                  <div class="wizard-picker-grid">
+                    <button id="btnWizardPickFiles" class="btn ghost wizard-picker-btn" type="button">Add Files</button>
+                    <button id="btnWizardPickFolder" class="btn ghost wizard-picker-btn" type="button">Add Folder</button>
+                    <button id="btnWizardClearSources" class="btn ghost wizard-picker-btn" type="button">Clear List</button>
+                  </div>
+                  <input id="wizardArchiveFile" class="wizard-file-input" type="file" multiple accept=".json,.jsonl,.txt,.md,application/json,text/plain,text/markdown" aria-label="Pick source files" />
+                  <input id="wizardArchiveFolder" class="wizard-file-input" type="file" webkitdirectory directory multiple aria-label="Pick source folder" />
+                  <div class="wizard-field-block wizard-inline-help">
+                    <span>Selected source files and folders</span>
+                    <small>Add one folder, then add extra files if you want. MNO stages the whole list as one source bundle before import.</small>
+                  </div>
+                  <div id="wizardSourceList" class="wizard-source-list" role="list" aria-label="Selected source items"></div>
+                  <div class="wizard-field-block wizard-inline-help">
+                    <span>Import destination</span>
+                    <small>Create a fresh MNO store, or add this new raw source into an existing MNO store.</small>
+                  </div>
+                  <div class="wizard-entry-lanes wizard-entry-lanes-secondary">
+                    <button id="btnWizardArchiveTargetNew" class="btn ghost wizard-lane active" type="button">Create New Store</button>
+                    <button id="btnWizardArchiveTargetExisting" class="btn ghost wizard-lane" type="button">Add To Existing Store</button>
+                  </div>
+                  <div id="wizardArchiveStorePanel" class="wizard-lane-panel">
+                    <label class="wizard-field-block">
+                      <span>Existing MNO stores</span>
+                      <select id="wizardArchiveStoreSelect" class="input" aria-label="Choose existing MNO store for append"></select>
+                    </label>
+                    <div class="wizard-inline-actions wizard-inline-actions-tight">
+                      <button id="btnWizardRefreshSourcesArchive" class="btn ghost" type="button">Refresh Stores</button>
+                    </div>
+                    <div id="wizardArchiveStoreSummary" class="wizard-card-result" role="status" aria-live="polite">Pick an existing store if you want this raw source added into it.</div>
+                  </div>
+                  <details class="wizard-advanced wizard-advanced-import-path">
+                    <summary>Advanced: paste one local path</summary>
+                    <label class="wizard-field-block">
+                      <span>Manual source path</span>
+                      <small>Fallback only. The normal path is Add Files or Add Folder.</small>
+                    </label>
+                    <div class="wizard-inline-actions wizard-inline-actions-tight">
+                      <input id="wizardArchivePathInline" class="input wizard-source-path-input" type="text" aria-label="Manual source path" placeholder="/absolute/path/to/file-or-folder" />
+                      <button id="btnWizardArchivePathInline" class="btn ghost" type="button">Use Path</button>
+                    </div>
+                  </details>
+                  <div id="wizardArchiveSummary" class="wizard-card-result" role="status" aria-live="polite">No source input selected yet.</div>
                 </div>
                 <div id="wizardStorePanel" class="wizard-lane-panel">
                   <label class="wizard-field-block">
@@ -91,354 +179,1072 @@
                   <div class="wizard-inline-actions wizard-inline-actions-tight">
                     <button id="btnWizardRefreshSources" class="btn ghost" type="button">Refresh Stores</button>
                   </div>
-                  <div id="wizardStoreSummary" class="wizard-card-result">Pick an existing store if the memory data is already in MNO format.</div>
+                  <div id="wizardStoreSummary" class="wizard-card-result" role="status" aria-live="polite">Pick an existing store if the memory data is already in MNO format.</div>
                 </div>
                 <div class="wizard-inline-actions">
                   <button id="btnWizardValidate" class="btn ghost" type="button">Check File</button>
                   <button id="btnWizardImport" class="btn ghost" type="button">Create MNO Store</button>
                 </div>
-                <div id="wizardImportResult" class="wizard-card-result">This area explains what the file is, whether it is safe to use, and what the import created.</div>
+                <div id="wizardImportResult" class="wizard-card-result" role="status" aria-live="polite">This area explains what the file is, whether it is safe to use, and what the import created.</div>
               </article>
-              <article class="wizard-card">
+
+              <!-- Step 2: Build Episodes -->
+              <article class="wizard-card" data-wizard-step="1">
                 <div class="wizard-card-head">
-                  <h3>Build Episodes</h3>
+                  <div class="wizard-card-title-group">
+                    <h3>Build Episodes</h3>
+                  </div>
                   <span class="wizard-step">Step 2</span>
                 </div>
-                <p class="wizard-card-copy">Turn the selected memory store into draft episode cards you can review. Builder curation stays optional and tucked into advanced controls.</p>
-                <label class="wizard-field-block wizard-inline-help">
-                  <span>Build style</span>
-                  <small>Strict keeps only the strongest candidates. Balanced keeps more. Memory assist is the loosest.</small>
-                </label>
+                <p class="wizard-card-copy">Turn the selected memory store into draft episode cards you can review.</p>
+                <div class="wizard-field-block wizard-inline-help wizard-control-block">
+                  <div class="wizard-label-row wizard-control-head">
+                    <span>Build style</span>
+                    <button id="btnWizardBuildPolicyInfo" class="btn ghost wizard-inline-info" type="button">More Info</button>
+                  </div>
+                  <small>Choose how picky MNO should be when turning memories into draft episodes.</small>
+                </div>
                 <select id="wizardBuildPolicy" class="input" aria-label="Episode build policy">
                   <option value="strict">strict (recommended)</option>
                   <option value="balanced">balanced</option>
                   <option value="assist">memory assist</option>
                 </select>
+                <dialog id="wizardBuildPolicyDialog" class="wizard-dialog" aria-labelledby="wizardBuildPolicyDialogTitle">
+                  <div class="wizard-dialog-shell">
+                    <div class="wizard-dialog-head">
+                      <div>
+                        <p class="wizard-dialog-kicker">Build Style Guide</p>
+                        <h4 id="wizardBuildPolicyDialogTitle">How strict should episode building be?</h4>
+                      </div>
+                      <button id="btnWizardBuildPolicyClose" class="btn ghost wizard-dialog-close" type="button" aria-label="Close build style guide">Close</button>
+                    </div>
+                    <p class="wizard-dialog-copy">
+                      This setting only affects how draft episode cards are created. It does not change live chat behavior later.
+                    </p>
+                    <div class="wizard-policy-grid">
+                      <section class="wizard-policy-card strict">
+                        <div class="wizard-policy-topline">
+                          <strong>Strict</strong>
+                          <span class="wizard-policy-badge">cleanest draft</span>
+                        </div>
+                        <p>Use this when you want fewer cards and less junk. MNO only keeps the strongest, clearest episode candidates.</p>
+                        <ul class="wizard-policy-list">
+                          <li>Best for noisy exports or when review time matters.</li>
+                          <li>More likely to miss weak or fragmented memories.</li>
+                          <li>Good if you want the review queue as small and clean as possible.</li>
+                        </ul>
+                        <p class="wizard-policy-example"><strong>Example:</strong> “This export is messy. Only show me solid episodes worth keeping.”</p>
+                      </section>
+                      <section class="wizard-policy-card balanced">
+                        <div class="wizard-policy-topline">
+                          <strong>Balanced</strong>
+                          <span class="wizard-policy-badge">normal default</span>
+                        </div>
+                        <p>Use this for most real imports. It keeps a healthy middle ground between recall and cleanup work.</p>
+                        <ul class="wizard-policy-list">
+                          <li>Good default for a normal personal archive.</li>
+                          <li>Keeps more valid memories than strict without opening the floodgates.</li>
+                          <li>Usually the best first pass if you are unsure.</li>
+                        </ul>
+                        <p class="wizard-policy-example"><strong>Example:</strong> “Give me a solid review draft without drowning me in weak cards.”</p>
+                      </section>
+                      <section class="wizard-policy-card assist">
+                        <div class="wizard-policy-topline">
+                          <strong>Memory Assist</strong>
+                          <span class="wizard-policy-badge">highest recall</span>
+                        </div>
+                        <p>Use this when you care more about not missing memories than keeping the review queue small.</p>
+                        <ul class="wizard-policy-list">
+                          <li>Best for sparse, fragmented, or lightly detailed exports.</li>
+                          <li>Creates more draft cards, including weaker candidates.</li>
+                          <li>Expect more review cleanup afterward.</li>
+                        </ul>
+                        <p class="wizard-policy-example"><strong>Example:</strong> “Pull in more maybe-useful memories. I’d rather review extra cards than miss something.”</p>
+                      </section>
+                    </div>
+                    <div class="wizard-dialog-note">
+                      <strong>Simple rule:</strong> start with <code>balanced</code>. Move to <code>strict</code> if the draft is too noisy. Move to <code>memory assist</code> if the draft is too thin.
+                    </div>
+                  </div>
+                </dialog>
                 <div class="wizard-inline-actions">
-                  <button id="btnWizardBuild" class="btn ghost" type="button">Make Review Draft</button>
+                  <button id="btnWizardBuild" class="btn ghost wizard-primary-action" type="button">Build Review Draft</button>
                 </div>
-                <div id="wizardBuildResult" class="wizard-card-result">This area shows how many draft cards were created and where the draft lives.</div>
+                <div id="wizardBuildResult" class="wizard-card-result" role="status" aria-live="polite">Build a draft to see how many cards were created and what to do next.</div>
                 <details class="wizard-advanced">
                   <summary>Advanced builder curation</summary>
                   <div class="wizard-advanced-grid">
                     <input id="builderProfileName" class="input" type="text" placeholder="Profile name" aria-label="Builder profile name" />
                     <textarea id="builderEntityInclude" class="input" rows="2" placeholder="Entity include (comma-separated)" aria-label="Entity include"></textarea>
                     <textarea id="builderEntityExclude" class="input" rows="2" placeholder="Entity exclude (comma-separated)" aria-label="Entity exclude"></textarea>
-                    <textarea id="builderEntityAliases" class="input" rows="2" placeholder="Entity aliases (alias>canonical, comma-separated)" aria-label="Entity aliases"></textarea>
+                    <textarea id="builderEntityAliases" class="input" rows="2" placeholder="Entity aliases (alias>canonical)" aria-label="Entity aliases"></textarea>
                     <textarea id="builderCueInclude" class="input" rows="2" placeholder="Cue include (comma-separated)" aria-label="Cue include"></textarea>
                     <textarea id="builderCueExclude" class="input" rows="2" placeholder="Cue exclude (comma-separated)" aria-label="Cue exclude"></textarea>
-                    <textarea id="builderDomainInclude" class="input" rows="2" placeholder="Domain include patterns (comma-separated)" aria-label="Domain include patterns"></textarea>
-                    <textarea id="builderDomainExclude" class="input" rows="2" placeholder="Domain exclude patterns (comma-separated)" aria-label="Domain exclude patterns"></textarea>
+                    <textarea id="builderDomainInclude" class="input" rows="2" placeholder="Domain include patterns" aria-label="Domain include patterns"></textarea>
+                    <textarea id="builderDomainExclude" class="input" rows="2" placeholder="Domain exclude patterns" aria-label="Domain exclude patterns"></textarea>
                   </div>
                   <div class="wizard-inline-actions">
-                    <button id="btnBuilderSave" class="btn ghost" type="button" aria-label="Save builder profile">Save Profile</button>
-                    <button id="btnBuilderRebuild" class="btn ghost" type="button" aria-label="Rebuild episodes with builder profile">Rebuild Episodes</button>
+                    <button id="btnBuilderSave" class="btn ghost" type="button">Save Profile</button>
+                    <button id="btnBuilderRebuild" class="btn ghost" type="button">Rebuild Episodes</button>
                   </div>
-                  <div id="wizardBuilderResult" class="wizard-card-result">Saved profile and rebuild status appear here.</div>
+                  <div id="wizardBuilderResult" class="wizard-card-result" role="status" aria-live="polite">Saved profile and rebuild status appear here.</div>
                 </details>
               </article>
-              <article class="wizard-card">
+
+              <!-- Step 3: Review -->
+              <article class="wizard-card" data-wizard-step="2">
                 <div class="wizard-card-head">
-                  <h3>Review</h3>
+                  <div class="wizard-card-title-group">
+                    <h3>Review</h3>
+                    <button class="btn ghost wizard-inline-info" type="button" data-dialog-open="wizardReviewDialog">More Info</button>
+                  </div>
                   <span class="wizard-step">Step 3</span>
                 </div>
-                <p class="wizard-card-copy">Every draft card must be approved, edited, or rejected before publish. Nothing is silently auto-approved.</p>
-                <div class="wizard-review-controls">
-                  <input id="wizardReviewSearch" class="input" type="search" placeholder="Search draft cards" aria-label="Search draft cards" />
-                  <select id="wizardReviewStatus" class="input" aria-label="Filter review decision status">
-                    <option value="all">all decisions</option>
-                    <option value="pending">pending</option>
-                    <option value="approved">approved</option>
-                    <option value="edited">edited</option>
-                    <option value="rejected">rejected</option>
-                  </select>
-                  <select id="wizardReviewPageSize" class="input" aria-label="Draft cards per page">
-                    <option value="12">12 per page</option>
-                    <option value="24">24 per page</option>
-                    <option value="48">48 per page</option>
-                  </select>
-                  <button id="btnWizardReviewRefresh" class="btn ghost" type="button">Refresh Drafts</button>
+                <dialog id="wizardReviewDialog" class="wizard-dialog" data-inline-dialog="true" aria-labelledby="wizardReviewDialogTitle">
+                  <div class="wizard-dialog-shell">
+                    <div class="wizard-dialog-head">
+                      <div>
+                        <p class="wizard-dialog-kicker">Step 3 Guide</p>
+                        <h4 id="wizardReviewDialogTitle">Review: decide what survives into the published memory set</h4>
+                      </div>
+                      <button class="btn ghost wizard-dialog-close" type="button" data-dialog-close="wizardReviewDialog">Close</button>
+                    </div>
+                    <p class="wizard-dialog-copy">Review is where you clean up the draft. Every card must end in one of three states: approve, edit, or reject.</p>
+                    <div class="wizard-review-guide-grid">
+                      <section class="wizard-example-card">
+                        <p class="wizard-dialog-kicker">Made-up example card</p>
+                        <div class="wizard-example-title">Weekend garage cleanup</div>
+                        <div class="wizard-example-summary">The draft card says the cleanup is scheduled, but it forgot that the paint cans still need a safe drop-off plan.</div>
+                        <div class="wizard-example-meta">actors: you, neighbor | topics: home, errands</div>
+                      </section>
+                      <section class="wizard-policy-card balanced">
+                        <div class="wizard-policy-topline">
+                          <strong>How to decide</strong>
+                          <span class="wizard-policy-badge">review flow</span>
+                        </div>
+                        <ul class="wizard-policy-list">
+                          <li><strong>Approve As-Is</strong> when the title, summary, and tags are already right.</li>
+                          <li><strong>Quick Edit</strong> when the card is basically good but needs a title cleanup, better summary, or cleaner tags.</li>
+                          <li><strong>Reject</strong> when the card is junk, misleading, duplicate, or not worth keeping.</li>
+                        </ul>
+                        <p class="wizard-policy-example"><strong>Example edit:</strong> keep the card, but add the missing drop-off detail because it changes what you need to remember later.</p>
+                      </section>
+                    </div>
+                    <div class="wizard-dialog-note">
+                      <strong>What moves you forward:</strong> once every draft card has an explicit decision, Review is done, the rail turns green, and <code>Publish</code> becomes the next active step.
+                    </div>
+                  </div>
+                </dialog>
+                <div class="wizard-review-workspace">
+                  <section class="wizard-review-main">
+                    <div class="wizard-review-cockpit">
+                      <div class="wizard-review-intro-copy">
+                        <p class="wizard-card-copy">Every draft card must be approved, edited, or rejected before publish.</p>
+                        <p class="wizard-review-intro-note">Use the card grid for fast decisions. Quick Edit is for cleanup, not for hunting through giant forms.</p>
+                      </div>
+                      <div id="wizardReviewMeta" class="wizard-card-result wizard-review-hero" role="status" aria-live="polite" tabindex="-1">Review progress appears here after a draft exists.</div>
+                    </div>
+                    <div class="wizard-review-controls-shell">
+                      <div class="wizard-review-controls">
+                        <input id="wizardReviewSearch" class="input" type="search" placeholder="Search draft cards" aria-label="Search draft cards" />
+                        <select id="wizardReviewStatus" class="input" aria-label="Filter review status">
+                          <option value="all">all decisions</option>
+                          <option value="pending">pending</option>
+                          <option value="approved">approved</option>
+                          <option value="edited">edited</option>
+                          <option value="rejected">rejected</option>
+                        </select>
+                        <div class="wizard-review-filter-anchor">
+                          <button id="btnWizardReviewFacetToggle" class="btn ghost" type="button" aria-expanded="false" aria-controls="wizardReviewFacetMenu">Filter</button>
+                          <div id="wizardReviewFacetMenu" class="wizard-review-filter-menu" hidden>
+                            <div class="wizard-review-filter-head">
+                              <div>
+                                <strong>Filter draft cards</strong>
+                                <p>Narrow the list by actors and topics.</p>
+                              </div>
+                              <button id="btnWizardReviewFacetClear" class="btn ghost wizard-inline-info" type="button">Clear</button>
+                            </div>
+                            <div id="wizardReviewActiveFilters" class="wizard-review-filter-active">No actor or topic filters are active.</div>
+                            <details class="wizard-review-filter-group">
+                              <summary id="wizardReviewActorSummary">Actors (0)</summary>
+                              <div id="wizardReviewActorFilters" class="wizard-review-filter-options"></div>
+                            </details>
+                            <details class="wizard-review-filter-group">
+                              <summary id="wizardReviewTopicSummary">Topics (0)</summary>
+                              <div id="wizardReviewTopicFilters" class="wizard-review-filter-options"></div>
+                            </details>
+                          </div>
+                        </div>
+                        <select id="wizardReviewPageSize" class="input" aria-label="Cards per page">
+                          <option value="3">3 per page</option>
+                          <option value="6" selected>6 per page</option>
+                        </select>
+                        <button id="btnWizardReviewRefresh" class="btn ghost" type="button">Refresh</button>
+                      </div>
+                    </div>
+                    <div id="wizardReviewList" class="wizard-review-list"></div>
+                    <div class="wizard-review-footer">
+                      <div id="wizardReviewResult" class="wizard-review-footer-status" role="status" aria-live="polite">Pick a card and decide: Approve, Quick Edit, or Reject.</div>
+                      <div class="wizard-review-footer-actions">
+                        <button id="btnWizardReviewApprovePage" class="btn ghost wizard-review-footer-btn" type="button">Approve Page</button>
+                        <button id="btnWizardReviewApproveAll" class="btn ghost wizard-review-footer-btn" type="button">Approve Remaining</button>
+                        <span class="wizard-review-footer-sep" aria-hidden="true"></span>
+                        <button id="btnWizardReviewPrev" class="btn ghost" type="button">Prev</button>
+                        <div id="wizardReviewPager" class="wizard-page-pill">Page 1 of 1</div>
+                        <button id="btnWizardReviewNext" class="btn ghost" type="button">Next</button>
+                      </div>
+                    </div>
+                  </section>
+                  <aside class="wizard-review-side">
+                    <details id="wizardDraftCurationPanel" class="wizard-advanced wizard-draft-curation" open>
+                      <summary>Optional: let an assistant/agent help curate this draft</summary>
+                      <div class="wizard-draft-curation-shell">
+                        <div class="wizard-draft-curation-head">
+                          <div class="wizard-draft-curation-copy">
+                            <p class="wizard-card-copy">An assistant or agent can review draft cards and suggest cleaner labels, summaries, tags, and ranking hints before you publish anything.</p>
+                            <p class="wizard-review-intro-note">This lane is draft-only. The assistant or agent cannot publish, verify, activate, or silently overwrite your real review decisions.</p>
+                          </div>
+                          <div class="wizard-inline-actions wizard-inline-actions-tight">
+                            <button class="btn ghost wizard-inline-info" type="button" data-dialog-open="wizardDraftCurationDialog">More Info</button>
+                            <button id="btnWizardDraftCurationOpenWorkspace" class="btn wizard-primary-action" type="button">Open Assistant/Agent Workspace</button>
+                          </div>
+                        </div>
+                        <dialog id="wizardDraftCurationDialog" class="wizard-dialog" data-inline-dialog="true" aria-labelledby="wizardDraftCurationDialogTitle">
+                          <div class="wizard-dialog-shell">
+                            <div class="wizard-dialog-head">
+                              <div>
+                                <p class="wizard-dialog-kicker">Optional Draft Curation</p>
+                                <h4 id="wizardDraftCurationDialogTitle">Let an assistant or agent shape the draft before you publish it</h4>
+                              </div>
+                              <button class="btn ghost wizard-dialog-close" type="button" data-dialog-close="wizardDraftCurationDialog">Close</button>
+                            </div>
+                            <p class="wizard-dialog-copy">This is a draft-only lane. An assistant or agent can inspect bounded local context, propose cleaner cards, and suggest ranking hints. You still decide what gets promoted into the real review path.</p>
+                            <div class="wizard-policy-grid wizard-info-grid">
+                              <section class="wizard-policy-card balanced">
+                                <div class="wizard-policy-topline">
+                                  <strong>What an assistant or agent can do</strong>
+                                  <span class="wizard-policy-badge">safe suggestions</span>
+                                </div>
+                                <ul class="wizard-policy-list">
+                                  <li>Read draft cards and bounded local transcript context.</li>
+                                  <li>Suggest title, summary, actor, topic, and retrieval-cue improvements.</li>
+                                  <li>Suggest keep/reject or ranking hints with rationale.</li>
+                                </ul>
+                              </section>
+                              <section class="wizard-policy-card strict">
+                                <div class="wizard-policy-topline">
+                                  <strong>What an assistant or agent cannot do</strong>
+                                  <span class="wizard-policy-badge">hard boundary</span>
+                                </div>
+                                <ul class="wizard-policy-list">
+                                  <li>Cannot publish, verify, activate, or install MCP from here.</li>
+                                  <li>Cannot create new cards or rewrite episode boundaries.</li>
+                                  <li>Cannot overwrite human review decisions unless you explicitly promote a suggestion.</li>
+                                </ul>
+                              </section>
+                            </div>
+                            <div class="wizard-dialog-note">
+                              <strong>Simple rule:</strong> if you want an assistant or agent involved, let it suggest first, then either <code>Dismiss</code> the bad suggestions or <code>Use In Review</code> the ones you trust.
+                            </div>
+                          </div>
+                        </dialog>
+                        <div class="wizard-draft-curation-overview">
+                          <div id="wizardDraftCurationStatus" class="wizard-card-result" role="status" aria-live="polite">Assistant/agent draft curation is optional. If a curation session starts, its lease and proposal counts appear here.</div>
+                          <div id="wizardDraftCurationResult" class="wizard-card-result" role="status" aria-live="polite">Use this lane only if you want an assistant or agent to shape the draft before you continue normal review.</div>
+                        </div>
+                        <section class="wizard-draft-curation-launchpad">
+                          <div class="wizard-draft-curation-launch-copy">
+                            <p class="wizard-card-copy">Open Assistant/Agent Workspace when you want the full model-assist flow.</p>
+                            <p class="wizard-review-intro-note">That workspace handles assistant/agent setup, lease controls, and the suggestion queue without crowding the human review screen.</p>
+                          </div>
+                          <div class="wizard-draft-curation-launch-note">Closing the workspace never loses assistant/agent suggestions. The queue stays draft-only until you explicitly promote something into real review.</div>
+                        </section>
+                      </div>
+                    </details>
+                  </aside>
                 </div>
-                <div id="wizardReviewMeta" class="wizard-card-result">Draft review progress appears here.</div>
-                <div id="wizardReviewList" class="wizard-review-list"></div>
-                <div class="wizard-inline-actions wizard-review-pagination">
-                  <button id="btnWizardReviewPrev" class="btn ghost" type="button">Previous Page</button>
-                  <div id="wizardReviewPager" class="wizard-page-pill">Page 1 of 1</div>
-                  <button id="btnWizardReviewNext" class="btn ghost" type="button">Next Page</button>
-                </div>
-                <div id="wizardReviewResult" class="wizard-card-result">Approve as-is, quick-edit and approve, or reject. You can always refresh after a change.</div>
+                <dialog id="wizardReviewEditorDialog" class="wizard-dialog wizard-review-edit-dialog" aria-labelledby="wizardReviewEditorDialogTitle">
+                  <div class="wizard-dialog-shell wizard-review-modal-shell">
+                    <div class="wizard-dialog-head wizard-review-modal-head">
+                      <div>
+                        <p class="wizard-dialog-kicker">Card Review</p>
+                        <h4 id="wizardReviewEditorDialogTitle">Review one card at a time</h4>
+                        <p id="wizardReviewEditorLead" class="wizard-dialog-copy">Use the arrows to move through the filtered list. Moving between cards saves your edits automatically.</p>
+                      </div>
+                      <button id="btnWizardReviewEditorClose" class="btn ghost wizard-dialog-close" type="button" aria-label="Close review editor">Close</button>
+                    </div>
+                    <div class="wizard-review-modal-nav">
+                      <button id="btnWizardReviewEditorPrev" class="btn ghost wizard-review-modal-arrow" type="button">← Previous</button>
+                      <div id="wizardReviewEditorMeta" class="wizard-review-modal-meta" role="status" aria-live="polite">Open a card to review it here.</div>
+                      <button id="btnWizardReviewEditorNext" class="btn ghost wizard-review-modal-arrow" type="button">Next →</button>
+                    </div>
+                    <div class="wizard-review-modal-frame">
+                      <div class="wizard-review-modal-card">
+                        <div class="wizard-review-modal-topline">
+                          <strong id="wizardReviewEditorEpisodeId">episode</strong>
+                          <span id="wizardReviewEditorDecision">Needs review</span>
+                        </div>
+                        <label class="wizard-review-field">
+                          <span>Memory label</span>
+                          <input id="wizardReviewEditorTitle" class="input" type="text" />
+                        </label>
+                        <label class="wizard-review-field">
+                          <span>What this memory is about</span>
+                          <textarea id="wizardReviewEditorSummary" class="input wizard-review-modal-summary"></textarea>
+                        </label>
+                        <label class="wizard-review-field">
+                          <span>Truth family ID</span>
+                          <input id="wizardReviewEditorTruthFamilyId" class="input" type="text" placeholder="Optional family id for corrected versions" />
+                        </label>
+                        <label class="wizard-review-field">
+                          <span>Supersedes episode ID</span>
+                          <input id="wizardReviewEditorSupersedesEpisodeId" class="input" type="text" placeholder="Optional older reviewed episode id" />
+                        </label>
+                        <div class="wizard-review-field">
+                          <span>Actors</span>
+                          <div class="wizard-review-picker-anchor">
+                            <button id="btnWizardReviewEditorActorsToggle" class="btn ghost wizard-review-picker-trigger" type="button" aria-expanded="false" aria-controls="wizardReviewEditorActorsMenu">Choose actors</button>
+                            <div id="wizardReviewEditorActorsMenu" class="wizard-review-picker-menu" hidden>
+                              <div class="wizard-review-picker-head">
+                                <strong>Actors</strong>
+                                <button id="btnWizardReviewEditorActorsCustomToggle" class="btn ghost wizard-inline-info" type="button">Custom</button>
+                              </div>
+                              <div id="wizardReviewEditorActorsOptions" class="wizard-review-picker-options"></div>
+                              <div id="wizardReviewEditorActorsCustomBox" class="wizard-review-picker-custom" hidden>
+                                <input id="wizardReviewEditorActorsCustomInput" class="input" type="text" placeholder="Add a custom actor" />
+                                <button id="btnWizardReviewEditorActorsCustomAdd" class="btn ghost" type="button">Add</button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="wizard-review-field">
+                          <span>Topic tags</span>
+                          <div class="wizard-review-picker-anchor">
+                            <button id="btnWizardReviewEditorTopicsToggle" class="btn ghost wizard-review-picker-trigger" type="button" aria-expanded="false" aria-controls="wizardReviewEditorTopicsMenu">Choose topics</button>
+                            <div id="wizardReviewEditorTopicsMenu" class="wizard-review-picker-menu" hidden>
+                              <div class="wizard-review-picker-head">
+                                <strong>Topic tags</strong>
+                                <button id="btnWizardReviewEditorTopicsCustomToggle" class="btn ghost wizard-inline-info" type="button">Custom</button>
+                              </div>
+                              <div id="wizardReviewEditorTopicsOptions" class="wizard-review-picker-options"></div>
+                              <div id="wizardReviewEditorTopicsCustomBox" class="wizard-review-picker-custom" hidden>
+                                <input id="wizardReviewEditorTopicsCustomInput" class="input" type="text" placeholder="Add a custom topic" />
+                                <button id="btnWizardReviewEditorTopicsCustomAdd" class="btn ghost" type="button">Add</button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="wizard-review-modal-note">Moving to the next, previous, or close action saves your changes automatically as an edited review decision.</div>
+                      </div>
+                    </div>
+                    <div class="wizard-review-modal-actions">
+                      <button id="btnWizardReviewEditorApprove" class="btn wizard-primary-action" type="button">Approve and Close</button>
+                      <button id="btnWizardReviewEditorReject" class="btn danger" type="button">Reject</button>
+                    </div>
+                    <div id="wizardReviewEditorResult" class="wizard-card-result" role="status" aria-live="polite">Quick Edit now opens here so the full card is visible while you work.</div>
+                  </div>
+                </dialog>
+                <dialog id="wizardDraftCurationProposalDialog" class="wizard-dialog wizard-draft-proposal-dialog" aria-labelledby="wizardDraftCurationProposalDialogTitle">
+                  <div class="wizard-dialog-shell wizard-draft-proposal-shell">
+                    <div class="wizard-draft-proposal-topbar">
+                      <button id="btnWizardDraftCurationProposalPrev" class="btn wizard-draft-proposal-nav-btn" type="button">← Prev</button>
+                      <div id="wizardDraftCurationProposalMeta" class="wizard-draft-proposal-meta-bar" role="status" aria-live="polite">Pick a suggestion to inspect</div>
+                      <button id="btnWizardDraftCurationProposalNext" class="btn wizard-draft-proposal-nav-btn" type="button">Next →</button>
+                      <button id="btnWizardDraftCurationProposalClose" class="btn ghost wizard-draft-proposal-close-btn" type="button">✕</button>
+                    </div>
+                    <div class="wizard-draft-proposal-diff" id="wizardDraftCurationDiffView">
+                      <div class="wizard-draft-proposal-compare">
+                        <section class="wizard-draft-proposal-card">
+                          <p class="wizard-dialog-kicker">Current draft card</p>
+                          <div id="wizardDraftCurationCurrentCard" class="wizard-draft-proposal-body"></div>
+                        </section>
+                        <section class="wizard-draft-proposal-card wizard-draft-proposal-card-new">
+                          <p class="wizard-dialog-kicker">Assistant/agent suggestion</p>
+                          <div id="wizardDraftCurationSuggestedCard" class="wizard-draft-proposal-body"></div>
+                        </section>
+                      </div>
+                    </div>
+                    <div id="wizardDraftCurationContext" class="wizard-draft-proposal-context-view" hidden>Bounded local context appears here when available.</div>
+                    <button id="btnWizardDraftCurationToggleView" class="btn ghost wizard-draft-proposal-view-toggle" type="button">Show Transcript &amp; Neighbors</button>
+                    <div class="wizard-draft-proposal-actions">
+                      <button id="btnWizardDraftCurationReject" class="btn danger wizard-draft-proposal-action-btn" type="button">Dismiss Assistant/Agent Suggestion</button>
+                      <button id="btnWizardDraftCurationPromote" class="btn wizard-primary-action wizard-draft-proposal-action-btn" type="button">Use This In Review</button>
+                    </div>
+                    <div id="wizardDraftCurationProposalResult" class="wizard-draft-proposal-status-line" role="status" aria-live="polite">Assistant/agent suggestions stay separate until you use one in Review.</div>
+                  </div>
+                </dialog>
+                <dialog id="wizardDraftCurationWorkspaceDialog" class="wizard-dialog wizard-draft-curation-workspace-dialog" data-inline-dialog="true" aria-labelledby="wizardDraftCurationWorkspaceDialogTitle">
+                  <div class="wizard-dialog-shell wizard-draft-curation-workspace-shell">
+                    <div class="wizard-dialog-head wizard-draft-curation-workspace-head">
+                      <div>
+                        <p class="wizard-dialog-kicker">Assistant/Agent Draft Control Room</p>
+                        <h4 id="wizardDraftCurationWorkspaceDialogTitle">Shape the draft in a separate workspace, then return to Review</h4>
+                        <p class="wizard-dialog-copy">This is the model-assist annex for big runs. Connect an assistant or agent, watch the lease, triage suggestions, and close the workspace when you are ready to continue human review.</p>
+                      </div>
+                      <div class="wizard-inline-actions wizard-inline-actions-tight wizard-draft-curation-workspace-actions">
+                        <button class="btn ghost wizard-dialog-close" type="button" data-dialog-close="wizardDraftCurationWorkspaceDialog">Close</button>
+                      </div>
+                    </div>
+                    <div class="wizard-draft-curation-workspace-topbar">
+                      <div class="wizard-draft-curation-connector-box">
+                        <div id="wizardDraftCurationWorkspaceMcpSummary" class="wizard-draft-curation-signal wizard-draft-curation-signal-info" role="status" aria-live="polite">Assistant/agent connector status appears here after build.</div>
+                        <button id="btnWizardDraftCurationSidebarRestore" class="btn ghost wizard-draft-curation-setup-toggle" type="button">Show Setup</button>
+                      </div>
+                      <div class="wizard-run-banner wizard-draft-curation-run-banner">
+                        <div class="wizard-run-banner-copy">
+                          <span class="wizard-run-banner-label">Run ID for assistant/agent</span>
+                          <code id="wizardDraftCurationRunId" class="wizard-run-banner-value">No run open yet</code>
+                        </div>
+                        <button id="btnWizardDraftCurationCopyRunId" class="btn wizard-primary-action" type="button" disabled>Copy Run ID</button>
+                      </div>
+                      <div id="wizardDraftCurationWorkspaceStatus" class="wizard-draft-curation-signal wizard-draft-curation-signal-info" role="status" aria-live="polite">Assistant/agent draft curation status appears here while the workspace is open.</div>
+                    </div>
+                    <div id="wizardDraftCurationWorkspaceGrid" class="wizard-draft-curation-workspace-grid">
+                      <aside id="wizardDraftCurationWorkspaceRail" class="wizard-draft-curation-workspace-rail">
+                        <section class="wizard-draft-curation-connect">
+                          <p class="wizard-dialog-kicker">Setup Assistant/Agent Connector</p>
+                          <div class="wizard-draft-curation-connect-head">
+                            <div class="wizard-draft-curation-connect-actions">
+                              <p class="wizard-card-copy">Basic setup: choose a target and install or export it. Advanced controls stay local to the managed MCP lane.</p>
+                              <div class="wizard-draft-curation-connect-field-grid">
+                                <label class="wizard-inline-field" for="wizardDraftCurationMcpTarget">
+                                  <span>Target</span>
+                                  <select id="wizardDraftCurationMcpTarget" class="input">
+                                    <option value="claude_code" selected>Claude Code</option>
+                                    <option value="claude_desktop">Claude Desktop</option>
+                                    <option value="generic_mcp">Generic MCP client bundle</option>
+                                    <option value="generic_sidecar">Generic sidecar bundle</option>
+                                    <option value="openclaw">OpenClaw bundle</option>
+                                    <option value="hermes_agent">Hermes Agent bundle</option>
+                                    <option value="nanobot">Nanobot bundle</option>
+                                  </select>
+                                </label>
+                                <label class="wizard-inline-field" for="wizardDraftCurationMcpScope">
+                                  <span>Managed CLI scope</span>
+                                  <select id="wizardDraftCurationMcpScope" class="input">
+                                    <option value="local">local</option>
+                                    <option value="user" selected>user</option>
+                                    <option value="project">project</option>
+                                  </select>
+                                </label>
+                                <label class="wizard-inline-field" for="wizardDraftCurationMcpRole">
+                                  <span>Managed role</span>
+                                  <select id="wizardDraftCurationMcpRole" class="input">
+                                    <option value="viewer" selected>viewer</option>
+                                    <option value="operator">operator</option>
+                                    <option value="admin">admin</option>
+                                  </select>
+                                </label>
+                                <label class="wizard-inline-field wizard-inline-field-checkbox" for="wizardDraftCurationMcpMutations">
+                                  <span>Mutation tools</span>
+                                  <span class="wizard-inline-checkbox">
+                                    <input id="wizardDraftCurationMcpMutations" type="checkbox" checked />
+                                    <strong>Allow writes</strong>
+                                  </span>
+                                </label>
+                              </div>
+                              <div class="wizard-draft-curation-connect-button-row">
+                                <button id="btnWizardDraftCurationMcpApply" class="btn ghost" type="button">Save + Restart Managed MCP</button>
+                                <button id="btnWizardDraftCurationMcpRefresh" class="btn ghost" type="button">Refresh Assistant/Agent Setup</button>
+                                <button id="btnWizardDraftCurationMcpExport" class="btn ghost" type="button">Export Draft Setup Bundle</button>
+                              </div>
+                            </div>
+                          </div>
+                          <div id="wizardDraftCurationMcpStatus" class="wizard-card-result" role="status" aria-live="polite">Import and build a draft first. Then this panel can connect an assistant or agent to the draft-curation lane.</div>
+                          <details id="wizardDraftCurationTargets" class="wizard-draft-curation-targets">
+                            <summary>Install, repair, or export assistant/agent targets</summary>
+                            <div class="wizard-draft-curation-targets-shell">
+                              <div id="wizardDraftCurationMcpTargets" class="wizard-policy-grid wizard-activation-targets wizard-draft-curation-mcp-targets"></div>
+                            </div>
+                          </details>
+                        </section>
+                      </aside>
+                      <section class="wizard-draft-curation-queue-stage">
+                        <div class="wizard-draft-curation-queue-stage-head">
+                          <div>
+                            <p class="wizard-dialog-kicker">Suggestion Queue</p>
+                            <h5>Inspect assistant/agent proposals without leaving Review mode</h5>
+                          </div>
+                          <div class="wizard-draft-curation-queue-stage-actions">
+                            <button id="btnWizardDraftCurationRefresh" class="btn ghost" type="button">Refresh</button>
+                            <button id="btnWizardDraftCurationForceRelease" class="btn ghost" type="button">Release Lease</button>
+                          </div>
+                        </div>
+                        <div id="wizardDraftCurationQueue" class="wizard-draft-curation-queue wizard-draft-curation-queue-panel">
+                          <div class="wizard-draft-curation-queue-shell">
+                            <div class="wizard-draft-curation-queue-toolbar">
+                              <div class="wizard-draft-curation-controls wizard-draft-curation-controls-wide">
+                                <input id="wizardDraftCurationSearch" class="input" type="search" placeholder="Search assistant/agent suggestions" aria-label="Search assistant/agent draft curation suggestions" />
+                                <select id="wizardDraftCurationStatusFilter" class="input" aria-label="Filter assistant/agent suggestion status">
+                                  <option value="pending" selected>pending suggestions</option>
+                                  <option value="accepted">accepted</option>
+                                  <option value="rejected">rejected</option>
+                                  <option value="promoted">promoted</option>
+                                  <option value="stale">stale</option>
+                                  <option value="all">all proposals</option>
+                                </select>
+                                <select id="wizardDraftCurationPageSize" class="input" aria-label="assistant/agent suggestions per page">
+                                  <option value="6">6 per page</option>
+                                  <option value="10" selected>10 per page</option>
+                                  <option value="20">20 per page</option>
+                                  <option value="50">50 per page</option>
+                                </select>
+                              </div>
+                              <div class="wizard-draft-curation-pager">
+                                <button id="btnWizardDraftCurationPrev" class="btn ghost" type="button">Prev</button>
+                                <div id="wizardDraftCurationPager" class="wizard-page-pill">Page 1 of 1</div>
+                                <button id="btnWizardDraftCurationNext" class="btn ghost" type="button">Next</button>
+                              </div>
+                            </div>
+                            <div id="wizardDraftCurationList" class="wizard-draft-curation-list"></div>
+                          </div>
+                        </div>
+                        <div class="wizard-draft-curation-workspace-footer">
+                          <div class="wizard-draft-curation-workspace-footnote">Dismiss the bad ones. Use the good ones in Review.</div>
+                          <div class="wizard-inline-actions wizard-inline-actions-tight">
+                            <button id="btnWizardDraftCurationPromoteAll" class="btn wizard-primary-action" type="button">Use All Assistant/Agent Suggestions In Review</button>
+                            <button class="btn ghost" type="button" data-dialog-close="wizardDraftCurationWorkspaceDialog">Return To Review</button>
+                          </div>
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                </dialog>
               </article>
-              <article class="wizard-card">
+
+              <!-- Step 4: Publish -->
+              <article class="wizard-card" data-wizard-step="3">
                 <div class="wizard-card-head">
-                  <h3>Publish</h3>
+                  <div class="wizard-card-title-group">
+                    <h3>Publish</h3>
+                    <button class="btn ghost wizard-inline-info" type="button" data-dialog-open="wizardPublishDialog">More Info</button>
+                  </div>
                   <span class="wizard-step">Step 4</span>
                 </div>
-                <p class="wizard-card-copy">Publishing freezes one reviewed set against the current store fingerprint and build ID so later checks can trust it.</p>
+                <p class="wizard-card-copy">Publishing freezes one reviewed set against the current store fingerprint.</p>
+                <dialog id="wizardPublishDialog" class="wizard-dialog" data-inline-dialog="true" aria-labelledby="wizardPublishDialogTitle">
+                  <div class="wizard-dialog-shell">
+                    <div class="wizard-dialog-head">
+                      <div>
+                        <p class="wizard-dialog-kicker">Step 4 Guide</p>
+                        <h4 id="wizardPublishDialogTitle">Publish: freeze the reviewed set you actually trust</h4>
+                      </div>
+                      <button class="btn ghost wizard-dialog-close" type="button" data-dialog-close="wizardPublishDialog">Close</button>
+                    </div>
+                    <p class="wizard-dialog-copy">Publishing takes the reviewed cards and creates the frozen set the runtime should actually use. This is the “real” reviewed memory artifact.</p>
+                    <div class="wizard-policy-grid wizard-info-grid">
+                      <section class="wizard-policy-card balanced">
+                        <div class="wizard-policy-topline">
+                          <strong>What publish does</strong>
+                          <span class="wizard-policy-badge">freeze reviewed set</span>
+                        </div>
+                        <ul class="wizard-policy-list">
+                          <li>Compiles approved and edited cards into the reviewed set.</li>
+                          <li>Ties that set to the current store fingerprint and build.</li>
+                          <li>Keeps a restorable history so you can recover a last good copy.</li>
+                        </ul>
+                      </section>
+                      <section class="wizard-policy-card strict">
+                        <div class="wizard-policy-topline">
+                          <strong>When to republish</strong>
+                          <span class="wizard-policy-badge">only after changes</span>
+                        </div>
+                        <ul class="wizard-policy-list">
+                          <li>If you change review decisions, publish again.</li>
+                          <li>If the store changes enough to invalidate the reviewed set, rebuild and review again.</li>
+                          <li>Publish is the handoff into Verify.</li>
+                        </ul>
+                      </section>
+                    </div>
+                  </div>
+                </dialog>
+                <div id="wizardPublishSummary" class="wizard-card-result" role="status" aria-live="polite">Publish shows what will be frozen into the reviewed memory set.</div>
                 <div class="wizard-inline-actions">
-                  <button id="btnWizardPublish" class="btn ghost" type="button">Freeze Reviewed Set</button>
+                  <button id="btnWizardPublish" class="btn ghost wizard-primary-action" type="button">Publish Reviewed Memory Set</button>
                 </div>
-                <div id="wizardPublishResult" class="wizard-card-result">Current published set details appear here.</div>
-                <div id="wizardPublishedHistory" class="wizard-card-result">Published history and restore help appear here.</div>
+                <div id="wizardPublishResult" class="wizard-card-result" role="status" aria-live="polite">Publish results appear here.</div>
+                <div id="wizardPublishedHistory" class="wizard-card-result" role="status" aria-live="polite">Current published version and recovery history appear here.</div>
               </article>
-              <article class="wizard-card">
+
+              <!-- Step 5: Verify -->
+              <article class="wizard-card" data-wizard-step="4">
                 <div class="wizard-card-head">
-                  <h3>Verify</h3>
+                  <div class="wizard-card-title-group">
+                    <h3>Verify</h3>
+                    <button class="btn ghost wizard-inline-info" type="button" data-dialog-open="wizardVerifyDialog">More Info</button>
+                  </div>
                   <span class="wizard-step">Step 5</span>
                 </div>
                 <p class="wizard-card-copy">Only <strong>Safe</strong> counts as normal success. <strong>Needs attention</strong> means local follow-up. <strong>Blocked</strong> stops activation.</p>
+                <dialog id="wizardVerifyDialog" class="wizard-dialog" data-inline-dialog="true" aria-labelledby="wizardVerifyDialogTitle">
+                  <div class="wizard-dialog-shell">
+                    <div class="wizard-dialog-head">
+                      <div>
+                        <p class="wizard-dialog-kicker">Step 5 Guide</p>
+                        <h4 id="wizardVerifyDialogTitle">Verify: decide whether this memory system is actually ready</h4>
+                      </div>
+                      <button class="btn ghost wizard-dialog-close" type="button" data-dialog-close="wizardVerifyDialog">Close</button>
+                    </div>
+                    <p class="wizard-dialog-copy">Verify checks whether the store, reviewed set, and readiness state still line up. This is the last gate before normal activation.</p>
+                    <div class="wizard-policy-grid wizard-info-grid">
+                      <section class="wizard-policy-card balanced">
+                        <div class="wizard-policy-topline">
+                          <strong>Safe</strong>
+                          <span class="wizard-policy-badge">good to activate</span>
+                        </div>
+                        <p>The reviewed set exists, matches the right store/build, and nothing obvious is missing or broken.</p>
+                      </section>
+                      <section class="wizard-policy-card strict">
+                        <div class="wizard-policy-topline">
+                          <strong>Needs Attention</strong>
+                          <span class="wizard-policy-badge">fix locally first</span>
+                        </div>
+                        <p>The system is close, but something needs repair or a follow-up check before you should trust it.</p>
+                      </section>
+                      <section class="wizard-policy-card assist">
+                        <div class="wizard-policy-topline">
+                          <strong>Blocked</strong>
+                          <span class="wizard-policy-badge">stop here</span>
+                        </div>
+                        <p>A required artifact is missing, stale, or mismatched. Use the provided remap/reset actions before moving on.</p>
+                      </section>
+                    </div>
+                  </div>
+                </dialog>
                 <div class="wizard-inline-actions">
-                  <button id="btnWizardVerify" class="btn ghost" type="button">Check Readiness</button>
+                  <button id="btnWizardVerify" class="btn ghost wizard-primary-action" type="button">Check Readiness</button>
                 </div>
-                <div id="wizardVerifyResult" class="wizard-card-result">This area tells you if the set is safe, needs attention, or is blocked.</div>
-                <div id="wizardVerifyLinks" class="wizard-card-result">Helpful links to the exact place that needs attention appear here.</div>
+                <div id="wizardVerifyResult" class="wizard-card-result" role="status" aria-live="polite">This area tells you if the set is safe, needs attention, or is blocked.</div>
+                <div id="wizardVerifyLinks" class="wizard-card-result" role="status" aria-live="polite">Helpful links appear here.</div>
                 <input id="wizardRemapFile" class="wizard-file-input" type="file" aria-label="Pick replacement artifact" />
-                <div id="wizardRemapStatus" class="wizard-recovery-panel">Remap and reset actions appear here when the app detects missing artifacts.</div>
+                <div id="wizardRemapStatus" class="wizard-recovery-panel" role="status" aria-live="polite">Remap and reset actions appear here when the app detects missing artifacts.</div>
               </article>
-              <article class="wizard-card wizard-card-activate">
+
+              <!-- Step 6: Activate -->
+              <article class="wizard-card wizard-card-activate" data-wizard-step="5">
                 <div class="wizard-card-head">
-                  <h3>Activate</h3>
+                  <div class="wizard-card-title-group">
+                    <h3>Activate</h3>
+                    <button class="btn ghost wizard-inline-info" type="button" data-dialog-open="wizardActivateDialog">More Info</button>
+                  </div>
                   <span class="wizard-step">Step 6</span>
                 </div>
-                <p class="wizard-card-copy">Local runtime and MCP targets are managed from one place. Activation is reversible, and third-party MCP entries are never overwritten silently.</p>
-                <div class="wizard-inline-actions">
-                  <button id="btnWizardActivateRefresh" class="btn ghost" type="button">Check Activation Status</button>
-                  <button id="btnWizardGoLive" class="btn ghost" type="button">Start Local Runtime</button>
-                  <button id="btnWizardDirectCleanup" class="btn ghost" type="button">Fix Stale Local Lock</button>
-                </div>
-                <div id="wizardActivationStatus" class="wizard-activation-status"></div>
-                <div id="wizardMcpTargets" class="wizard-activation-targets"></div>
+                <p class="wizard-card-copy">Local runtime and MCP targets are managed from one place.</p>
+                <dialog id="wizardActivateDialog" class="wizard-dialog" data-inline-dialog="true" aria-labelledby="wizardActivateDialogTitle">
+                  <div class="wizard-dialog-shell">
+                    <div class="wizard-dialog-head">
+                      <div>
+                        <p class="wizard-dialog-kicker">Step 6 Guide</p>
+                        <h4 id="wizardActivateDialogTitle">Activate: start the real runtime and connect external clients</h4>
+                      </div>
+                      <button class="btn ghost wizard-dialog-close" type="button" data-dialog-close="wizardActivateDialog">Close</button>
+                    </div>
+                    <p class="wizard-dialog-copy">Activation is where MNO becomes live. In normal use, only a Safe verified set should be activated.</p>
+                    <div class="wizard-policy-grid wizard-info-grid">
+                      <section class="wizard-policy-card balanced">
+                        <div class="wizard-policy-topline">
+                          <strong>Start Local Runtime</strong>
+                          <span class="wizard-policy-badge">normal path</span>
+                        </div>
+                        <p>Starts the standalone MNO runtime with the published reviewed set and current store.</p>
+                      </section>
+                      <section class="wizard-policy-card strict">
+                        <div class="wizard-policy-topline">
+                          <strong>MCP Targets</strong>
+                          <span class="wizard-policy-badge">external clients</span>
+                        </div>
+                        <p>Use this area to export or install the MCP connector once the local runtime is healthy.</p>
+                      </section>
+                      <section class="wizard-policy-card assist">
+                        <div class="wizard-policy-topline">
+                          <strong>Developer Tools</strong>
+                          <span class="wizard-policy-badge">unsafe local only</span>
+                        </div>
+                        <p>Draft activation is only for local testing. It is intentionally separate because it does not count as normal success.</p>
+                      </section>
+                    </div>
+                  </div>
+                </dialog>
+                <section class="wizard-stage-zone">
+                  <div class="wizard-stage-zone-head">
+                    <div>
+                      <h4>Start memory runtime</h4>
+                      <p>Use the normal safe path first. Repair tools only appear when something is actually wrong.</p>
+                    </div>
+                    <div class="wizard-inline-actions wizard-inline-actions-tight">
+                      <button id="btnWizardActivateRefresh" class="btn ghost" type="button">Check Activation Status</button>
+                      <button id="btnWizardGoLive" class="btn ghost wizard-primary-action" type="button">Start Local Runtime</button>
+                      <button id="btnWizardDirectCleanup" class="btn ghost wizard-operator-action" type="button">Fix Stale Local Lock</button>
+                    </div>
+                  </div>
+                  <div id="wizardActivationStatus" class="wizard-activation-status"></div>
+                </section>
+                <section class="wizard-stage-zone">
+                  <div class="wizard-stage-zone-head">
+                    <div>
+                      <h4>Connect assistant/agent / MCP</h4>
+                      <p>Only do this after the local runtime is healthy and serving the right reviewed memory set.</p>
+                    </div>
+                    <div class="wizard-inline-actions wizard-inline-actions-tight">
+                      <button id="btnWizardExportMcp" class="btn ghost" type="button">Export Selected Setup Bundle</button>
+                    </div>
+                  </div>
+                  <p class="wizard-card-copy">Basic setup: choose a target and install or export it. Advanced controls stay local to the managed MCP lane.</p>
+                  <div class="wizard-inline-controls wizard-inline-controls-compact">
+                    <label class="wizard-inline-select">
+                      <span>Target</span>
+                      <select id="wizardMcpTarget" class="input">
+                        <option value="claude_code" selected>Claude Code</option>
+                        <option value="claude_desktop">Claude Desktop</option>
+                        <option value="generic_mcp">Generic MCP client bundle</option>
+                        <option value="generic_sidecar">Generic sidecar bundle</option>
+                        <option value="openclaw">OpenClaw bundle</option>
+                        <option value="hermes_agent">Hermes Agent bundle</option>
+                        <option value="nanobot">Nanobot bundle</option>
+                      </select>
+                    </label>
+                    <label class="wizard-inline-select">
+                      <span>Managed CLI scope</span>
+                      <select id="wizardMcpScope" class="input">
+                        <option value="user">User</option>
+                        <option value="local">Local</option>
+                        <option value="project">Project</option>
+                      </select>
+                    </label>
+                    <label class="wizard-inline-select">
+                      <span>Managed role</span>
+                      <select id="wizardMcpRole" class="input">
+                        <option value="viewer" selected>Viewer</option>
+                        <option value="operator">Operator</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </label>
+                    <label class="wizard-inline-field wizard-inline-field-checkbox" for="wizardMcpMutations">
+                      <span>Mutation tools</span>
+                      <span class="wizard-inline-checkbox">
+                        <input id="wizardMcpMutations" type="checkbox" />
+                        <strong>Allow writes</strong>
+                      </span>
+                    </label>
+                    <button id="btnWizardManagedMcpApply" class="btn ghost" type="button">Save + Restart Managed MCP</button>
+                  </div>
+                  <div id="wizardMcpTargets" class="wizard-activation-targets"></div>
+                </section>
                 <details id="wizardDeveloperTools" class="wizard-advanced wizard-danger-zone">
                   <summary>Developer tools (unsafe, local only)</summary>
-                  <p class="wizard-card-copy">Use this only for local draft testing. It never counts as normal success and it never becomes MCP-ready.</p>
+                  <p class="wizard-card-copy">Use this only for local draft testing. It never counts as normal success.</p>
                   <label class="wizard-toggle-row">
                     <input id="wizardDeveloperMode" type="checkbox" />
                     <span>Enable developer mode</span>
                   </label>
-                  <textarea id="wizardDraftReason" class="input" rows="3" placeholder="Why are you bypassing publish and the normal verification path for local draft activation?" aria-label="Draft activation reason"></textarea>
+                  <textarea id="wizardDraftReason" class="input" rows="3" placeholder="Why are you bypassing publish?" aria-label="Draft activation reason"></textarea>
                   <div class="wizard-inline-actions">
                     <button id="btnWizardDraftGoLive" class="btn danger" type="button">Run Unsafe Draft Locally</button>
                   </div>
                 </details>
-                <div class="wizard-inline-actions">
-                  <button id="btnWizardExportMcp" class="btn ghost" type="button">Prepare MCP Bundle</button>
-                </div>
-                <div id="wizardGoLiveResult" class="wizard-card-result">Activation results, rollback warnings, and MCP ownership messages appear here.</div>
+                <div id="wizardGoLiveResult" class="wizard-card-result" role="status" aria-live="polite">Activation results appear here.</div>
               </article>
-              <article class="wizard-card">
+
+              <!-- Step 7: Operate -->
+              <article class="wizard-card" data-wizard-step="6">
                 <div class="wizard-card-head">
-                  <h3>Operate</h3>
+                  <div class="wizard-card-title-group">
+                    <h3>Operate</h3>
+                    <button class="btn ghost wizard-inline-info" type="button" data-dialog-open="wizardOperateDialog">More Info</button>
+                  </div>
                   <span class="wizard-step">Step 7</span>
                 </div>
-                <p class="wizard-card-copy">When activation is green, use the runtime health and provider details here to confirm the system is serving the right store and reviewed set.</p>
-                <div id="wizardGoLiveConfig" class="wizard-card-result">Read-only runtime settings and provider details appear here.</div>
+                <p class="wizard-card-copy">When activation is green, confirm the system is serving the right store.</p>
+                <dialog id="wizardOperateDialog" class="wizard-dialog" data-inline-dialog="true" aria-labelledby="wizardOperateDialogTitle">
+                  <div class="wizard-dialog-shell">
+                    <div class="wizard-dialog-head">
+                      <div>
+                        <p class="wizard-dialog-kicker">Step 7 Guide</p>
+                        <h4 id="wizardOperateDialogTitle">Operate: use it, inspect it, and test it like a real system</h4>
+                      </div>
+                      <button class="btn ghost wizard-dialog-close" type="button" data-dialog-close="wizardOperateDialog">Close</button>
+                    </div>
+                    <p class="wizard-dialog-copy">Operate is where you confirm the live system is serving the right memory and behaving the way you expect.</p>
+                    <div class="wizard-policy-grid wizard-info-grid">
+                      <section class="wizard-policy-card balanced">
+                        <div class="wizard-policy-topline">
+                          <strong>In the app</strong>
+                          <span class="wizard-policy-badge">local operator view</span>
+                        </div>
+                        <ul class="wizard-policy-list">
+                          <li>Use Chat to feel the system live.</li>
+                          <li>Use Memory to inspect cards, graph context, and details.</li>
+                          <li>Confirm the runtime points at the expected store.</li>
+                        </ul>
+                      </section>
+                      <section class="wizard-policy-card assist">
+                        <div class="wizard-policy-topline">
+                          <strong>External testing</strong>
+                          <span class="wizard-policy-badge">assistant/agent / MCP</span>
+                        </div>
+                        <ul class="wizard-policy-list">
+                          <li>Install or export MCP only after activation is healthy.</li>
+                          <li>Run a small recall test before trusting the setup.</li>
+                          <li>If something feels wrong, come back to Verify instead of guessing.</li>
+                        </ul>
+                      </section>
+                    </div>
+                  </div>
+                </dialog>
+                <div id="wizardOperateState" class="wizard-card-result" role="status" aria-live="polite">When the runtime is live, this step will tell you if you are actually ready to use it.</div>
+                <div class="wizard-inline-actions">
+                  <button id="btnWizardOperateChat" class="btn ghost wizard-primary-action" type="button">Open Chat Test</button>
+                  <button id="btnWizardOperateMemory" class="btn ghost" type="button">Open Memory Check</button>
+                </div>
+                <div id="wizardGoLiveConfig" class="wizard-card-result" role="status" aria-live="polite">Live smoke-test steps and runtime details appear here.</div>
               </article>
             </div>
           </section>
-
-          <div class="session-shell">
-            <div class="session-head">
-              <h2>Threads</h2>
-              <button id="btnSessionRefresh" class="btn ghost" type="button">Reload</button>
-            </div>
-            <div class="session-controls">
-              <select id="sessionSelect" class="input" aria-label="Select thread"></select>
-              <input id="sessionLabel" class="input" type="text" maxlength="72" placeholder="New thread label" aria-label="New thread label" />
-              <button id="btnSessionStart" class="btn" type="button">Start Thread</button>
-            </div>
-            <div id="sessionMeta" class="session-meta">No active thread.</div>
-            <div class="route-legend" id="routeLegend">
-              <span class="route-chip route-none">no memory</span>
-              <span class="route-chip route-stm_only">stm only</span>
-              <span class="route-chip route-ltm_light">ltm light</span>
-              <span class="route-chip route-ltm_deep">ltm deep</span>
-            </div>
-            <details class="settings-panel">
-              <summary>Local settings</summary>
-              <div class="settings-grid">
-                <label>
-                  <span>Default high-risk</span>
-                  <input id="settingHighRiskDefault" type="checkbox" />
-                </label>
-                <label>
-                  <span>Retrieval override</span>
-                  <input id="settingRetrievalQuery" class="input" type="text" placeholder="Optional retrieval query" />
-                </label>
-                <label>
-                  <span>Memory preference</span>
-                  <select id="settingMemoryPreference" class="input">
-                    <option value="auto" selected>balanced (recommended)</option>
-                    <option value="chat_first">chat first (less recall)</option>
-                    <option value="memory_assist">memory assist (more recall)</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Auto refresh</span>
-                  <select id="settingAutoRefresh" class="input">
-                    <option value="0">off</option>
-                    <option value="5000">5s</option>
-                    <option value="15000">15s</option>
-                    <option value="30000">30s</option>
-                  </select>
-                </label>
-              </div>
-            </details>
-          </div>
-
-          <div class="chat-head">
-            <h2>Conversation</h2>
-            <button id="btnRefresh" class="btn ghost" type="button">Refresh</button>
-          </div>
-          <div id="chatLog" class="chat-log"></div>
-          <form id="chatForm" class="composer">
-            <textarea
-              id="chatInput"
-              class="input"
-              placeholder="Send a turn in the active thread"
-              rows="3"
-            ></textarea>
-            <div class="composer-actions">
-              <label class="toggle">
-                <input id="highRisk" type="checkbox" />
-                <span>High-risk mode</span>
-              </label>
-              <div class="composer-buttons">
-                <button id="btnRoutePreview" class="btn ghost" type="button">Preview Route</button>
-                <button id="btnContextPreview" class="btn ghost" type="button">Preview Context</button>
-                <button class="btn" type="submit">Send</button>
-              </div>
-            </div>
-            <div id="routePreview" class="route-preview empty" aria-live="polite">
-              Route preview is available before sending a turn.
-            </div>
-          </form>
         </section>
 
-        <aside class="trace-column">
-          <div class="trace-head">
-            <h2>Evidence Trace</h2>
-            <span id="traceHint">Select a turn</span>
-          </div>
-          <div id="tracePanel" class="trace-panel empty" aria-live="polite">
-            Run a chat turn to inspect claims, citations, and writeback status.
-          </div>
-          <section class="why-shell">
-            <div class="why-head">
-              <h3>Why This Answer?</h3>
-              <div class="why-actions">
-                <label class="toggle why-citations-toggle">
-                  <input id="whyShowCitations" type="checkbox" />
-                  <span>Show citations</span>
+        <!-- ══════════ CHAT TAB ══════════ -->
+        <section class="tab-pane" data-pane="chat">
+          <div class="chat-layout">
+            <div class="session-shell">
+              <div class="session-head">
+                <h2>Threads</h2>
+                <button id="btnSessionRefresh" class="btn ghost" type="button">Reload</button>
+              </div>
+              <div class="session-controls">
+                <select id="sessionSelect" class="input" aria-label="Select thread"></select>
+                <input id="sessionLabel" class="input" type="text" maxlength="72" placeholder="New thread label" aria-label="New thread label" />
+                <button id="btnSessionStart" class="btn" type="button">Start Thread</button>
+              </div>
+              <div id="sessionMeta" class="session-meta">No active thread.</div>
+              <div class="route-legend" id="routeLegend">
+                <span class="route-chip route-none">no memory</span>
+                <span class="route-chip route-stm_only">stm only</span>
+                <span class="route-chip route-ltm_light">ltm light</span>
+                <span class="route-chip route-ltm_deep">ltm deep</span>
+              </div>
+              <details class="settings-panel">
+                <summary>Local settings</summary>
+                <div class="settings-grid">
+                  <label><span>Default high-risk</span><input id="settingHighRiskDefault" type="checkbox" /></label>
+                  <label><span>Retrieval override</span><input id="settingRetrievalQuery" class="input" type="text" placeholder="Optional retrieval query" /></label>
+                  <label class="settings-help-block">
+                    <span class="settings-label-row">
+                      <span>Memory preference</span>
+                      <button id="btnMemoryPreferenceInfo" class="btn ghost wizard-inline-info" type="button">More Info</button>
+                    </span>
+                    <small>Controls how eager live chat is to pull memory while you talk.</small>
+                    <select id="settingMemoryPreference" class="input">
+                      <option value="auto" selected>balanced (recommended)</option>
+                      <option value="chat_first">chat first (less recall)</option>
+                      <option value="memory_assist">memory assist (more recall)</option>
+                    </select>
+                  </label>
+                  <label><span>Auto refresh</span>
+                    <select id="settingAutoRefresh" class="input">
+                      <option value="0">off</option>
+                      <option value="5000">5s</option>
+                      <option value="15000">15s</option>
+                      <option value="30000">30s</option>
+                    </select>
+                  </label>
+                </div>
+                <dialog id="memoryPreferenceDialog" class="wizard-dialog" aria-labelledby="memoryPreferenceDialogTitle">
+                  <div class="wizard-dialog-shell">
+                    <div class="wizard-dialog-head">
+                      <div>
+                        <p class="wizard-dialog-kicker">Chat Memory Guide</p>
+                        <h4 id="memoryPreferenceDialogTitle">How eager should live chat be to use memory?</h4>
+                      </div>
+                      <button id="btnMemoryPreferenceClose" class="btn ghost wizard-dialog-close" type="button" aria-label="Close memory preference guide">Close</button>
+                    </div>
+                    <p class="wizard-dialog-copy">
+                      This setting affects live chat routing. It does not change how episode cards are built.
+                    </p>
+                    <div class="wizard-policy-grid">
+                      <section class="wizard-policy-card balanced">
+                        <div class="wizard-policy-topline">
+                          <strong>Balanced</strong>
+                          <span class="wizard-policy-badge">recommended</span>
+                        </div>
+                        <p>Use the normal routing rules. MNO pulls memory when the message looks memory-relevant and stays quiet when it does not.</p>
+                        <ul class="wizard-policy-list">
+                          <li>Best default for most day-to-day chat.</li>
+                          <li>Keeps a practical middle ground between recall and over-searching.</li>
+                          <li>Leaves explicit memory requests and high-risk cases alone.</li>
+                        </ul>
+                        <p class="wizard-policy-example"><strong>Example:</strong> “Act normal. Use memory when it helps, but don’t force it into every reply.”</p>
+                      </section>
+                      <section class="wizard-policy-card strict">
+                        <div class="wizard-policy-topline">
+                          <strong>Chat First</strong>
+                          <span class="wizard-policy-badge">lowest recall</span>
+                        </div>
+                        <p>Prefer normal chat and suppress some memory lookups unless the user is clearly asking for recall.</p>
+                        <ul class="wizard-policy-list">
+                          <li>Best when you want fewer memory probes.</li>
+                          <li>Useful for casual conversation where memory would feel noisy.</li>
+                          <li>Explicit memory requests still go through.</li>
+                        </ul>
+                        <p class="wizard-policy-example"><strong>Example:</strong> “We’re mostly just chatting. Don’t keep digging through memory unless I clearly ask.”</p>
+                      </section>
+                      <section class="wizard-policy-card assist">
+                        <div class="wizard-policy-topline">
+                          <strong>Memory Assist</strong>
+                          <span class="wizard-policy-badge">highest recall</span>
+                        </div>
+                        <p>Push the router to use memory more aggressively, especially on weaker or borderline recall signals.</p>
+                        <ul class="wizard-policy-list">
+                          <li>Best when you want stronger memory help during live chat.</li>
+                          <li>Good for identity, relationship, planning, or continuity-heavy use.</li>
+                          <li>Can feel heavier because it searches more often.</li>
+                        </ul>
+                        <p class="wizard-policy-example"><strong>Example:</strong> “Lean into memory. I’d rather get more recall help than risk missing useful context.”</p>
+                      </section>
+                    </div>
+                    <div class="wizard-dialog-note">
+                      <strong>Important:</strong> explicit memory requests and high-risk cases still escalate memory use even if you choose <code>chat first</code>.
+                    </div>
+                  </div>
+                </dialog>
+              </details>
+            </div>
+
+            <div class="chat-body">
+              <div class="chat-head">
+                <h2>Conversation</h2>
+                <button id="btnRefresh" class="btn ghost" type="button">Refresh</button>
+              </div>
+              <div id="chatLog" class="chat-log"></div>
+            </div>
+
+            <form id="chatForm" class="composer">
+              <textarea id="chatInput" class="input" placeholder="Send a turn in the active thread" rows="3"></textarea>
+              <div class="composer-actions">
+                <label class="toggle">
+                  <input id="highRisk" type="checkbox" />
+                  <span>High-risk mode</span>
                 </label>
-                <button id="btnWhyRefresh" class="btn ghost" type="button">Refresh</button>
+                <div class="composer-buttons">
+                  <button id="btnRoutePreview" class="btn ghost" type="button">Preview Route</button>
+                  <button id="btnContextPreview" class="btn ghost" type="button">Preview Context</button>
+                  <button class="btn" type="submit">Send</button>
+                </div>
               </div>
-            </div>
-            <div id="whyPanel" class="why-panel empty" aria-live="polite">
-              Select a turn, then load a plain-language explanation with evidence time window and top support.
-            </div>
-          </section>
-          <section class="archive-shell">
-            <div class="archive-head">
-              <h3>Citation Viewer</h3>
-              <button id="btnArchiveClear" class="btn ghost" type="button">Clear</button>
-            </div>
-            <div id="archiveViewer" class="archive-viewer empty" aria-live="polite">
-              Click a citation token in the Why panel to inspect matched source messages.
-            </div>
-          </section>
-          <section class="ledger-shell">
-            <div class="ledger-head">
-              <h3>Runtime Ledger</h3>
-              <button id="btnLedgerRefresh" class="btn ghost" type="button">Reload</button>
-            </div>
-            <div id="ledgerMeta" class="ledger-meta" aria-live="polite">No turn telemetry yet.</div>
-            <div id="ledgerList" class="ledger-list empty" aria-live="polite">Ledger entries appear after turns run.</div>
-          </section>
-          <section class="context-shell">
-            <div class="context-head">
-              <h3>Model Context</h3>
-              <button id="btnContextPreviewSide" class="btn ghost" type="button">Preview</button>
-            </div>
-            <div id="contextPanel" class="context-viewer empty" aria-live="polite">
-              Type a draft message and preview to see the exact package sent to the model.
-            </div>
-            <details class="context-raw">
-              <summary>Raw context package</summary>
-              <pre id="contextRaw"></pre>
-            </details>
-          </section>
-          <section class="memory-panel">
-            <div class="memory-head">
-              <h3>Memory Cards</h3>
-              <button id="btnMemoryRefresh" class="btn ghost" type="button">Reload</button>
-            </div>
-            <div class="memory-scope-tabs" role="tablist" aria-label="Memory view scope">
-              <button id="btnMemoryScopeAtoms" class="btn ghost memory-scope-btn active" type="button" role="tab" aria-selected="true" aria-controls="atomsScopePane">Atoms</button>
-              <button id="btnMemoryScopeEpisodes" class="btn ghost memory-scope-btn" type="button" role="tab" aria-selected="false" aria-controls="episodesScopePane">Episodes</button>
-            </div>
-            <div class="memory-controls">
-              <input id="memorySearch" class="input" type="search" placeholder="Search card summaries, citations, entities" aria-label="Search memory cards" />
-              <select id="memoryKind" class="input" aria-label="Filter memory cards by kind">
-                <option value="all">all card kinds</option>
-                <option value="fact_card">fact card</option>
-                <option value="event_card">event card</option>
-                <option value="relationship_card">relationship card</option>
-              </select>
-              <select id="memoryStatus" class="input" aria-label="Filter memory cards by status">
-                <option value="all">all statuses</option>
-                <option value="active">active</option>
-                <option value="superseded">superseded</option>
-                <option value="conflicted">conflicted</option>
-                <option value="archived">archived</option>
-                <option value="tombstoned">tombstoned</option>
-              </select>
-              <select id="memoryContradiction" class="input" aria-label="Filter memory cards by contradiction">
-                <option value="all">all contradiction states</option>
-                <option value="true">with contradiction</option>
-                <option value="false">without contradiction</option>
-              </select>
-            </div>
-            <div id="atomsScopePane" class="memory-scope-pane active" role="tabpanel" aria-hidden="false">
-              <div class="memory-list-wrap">
-                <div id="memoryList" class="memory-list"></div>
+              <div id="routePreview" class="route-preview empty" aria-live="polite">Route preview is available before sending a turn.</div>
+            </form>
+          </div>
+        </section>
+
+        <!-- ══════════ MEMORY TAB ══════════ -->
+        <section class="tab-pane" data-pane="memory">
+          <nav class="sub-tab-bar" role="tablist" aria-label="Memory sections" data-group="memory">
+            <button class="sub-tab-btn active" type="button" role="tab" data-subtab="mem-cards">Cards</button>
+            <button class="sub-tab-btn" type="button" role="tab" data-subtab="mem-graph">Graph</button>
+            <button class="sub-tab-btn" type="button" role="tab" data-subtab="mem-proposals">Proposals</button>
+          </nav>
+
+          <!-- Cards sub-pane -->
+          <div class="sub-pane active" data-subpane="mem-cards">
+            <div class="memory-panel">
+              <div class="memory-head">
+                <h3>Memory Cards</h3>
+                <button id="btnMemoryRefresh" class="btn ghost" type="button">Reload</button>
               </div>
-              <div id="memoryDetail" class="memory-detail empty">Select a memory card to inspect evidence, provenance, and graph links.</div>
-            </div>
-            <div id="episodesScopePane" class="memory-scope-pane" role="tabpanel" aria-hidden="true">
-              <div class="episode-controls">
-                <input id="episodeSearch" class="input" type="search" placeholder="Search episode title, summary, actors, tags" aria-label="Search episodes" />
-                <select id="episodeStatus" class="input" aria-label="Filter episodes by status">
-                  <option value="all">all statuses</option>
-                  <option value="approved">approved</option>
-                  <option value="promoted">promoted</option>
-                  <option value="candidate">candidate</option>
-                  <option value="rejected">rejected</option>
-                  <option value="disabled">disabled</option>
+              <div class="memory-scope-tabs" role="tablist" aria-label="Memory view scope">
+                <button id="btnMemoryScopeAtoms" class="btn ghost memory-scope-btn active" type="button" role="tab" aria-selected="true" aria-controls="atomsScopePane">Atoms</button>
+                <button id="btnMemoryScopeEpisodes" class="btn ghost memory-scope-btn" type="button" role="tab" aria-selected="false" aria-controls="episodesScopePane">Episodes</button>
+              </div>
+              <div class="memory-controls">
+                <input id="memorySearch" class="input" type="search" placeholder="Search cards, citations, entities" aria-label="Search memory cards" />
+                <select id="memoryKind" class="input" aria-label="Filter by kind">
+                  <option value="all">all kinds</option>
+                  <option value="fact_card">fact card</option>
+                  <option value="event_card">event card</option>
+                  <option value="relationship_card">relationship card</option>
                 </select>
-                <button id="btnEpisodeRefresh" class="btn ghost" type="button">Reload</button>
-                <button id="btnEpisodeUndo" class="btn ghost" type="button">Undo Last Change</button>
+                <select id="memoryStatus" class="input" aria-label="Filter by status">
+                  <option value="all">all statuses</option>
+                  <option value="active">active</option>
+                  <option value="superseded">superseded</option>
+                  <option value="conflicted">conflicted</option>
+                  <option value="archived">archived</option>
+                  <option value="tombstoned">tombstoned</option>
+                </select>
+                <select id="memoryContradiction" class="input" aria-label="Filter by contradiction">
+                  <option value="all">all contradiction states</option>
+                  <option value="true">with contradiction</option>
+                  <option value="false">without contradiction</option>
+                </select>
               </div>
-              <div class="memory-list-wrap">
-                <div id="episodeList" class="memory-list"></div>
+
+              <!-- Atoms pane -->
+              <div id="atomsScopePane" class="memory-scope-pane active" role="tabpanel" aria-hidden="false">
+                <div class="memory-split">
+                  <div class="memory-list-wrap">
+                    <div id="memoryList" class="memory-list"></div>
+                  </div>
+                  <div id="memoryDetail" class="memory-detail empty">Select a memory card to inspect evidence, provenance, and graph links.</div>
+                </div>
               </div>
-              <div id="episodeDetail" class="memory-detail empty">Select an episode card to edit title/summary, actors, topic tags, and status.</div>
+
+              <!-- Episodes pane -->
+              <div id="episodesScopePane" class="memory-scope-pane" role="tabpanel" aria-hidden="true">
+                <div class="episode-controls">
+                  <input id="episodeSearch" class="input" type="search" placeholder="Search episodes" aria-label="Search episodes" />
+                  <select id="episodeStatus" class="input" aria-label="Filter episodes by status">
+                    <option value="all">all statuses</option>
+                    <option value="approved">approved</option>
+                    <option value="promoted">promoted</option>
+                    <option value="candidate">candidate</option>
+                    <option value="rejected">rejected</option>
+                    <option value="disabled">disabled</option>
+                  </select>
+                  <button id="btnEpisodeRefresh" class="btn ghost" type="button">Reload</button>
+                  <button id="btnEpisodeUndo" class="btn ghost" type="button">Undo Last Change</button>
+                </div>
+                <div class="memory-split">
+                  <div class="memory-list-wrap">
+                    <div id="episodeList" class="memory-list"></div>
+                  </div>
+                  <div id="episodeDetail" class="memory-detail empty">Select an episode card to edit.</div>
+                </div>
+              </div>
             </div>
+          </div>
+
+          <!-- Graph sub-pane -->
+          <div class="sub-pane" data-subpane="mem-graph">
             <section class="memory-graph-panel">
               <div class="memory-graph-head">
-                <h4>Memory map</h4>
+                <div class="memory-graph-title-group">
+                  <h4>Memory map</h4>
+                  <p class="memory-graph-copy">Explore the memory field. Connected cards cluster together, isolated cards fade back, and the selected neighborhood opens as a readable path map.</p>
+                </div>
                 <div class="memory-graph-actions">
-                  <button id="btnMemoryGraphFocus" class="btn ghost" type="button">Use selected</button>
+                  <button id="btnMemoryGraphFit" class="btn ghost" type="button">Fit</button>
+                  <button id="btnMemoryGraphZoomOut" class="btn ghost" type="button" aria-label="Zoom out">−</button>
+                  <button id="btnMemoryGraphZoomIn" class="btn ghost" type="button" aria-label="Zoom in">+</button>
+                  <button id="btnMemoryGraphFocus" class="btn ghost" type="button">Center Selected</button>
+                  <button id="btnMemoryGraphReset" class="btn ghost" type="button">Reset</button>
                   <button id="btnMemoryGraphRefresh" class="btn ghost" type="button">Reload map</button>
+                  <button id="btnMemoryGraphToggleIsolated" class="btn ghost" type="button">Hide isolated</button>
+                  <button id="btnMemoryGraphExpand" class="btn ghost" type="button">Expand</button>
                 </div>
               </div>
-              <div id="memoryGraphMeta" class="memory-graph-meta">Map loads from current card filters. Local graph follows the selected node.</div>
+              <div class="memory-graph-meta-row">
+                <div id="memoryGraphMeta" class="memory-graph-meta">Map loads from current card filters.</div>
+                <div id="memoryGraphViewportMeta" class="memory-graph-viewport-meta">Fit view ready.</div>
+              </div>
               <div class="memory-graph-grid">
                 <div class="memory-graph-overview">
-                  <div class="memory-graph-wrap">
-                    <svg id="memoryGraphSvg" class="memory-graph-canvas" viewBox="0 0 1000 540" role="img" aria-label="Memory graph overview visualization"></svg>
+                  <div id="memoryGraphViewport" class="memory-graph-wrap">
+                    <svg id="memoryGraphSvg" class="memory-graph-canvas" viewBox="0 0 2400 1600" role="img" aria-label="Memory graph overview"></svg>
+                    <div class="memory-graph-overlay-note">Clusters stay bright. Background memories recede.</div>
                   </div>
-                  <div id="memoryGraphDetail" class="memory-graph-detail empty">Select a map node to inspect quick graph details.</div>
+                  <div id="memoryGraphDetail" class="memory-graph-detail empty">Select a map node to inspect.</div>
                 </div>
-                <aside class="memory-neighborhood-panel" aria-label="Selected memory neighborhood explorer">
+                <div id="memoryNeighborhoodBackdrop" class="memory-neighborhood-backdrop"></div>
+                <aside class="memory-neighborhood-panel" id="memoryNeighborhoodPanel" aria-label="Neighborhood explorer">
                   <div class="memory-neighborhood-head">
                     <div>
                       <h5>Selected neighborhood</h5>
@@ -457,49 +1263,137 @@
                         <span>Include shared language</span>
                       </label>
                       <button id="btnMemoryNeighborhoodRefresh" class="btn ghost" type="button">Reload local graph</button>
+                      <button id="btnMemoryNeighborhoodClose" class="btn ghost" type="button">Close</button>
                     </div>
                   </div>
-                  <div id="memoryNeighborhoodMeta" class="memory-neighborhood-meta" aria-live="polite">
-                    Pick a node or card to load a bounded local graph.
+                  <div id="memoryNeighborhoodMeta" class="memory-neighborhood-meta" aria-live="polite">Pick a node or card to load a bounded local graph.</div>
+                  <div id="memoryNeighborhoodViewport" class="memory-graph-wrap neighborhood">
+                    <svg id="memoryNeighborhoodSvg" class="memory-graph-canvas memory-neighborhood-canvas" viewBox="0 0 1000 700" role="img" aria-label="Neighborhood visualization"></svg>
                   </div>
-                  <div class="memory-graph-wrap neighborhood">
-                    <svg id="memoryNeighborhoodSvg" class="memory-graph-canvas memory-neighborhood-canvas" viewBox="0 0 1000 540" role="img" aria-label="Selected memory neighborhood visualization"></svg>
-                  </div>
-                  <div id="memoryNeighborhoodList" class="memory-neighborhood-list empty" aria-live="polite">
-                    Local graph notes appear here after you select a node.
-                  </div>
+                  <div id="memoryNeighborhoodList" class="memory-neighborhood-list" style="display:none" aria-live="polite"></div>
                 </aside>
               </div>
             </section>
+          </div>
+
+          <!-- Proposals sub-pane -->
+          <div class="sub-pane" data-subpane="mem-proposals">
             <div class="proposal-head">
               <h3>Proposal Inbox</h3>
               <button id="btnProposalRefresh" class="btn ghost" type="button">Reload</button>
             </div>
             <div class="proposal-create">
               <input id="proposalAtomId" class="input" type="text" placeholder="Atom id for proposal" aria-label="Atom id for proposal" />
-              <textarea id="proposalEditText" class="input" rows="2" placeholder="Optional edited canonical text (for edit proposal)"></textarea>
+              <textarea id="proposalEditText" class="input" rows="2" placeholder="Optional edited canonical text"></textarea>
               <div class="proposal-create-actions">
                 <button id="btnProposalCreateDelete" class="btn ghost" type="button">Propose Disable</button>
                 <button id="btnProposalCreateEdit" class="btn ghost" type="button">Propose Edit</button>
               </div>
             </div>
             <div id="proposalList" class="proposal-list"></div>
-          </section>
-          <section class="ops-shell">
-            <div class="ops-head">
-              <h3>Ops Safety Deck</h3>
-              <button id="btnOpsRefresh" class="btn ghost" type="button">Reload</button>
+          </div>
+        </section>
+
+        <!-- ══════════ TRACE TAB ══════════ -->
+        <section class="tab-pane" data-pane="trace">
+          <nav class="sub-tab-bar" role="tablist" aria-label="Trace sections" data-group="trace">
+            <button class="sub-tab-btn active" type="button" role="tab" data-subtab="trace-evidence">Evidence</button>
+            <button class="sub-tab-btn" type="button" role="tab" data-subtab="trace-why">Why</button>
+            <button class="sub-tab-btn" type="button" role="tab" data-subtab="trace-citations">Citations</button>
+            <button class="sub-tab-btn" type="button" role="tab" data-subtab="trace-ledger">Ledger</button>
+            <button class="sub-tab-btn" type="button" role="tab" data-subtab="trace-context">Context</button>
+          </nav>
+
+          <!-- Evidence sub-pane -->
+          <div class="sub-pane active" data-subpane="trace-evidence">
+            <div class="trace-head">
+              <h2>Evidence Trace</h2>
+              <span id="traceHint">Select a turn</span>
             </div>
-            <div class="ops-grid">
+            <div id="tracePanel" class="trace-panel empty" aria-live="polite">Run a chat turn to inspect claims, citations, and writeback status.</div>
+          </div>
+
+          <!-- Why sub-pane -->
+          <div class="sub-pane" data-subpane="trace-why">
+            <section class="why-shell">
+              <div class="why-head">
+                <h3>Why This Answer?</h3>
+                <div class="why-actions">
+                  <label class="toggle why-citations-toggle">
+                    <input id="whyShowCitations" type="checkbox" />
+                    <span>Show citations</span>
+                  </label>
+                  <button id="btnWhyRefresh" class="btn ghost" type="button">Refresh</button>
+                </div>
+              </div>
+              <div id="whyPanel" class="why-panel empty" aria-live="polite">Select a turn, then load a plain-language explanation.</div>
+            </section>
+          </div>
+
+          <!-- Citations sub-pane -->
+          <div class="sub-pane" data-subpane="trace-citations">
+            <section class="archive-shell">
+              <div class="archive-head">
+                <h3>Citation Viewer</h3>
+                <button id="btnArchiveClear" class="btn ghost" type="button">Clear</button>
+              </div>
+              <div id="archiveViewer" class="archive-viewer empty" aria-live="polite">Click a citation token in the Why panel to inspect matched source messages.</div>
+            </section>
+          </div>
+
+          <!-- Ledger sub-pane -->
+          <div class="sub-pane" data-subpane="trace-ledger">
+            <section class="ledger-shell">
+              <div class="ledger-head">
+                <h3>Runtime Ledger</h3>
+                <button id="btnLedgerRefresh" class="btn ghost" type="button">Reload</button>
+              </div>
+              <div id="ledgerMeta" class="ledger-meta" aria-live="polite">No turn telemetry yet.</div>
+              <div id="ledgerList" class="ledger-list empty" aria-live="polite">Ledger entries appear after turns run.</div>
+            </section>
+          </div>
+
+          <!-- Context sub-pane -->
+          <div class="sub-pane" data-subpane="trace-context">
+            <section class="context-shell">
+              <div class="context-head">
+                <h3>Model Context</h3>
+                <button id="btnContextPreviewSide" class="btn ghost" type="button">Preview</button>
+              </div>
+              <div id="contextPanel" class="context-viewer empty" aria-live="polite">Type a draft message and preview to see the exact package sent to the model.</div>
+              <details class="context-raw">
+                <summary>Raw context package</summary>
+                <pre id="contextRaw"></pre>
+              </details>
+            </section>
+          </div>
+        </section>
+
+        <!-- ══════════ OPS TAB ══════════ -->
+        <section class="tab-pane" data-pane="ops">
+          <nav class="sub-tab-bar" role="tablist" aria-label="Ops sections" data-group="ops">
+            <button class="sub-tab-btn active" type="button" role="tab" data-subtab="ops-methodology">Methodology</button>
+            <button class="sub-tab-btn" type="button" role="tab" data-subtab="ops-writeback">Writeback</button>
+            <button class="sub-tab-btn" type="button" role="tab" data-subtab="ops-health">Health</button>
+            <button class="sub-tab-btn" type="button" role="tab" data-subtab="ops-packaging">Packaging</button>
+          </nav>
+
+          <div class="sub-pane active" data-subpane="ops-methodology">
+            <section class="ops-shell">
+              <div class="ops-head">
+                <h3>Methodology Guardrail Ops</h3>
+                <div>
+                  <button id="btnOpsRefresh" class="btn ghost" type="button">Reload</button>
+                </div>
+              </div>
               <article class="ops-card">
-                <h4>Methodology Guardrail Ops</h4>
-                <input id="methodologyId" class="input" type="text" placeholder="Methodology ID (for review/canary/activate/rollback)" aria-label="Methodology ID" />
+                <input id="methodologyId" class="input" type="text" placeholder="Methodology ID" aria-label="Methodology ID" />
                 <input id="methodologyActor" class="input" type="text" placeholder="Actor (default: operator)" aria-label="Methodology actor" />
-                <textarea id="methodologyTriggerCondition" class="input" rows="2" placeholder="Trigger condition (create draft)" aria-label="Methodology trigger condition"></textarea>
-                <textarea id="methodologyAction" class="input" rows="2" placeholder="Action (create draft)" aria-label="Methodology action"></textarea>
-                <textarea id="methodologyRationale" class="input" rows="2" placeholder="Rationale (create draft)" aria-label="Methodology rationale"></textarea>
-                <textarea id="methodologyCorrection" class="input" rows="2" placeholder="Correction text (record correction cluster)" aria-label="Methodology correction text"></textarea>
-                <textarea id="methodologyNote" class="input" rows="2" placeholder="Optional note/reason (review or rollback)" aria-label="Methodology note or rollback reason"></textarea>
+                <textarea id="methodologyTriggerCondition" class="input" rows="2" placeholder="Trigger condition" aria-label="Methodology trigger condition"></textarea>
+                <textarea id="methodologyAction" class="input" rows="2" placeholder="Action" aria-label="Methodology action"></textarea>
+                <textarea id="methodologyRationale" class="input" rows="2" placeholder="Rationale" aria-label="Methodology rationale"></textarea>
+                <textarea id="methodologyCorrection" class="input" rows="2" placeholder="Correction text" aria-label="Methodology correction text"></textarea>
+                <textarea id="methodologyNote" class="input" rows="2" placeholder="Optional note/reason" aria-label="Methodology note"></textarea>
                 <div class="wizard-inline-actions">
                   <button id="btnMethodologyCreate" class="btn ghost" type="button">Create Draft</button>
                   <button id="btnMethodologyApprove" class="btn ghost" type="button">Approve</button>
@@ -515,8 +1409,15 @@
                 <div id="methodologyReadoutMeta" class="ops-meta">Methodology readout appears here.</div>
                 <div id="methodologyActionMeta" class="ops-meta">Methodology action results appear here.</div>
               </article>
+            </section>
+          </div>
+
+          <div class="sub-pane" data-subpane="ops-writeback">
+            <section class="ops-shell">
+              <div class="ops-head">
+                <h3>Writeback Policy</h3>
+              </div>
               <article class="ops-card">
-                <h4>Writeback Policy</h4>
                 <label class="toggle">
                   <input id="writebackEnabled" type="checkbox" />
                   <span>Enable proposal writeback</span>
@@ -526,24 +1427,38 @@
                 </div>
                 <div id="writebackPolicyMeta" class="ops-meta">Writeback policy status appears here.</div>
               </article>
+            </section>
+          </div>
+
+          <div class="sub-pane" data-subpane="ops-health">
+            <section class="ops-shell">
+              <div class="ops-head">
+                <h3>Health Check</h3>
+              </div>
               <article class="ops-card">
-                <h4>Health Check</h4>
                 <div class="wizard-inline-actions">
                   <button id="btnHealthRun" class="btn ghost" type="button">Run Health</button>
                   <button id="btnHealthExport" class="btn ghost" type="button">Export Diagnostics</button>
                 </div>
                 <div id="healthPanel" class="ops-meta">Health check summary appears here.</div>
               </article>
+            </section>
+          </div>
+
+          <div class="sub-pane" data-subpane="ops-packaging">
+            <section class="ops-shell">
+              <div class="ops-head">
+                <h3>Packaging Hints</h3>
+              </div>
               <article class="ops-card">
-                <h4>Packaging Hints</h4>
                 <div class="wizard-inline-actions">
                   <button id="btnPackagingLoad" class="btn ghost" type="button">Load Packaging Steps</button>
                 </div>
                 <div id="packagingPanel" class="ops-meta">One-click setup and runtime launch commands appear here.</div>
               </article>
-            </div>
-          </section>
-        </aside>
+            </section>
+          </div>
+        </section>
       </main>
     </div>
 

@@ -8,7 +8,7 @@ from hashlib import sha256
 from typing import Any, Iterable, Optional
 from uuid import uuid4
 
-from ..contracts import AtomType, CandidateAtom, SourceRef
+from ..contracts import AtomType, CandidateAtom, NormalizedTurn, SourceRef
 
 _HALF_LIFE_SCALARS: dict[AtomType, float] = {
     AtomType.EPISODE: 2.0 / 3.0,
@@ -116,6 +116,29 @@ class ContradictionEdge:
 
 
 @dataclass(slots=True)
+class RawContextTurn:
+    """Read-only source-preserved turn captured alongside import."""
+
+    source_id: str
+    sequence_index: int
+    role: str
+    quote_text: str
+    message_id: Optional[str] = None
+    timestamp: Optional[datetime] = None
+    conversation_id: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not self.source_id.strip():
+            raise ValueError("source_id is required")
+        if self.sequence_index < 0:
+            raise ValueError("sequence_index must be >= 0")
+        if not str(self.role or "").strip():
+            raise ValueError("role is required")
+        if not str(self.quote_text or ""):
+            raise ValueError("quote_text is required")
+
+
+@dataclass(slots=True)
 class RecognitionRecord:
     """Persistent recognition signal captured after retrieval/writeback."""
 
@@ -164,6 +187,7 @@ class AtomStore:
         self._dedupe_index: dict[str, str] = {}
         self._conflicts: dict[str, set[str]] = defaultdict(set)
         self._shared_language: dict[str, dict[str, Any]] = {}
+        self._raw_turns_by_source: dict[str, list[RawContextTurn]] = defaultdict(list)
         self._recognition_events: list[RecognitionRecord] = []
         self._cache_scope_id = f"atom-store:{uuid4().hex}"
         self.ledger = ProvenanceLedger()
@@ -268,6 +292,92 @@ class AtomStore:
 
         return list(self._atoms.values())
 
+    def record_raw_turn(self, turn: NormalizedTurn) -> RawContextTurn:
+        """Persist source-preserved turn text for bounded quote/provenance recall."""
+
+        source_id = str(turn.source_id or "").strip()
+        message_id = str(turn.message_id or "").strip() or None
+        sequence_index = int(turn.sequence_index if turn.sequence_index is not None else len(self._raw_turns_by_source[source_id]))
+        record = RawContextTurn(
+            source_id=source_id,
+            conversation_id=str(turn.conversation_id or "").strip() or None,
+            message_id=message_id,
+            sequence_index=sequence_index,
+            role=str(turn.role or "").strip().lower(),
+            quote_text=str(turn.quote_text if turn.quote_text is not None else turn.text),
+            timestamp=turn.timestamp,
+        )
+        rows = self._raw_turns_by_source[source_id]
+        for idx, existing in enumerate(rows):
+            if existing.message_id and record.message_id and existing.message_id == record.message_id:
+                rows[idx] = record
+                rows.sort(key=lambda item: item.sequence_index)
+                return record
+            if existing.sequence_index == record.sequence_index and existing.message_id == record.message_id:
+                rows[idx] = record
+                rows.sort(key=lambda item: item.sequence_index)
+                return record
+        rows.append(record)
+        rows.sort(key=lambda item: item.sequence_index)
+        return record
+
+    def fetch_raw_context_slice(
+        self,
+        source_id: str,
+        *,
+        message_id: str | None = None,
+        sequence_index: int | None = None,
+        before: int = 1,
+        after: int = 1,
+        max_turns: int = 3,
+        max_chars: int = 1200,
+    ) -> list[RawContextTurn]:
+        """Return bounded neighboring raw turns for the requested source/message."""
+
+        rows = list(self._raw_turns_by_source.get(str(source_id or "").strip(), []))
+        if not rows:
+            return []
+        center = None
+        target_message_id = str(message_id or "").strip() or None
+        if target_message_id is not None:
+            for idx, row in enumerate(rows):
+                if row.message_id == target_message_id:
+                    center = idx
+                    break
+        if center is None and sequence_index is not None:
+            for idx, row in enumerate(rows):
+                if row.sequence_index == int(sequence_index):
+                    center = idx
+                    break
+        if center is None:
+            return []
+        start = max(0, center - max(0, int(before)))
+        end = min(len(rows), center + max(0, int(after)) + 1)
+        window = rows[start:end][: max(1, int(max_turns))]
+        bounded: list[RawContextTurn] = []
+        chars_used = 0
+        budget = max(1, int(max_chars))
+        for row in window:
+            text = str(row.quote_text or "")
+            remaining = budget - chars_used
+            if remaining <= 0:
+                break
+            if len(text) > remaining:
+                text = text[: max(1, remaining - 1)].rstrip() + "…"
+            bounded.append(
+                RawContextTurn(
+                    source_id=row.source_id,
+                    conversation_id=row.conversation_id,
+                    message_id=row.message_id,
+                    sequence_index=row.sequence_index,
+                    role=row.role,
+                    quote_text=text,
+                    timestamp=row.timestamp,
+                )
+            )
+            chars_used += len(text)
+        return bounded
+
     def _drop_dedupe_links(self, atom_id: str) -> None:
         """Remove dedupe index pointers targeting an atom."""
 
@@ -367,6 +477,7 @@ class AtomStore:
             len(self._shared_language),
             latest_atom_update,
             latest_shared_update,
+            sum(len(items) for items in self._raw_turns_by_source.values()),
             mutation_count,
         )
 

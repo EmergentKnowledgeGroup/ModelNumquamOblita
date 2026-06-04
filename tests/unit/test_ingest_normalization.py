@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import timezone
 
-from engine.ingest.parser import noise_reason, normalize_role, normalize_timestamp
+from engine.ingest.parser import ConversationIngestor, noise_reason, normalize_role, normalize_timestamp
 
 
 def test_normalize_role_maps_expected_values() -> None:
@@ -33,3 +33,25 @@ def test_noise_reason_detects_preface_and_tool_payload() -> None:
     assert noise_reason(preface, role="assistant") == "preface_blob"
     assert noise_reason('{\"updates\":[{\"pattern\":\".\"}]}', role="tool") == "tool_payload"
     assert noise_reason("hello", role="assistant") is None
+
+
+def test_conversation_ingestor_preserves_quote_text_except_newlines() -> None:
+    convo = {
+        "id": "conv-q1",
+        "messages": [
+            {
+                "id": "m1",
+                "role": "user",
+                "text": "  Keep the spacing.\r\nAnd keep this line too.  ",
+            }
+        ],
+    }
+
+    result = list(ConversationIngestor().iter_turns_from_conversation(convo))
+
+    turn, reason = result[0]
+    assert reason is None
+    assert turn is not None
+    assert turn.text == "Keep the spacing.\nAnd keep this line too."
+    assert turn.quote_text == "  Keep the spacing.\nAnd keep this line too.  "
+    assert turn.sequence_index == 0

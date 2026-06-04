@@ -14,8 +14,8 @@ from engine.ingest import run_sqlite_import_job, write_import_report
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Import memories from conversations export into sqlite store.")
-    parser.add_argument("--input", required=True, help="Path to conversations export JSON")
+    parser = argparse.ArgumentParser(description="Import memories from JSON, JSONL, transcript text, or mixed source folders into sqlite store.")
+    parser.add_argument("--input", required=True, help="Path to source file or folder")
     parser.add_argument(
         "--store",
         default=str(REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3"),

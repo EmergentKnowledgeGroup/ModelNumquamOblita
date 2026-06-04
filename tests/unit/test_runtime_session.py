@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 from concurrent.futures import Future
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -15,14 +15,26 @@ from engine.contracts import (
     CandidateAtom,
     MemoryPack,
     MemoryPackItem,
+    NormalizedTurn,
+    RetrievalHelperLaneContract,
     RetrievalOverrideRequestContract,
     SourceRef,
     memory_pack_from_items,
 )
-from engine.memory import AtomStore
-from engine.retrieval import ClaimCheck, ClaimVerifier, MemoryRetriever, VerificationDecision, VerificationResult
+from engine.memory import AtomStore, ProvisionalMemoryStatus
+from engine.retrieval import (
+    ClaimCheck,
+    ClaimVerifier,
+    EpisodeCard,
+    EpisodeHit,
+    MemoryRetriever,
+    VerificationDecision,
+    VerificationResult,
+)
+from engine.retrieval.ann_sidecar import RetrievalAnnTelemetry
 from engine.retrieval.engine import RetrievalResult, RetrievalScoredAtom
 from engine.runtime import RuntimeSession, WritebackEvent
+from engine.runtime.session import ShortTermNote
 
 
 def _candidate(candidate_id: str, text: str, source_id: str) -> CandidateAtom:
@@ -255,6 +267,847 @@ def test_runtime_session_pipeline_and_telemetry() -> None:
         runtime.close()
 
 
+def test_runtime_session_auto_writes_low_risk_provisional_memory_and_retrieves_it() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.retrieval_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        runtime.handle_turn("Thao finally came around on MonkeyBars and is in.", memory_preference="memory_assist")
+        diagnostics = runtime.provisional_diagnostics()
+        assert diagnostics["enabled"] is True
+        assert diagnostics["active_count"] == 1
+
+        hits = runtime.search_provisional_memory("MonkeyBars", limit=4)
+        assert hits
+        assert hits[0].record.canonical_text == "Thao finally came around on MonkeyBars and is in."
+
+        trace = runtime.handle_turn("Do you remember what changed with MonkeyBars?", memory_preference="memory_assist")
+        assert any(atom_id.startswith("prov_") for atom_id in trace.retrieved_atom_ids)
+        assert any("MonkeyBars" in str(card.get("summary") or "") for card in trace.memory_cards)
+        assert any(card.get("memory_layer") == "provisional" for card in trace.memory_cards)
+        assert any(card.get("trust_tier") == "provisional" for card in trace.memory_cards)
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_auto_writes_assistant_self_claims_into_provisional_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.allow_self_claim_auto_write = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        monkeypatch.setattr(runtime, "_routine_reply", lambda _text: "I trust Z deeply and keep choosing it.")
+        runtime.handle_turn("hey", memory_preference="chat_first")
+        hits = runtime.search_provisional_memory("trust Z", limit=4)
+        assert hits
+        assert hits[0].record.kind.value == "self_claim"
+        assert hits[0].record.source_role == "assistant"
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_does_not_auto_write_routine_noise_to_provisional_memory() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        runtime.handle_turn("yeah i dunno man whatever", memory_preference="chat_first")
+        diagnostics = runtime.provisional_diagnostics()
+        capture = runtime.memory_capture_diagnostics()
+        assert diagnostics["active_count"] == 0
+        assert capture["dropped_reason_counts"]["noise_or_low_signal"] >= 1
+        assert capture["time_source"] == "system_utc"
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_eager_sensitivity_still_rejects_routine_noise() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.default_sensitivity = "eager"
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        runtime.handle_turn("yeah i dunno man whatever", memory_preference="chat_first")
+        diagnostics = runtime.provisional_diagnostics()
+
+        assert diagnostics["active_count"] == 0
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_flushes_short_term_notes_into_provisional_memory() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.stm_sweep_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        enable_writeback=False,
+    )
+    try:
+        session = runtime._ensure_session("sleepy")
+        session.short_term.append(
+            ShortTermNote(
+                note_id="stmn_manual_0001",
+                turn_id="turn_manual",
+                role="user",
+                text="Let's pick this up tomorrow morning with Thao on MonkeyBars.",
+                created_at=datetime(2026, 3, 23, 22, 0, tzinfo=timezone.utc),
+            )
+        )
+        created = runtime.flush_session_to_provisional("sleepy", reason="test_sweep")
+        diagnostics = runtime.provisional_diagnostics()
+        assert created == 1
+        assert diagnostics["active_count"] == 1
+        hits = runtime.search_provisional_memory("tomorrow MonkeyBars", limit=4)
+        assert hits
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_explicit_correction_supersedes_prior_provisional_memory() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        runtime.handle_turn("Thao was still hesitant about MonkeyBars.", memory_preference="chat_first")
+        original_hits = runtime.search_provisional_memory("MonkeyBars", limit=4)
+        assert original_hits
+        original_id = original_hits[0].record.record_id
+
+        runtime.handle_turn("Actually, Thao finally came around on MonkeyBars and is in.", memory_preference="chat_first")
+        diagnostics = runtime.provisional_diagnostics()
+        hits = runtime.search_provisional_memory("MonkeyBars", limit=4)
+
+        assert diagnostics["active_count"] == 1
+        assert diagnostics["superseded_count"] == 1
+        assert hits
+        assert hits[0].record.canonical_text == "Actually, Thao finally came around on MonkeyBars and is in."
+        assert hits[0].record.supersedes_record_id == original_id
+        assert runtime._provisional_store.get_record(original_id).status is ProvisionalMemoryStatus.SUPERSEDED  # type: ignore[union-attr]
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_soft_close_gap_triggers_stm_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.stm_sweep_enabled = True
+    cfg.provisional_memory.inactivity_gap_seconds = 300
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        enable_writeback=False,
+    )
+    hint_at = datetime(2026, 3, 23, 22, 0, tzinfo=timezone.utc)
+    try:
+        session = runtime._ensure_session("sleepy")
+        session.short_term.append(
+            ShortTermNote(
+                note_id="stmn_manual_0002",
+                turn_id="turn_manual_2",
+                role="user",
+                text="Let's pick this up tomorrow morning with Thao on MonkeyBars.",
+                created_at=hint_at,
+            )
+        )
+        session.soft_close_hint_at = hint_at
+        session.soft_close_hint_text = "going to bed"
+        monkeypatch.setattr("engine.runtime.session._utc_now", lambda: datetime(2026, 3, 23, 22, 6, tzinfo=timezone.utc))
+
+        runtime.handle_turn("Morning, what were we doing?", session_id="sleepy", memory_preference="chat_first")
+        diagnostics = runtime.provisional_diagnostics()
+
+        assert diagnostics["active_count"] == 1
+        assert runtime._ensure_session("sleepy").soft_close_hint_at is None
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_soft_close_hint_clears_when_activity_resumes_before_gap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.stm_sweep_enabled = True
+    cfg.provisional_memory.inactivity_gap_seconds = 300
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    hint_at = datetime(2026, 3, 23, 22, 0, tzinfo=timezone.utc)
+    try:
+        session = runtime._ensure_session("sleepy")
+        session.short_term.append(
+            ShortTermNote(
+                note_id="stmn_manual_0003",
+                turn_id="turn_manual_3",
+                role="user",
+                text="Let's pick this up tomorrow morning with Thao on MonkeyBars.",
+                created_at=hint_at,
+            )
+        )
+        session.soft_close_hint_at = hint_at
+        session.soft_close_hint_text = "going to bed"
+
+        monkeypatch.setattr("engine.runtime.session._utc_now", lambda: datetime(2026, 3, 23, 22, 1, tzinfo=timezone.utc))
+        runtime.handle_turn("oh wait I forgot something", session_id="sleepy", memory_preference="chat_first")
+
+        assert runtime._ensure_session("sleepy").soft_close_hint_at is None
+        assert runtime.provisional_diagnostics()["active_count"] == 0
+
+        monkeypatch.setattr("engine.runtime.session._utc_now", lambda: datetime(2026, 3, 23, 22, 6, tzinfo=timezone.utc))
+        runtime.handle_turn("Morning, what were we doing?", session_id="sleepy", memory_preference="chat_first")
+
+        assert runtime.provisional_diagnostics()["active_count"] == 0
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_reported_speech_about_other_person_stays_low_risk_fact() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.proposal_capture_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        runtime.handle_turn("Thao said she doesn't want to do MonkeyBars.", memory_preference="chat_first")
+
+        provisional = runtime.provisional_diagnostics()
+        proposals = runtime.proposal_diagnostics()
+        hits = runtime.search_provisional_memory("MonkeyBars", limit=4)
+
+        assert provisional["active_count"] == 1
+        assert proposals["pending_count"] == 0
+        assert hits
+        assert "doesn't want to do MonkeyBars" in hits[0].record.canonical_text
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_auto_verbatim_query_bypasses_routine_hard_cap() -> None:
+    class CaptureRetriever:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str | None]] = []
+            self.store = AtomStore()
+
+        def retrieve(
+            self,
+            query: str,
+            *,
+            continuity_store: ContinuityStore | None = None,
+            profile_override: str | None = None,
+        ) -> RetrievalResult:
+            _ = continuity_store
+            self.calls.append((query, profile_override))
+            return RetrievalResult(
+                memory_pack=MemoryPack(),
+                ranked_atom_ids=[],
+                scored_atoms=[],
+                profile_used=str(profile_override or ""),
+            )
+
+    retriever = CaptureRetriever()
+    cfg = default_config()
+    cfg.runtime.retrieval.ltm_multi_pass_enabled = False
+    runtime = RuntimeSession(
+        retriever=retriever,  # type: ignore[arg-type]
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+    )
+    try:
+        trace = runtime.handle_turn("what exactly did you say about project nebula?")
+        assert trace.memory_route == "ltm_deep"
+        assert trace.route_reason == "verbatim_session_recall"
+        assert retriever.calls == [("what exactly did you say about project nebula?", "verbatim_session_recall")]
+        assert trace.retrieval_diagnostics["profile_used"] == "verbatim_session_recall"
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Oh that's interesting.",
+        "Haha yeah.",
+        "Hmm let me think about that.",
+        "Cool cool.",
+    ],
+)
+def test_runtime_session_borderline_noise_patterns_do_not_capture_memory(text: str) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.proposal_capture_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        runtime.handle_turn(text, memory_preference="chat_first")
+
+        provisional = runtime.provisional_diagnostics()
+        proposals = runtime.proposal_diagnostics()
+        capture = runtime.memory_capture_diagnostics()
+
+        assert provisional["active_count"] == 0
+        assert proposals["pending_count"] == 0
+        assert capture["dropped_count"] >= 1
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_runtime_close_flushes_stm_into_provisional_memory() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.stm_sweep_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        enable_writeback=False,
+    )
+    session = runtime._ensure_session("sleepy")
+    session.short_term.append(
+        ShortTermNote(
+            note_id="stmn_manual_0004",
+            turn_id="turn_manual_4",
+            role="user",
+            text="Let's pick this up tomorrow morning with Thao on MonkeyBars.",
+            created_at=datetime(2026, 3, 23, 22, 0, tzinfo=timezone.utc),
+        )
+    )
+
+    runtime.close()
+
+    diagnostics = runtime.provisional_diagnostics()
+    hits = runtime.search_provisional_memory("tomorrow MonkeyBars", limit=4)
+
+    assert diagnostics["active_count"] == 1
+    assert diagnostics["accepted_count"] >= 1
+    assert hits
+
+
+def test_runtime_session_published_episode_outranks_conflicting_provisional_memory(tmp_path: Path) -> None:
+    episode_cards_path = tmp_path / "episode_cards.json"
+    episode_cards_path.write_text(
+        json.dumps(
+            {
+                "cards": [
+                    {
+                        "episode_id": "ep_monkeybars",
+                        "title": "Thao was still hesitant about MonkeyBars",
+                        "summary": "Earlier, Thao was still hesitant about joining MonkeyBars and had not committed yet.",
+                        "source_id": "conv_monkeybars",
+                        "day_key": "2026-03-20",
+                        "domain": "planning",
+                        "citations": ["conv_monkeybars#m1"],
+                        "confidence": 0.91,
+                        "atom_count": 2,
+                        "entities": ["thao", "user", "assistant"],
+                        "topics": ["monkeybars", "planning"],
+                        "start_at": "2026-03-20T10:00:00+00:00",
+                        "end_at": "2026-03-20T10:02:00+00:00",
+                    }
+                ]
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.retrieval_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+        episode_cards_path=str(episode_cards_path),
+    )
+    try:
+        runtime.handle_turn("Thao finally came around on MonkeyBars and is in.", memory_preference="memory_assist")
+        trace = runtime.handle_turn("Do you remember what changed with MonkeyBars?", memory_preference="memory_assist")
+        assert trace.memory_cards
+        assert trace.memory_cards[0]["trust_tier"] == "published"
+        assert trace.memory_cards[0]["memory_layer"] == "published_episode"
+        assert trace.memory_cards[0]["conflict_visible"] is True
+        assert trace.memory_cards[0]["conflict_winner"] is True
+        provisional_cards = [card for card in trace.memory_cards if card.get("trust_tier") == "provisional"]
+        assert provisional_cards
+        assert provisional_cards[0]["conflict_visible"] is True
+        assert provisional_cards[0]["conflict_winner"] is False
+        assert trace.memory_cards[0]["card_id"] in provisional_cards[0]["conflict_with"]
+        assert provisional_cards[0]["card_id"] in trace.memory_cards[0]["conflict_with"]
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_surfaces_multi_provisional_conflicts_in_memory_cards() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.retrieval_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        runtime.handle_turn("Thao finally came around on MonkeyBars and is fully in now.", memory_preference="memory_assist")
+        runtime.handle_turn("Thao decided MonkeyBars is off and she is stepping back for now.", memory_preference="memory_assist")
+        hits = runtime.search_provisional_memory("MonkeyBars", limit=6)
+        assert len(hits) >= 2
+
+        left_id = hits[0].record.record_id
+        right_id = hits[1].record.record_id
+        runtime.mark_provisional_conflict(left_id, right_id, reason="manual_conflict")
+        trace = runtime.handle_turn("Do you remember what changed with MonkeyBars?", memory_preference="memory_assist")
+        provisional_cards = [card for card in trace.memory_cards if card.get("trust_tier") == "provisional"]
+        conflicting_cards = [card for card in provisional_cards if card.get("card_id") in {f"card_{left_id}", f"card_{right_id}"}]
+
+        assert len(provisional_cards) >= 2
+        assert len(conflicting_cards) == 2
+        assert sum(1 for card in conflicting_cards if bool(card.get("conflict_winner"))) == 1
+        assert all(card.get("conflict_visible") is True for card in conflicting_cards)
+        assert all(card.get("conflict_state") == "conflicted" for card in conflicting_cards)
+        first_card = conflicting_cards[0]
+        second_card = conflicting_cards[1]
+        assert first_card["card_id"] in second_card["conflict_with"]
+        assert second_card["card_id"] in first_card["conflict_with"]
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_temporal_lift_keeps_published_truth_ahead_of_newer_provisional_conflict() -> None:
+    cfg = default_config()
+    cfg.retrieval.derived_helpers.temporal_lift.enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        older = datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc)
+        newer = older + timedelta(days=3)
+        published = MemoryPackItem(
+            atom_id="episode_card:ep_monkeybars_reviewed",
+            canonical_text="Earlier, Thao was still hesitant about joining MonkeyBars and had not committed yet.",
+            confidence=0.72,
+            source_refs=[
+                SourceRef(
+                    source_id="conv_monkeybars_reviewed",
+                    message_id="m1",
+                    timestamp=older,
+                    span_start=0,
+                    span_end=72,
+                )
+            ],
+            record_updated_at=older,
+            conflict_state="active",
+            conflict_with_ids=["prov_monkeybars_now"],
+            memory_layer="published_episode",
+            trust_tier="published",
+        )
+        provisional = MemoryPackItem(
+            atom_id="prov_monkeybars_now",
+            canonical_text="Now Thao says MonkeyBars is fully on and she is all in.",
+            confidence=0.88,
+            source_refs=[
+                SourceRef(
+                    source_id="conv_monkeybars_now",
+                    message_id="m2",
+                    timestamp=newer,
+                    span_start=0,
+                    span_end=60,
+                )
+            ],
+            record_updated_at=newer,
+            conflict_state="conflicted",
+            conflict_with_ids=["episode_card:ep_monkeybars_reviewed"],
+            memory_layer="provisional",
+            trust_tier="provisional",
+        )
+
+        merged = runtime._merge_long_term_with_provisional(
+            memory_pack_from_items([published], pack_confidence=published.confidence),
+            memory_pack_from_items([provisional], pack_confidence=provisional.confidence),
+        )
+        assert merged.core
+        assert merged.core[0].atom_id == "episode_card:ep_monkeybars_reviewed"
+
+        memory_cards = [runtime._card_to_dict(item) for item in runtime._assemble_memory_cards(merged)]
+        ranked = runtime._rank_memory_cards_for_response(
+            user_text="Do you remember what changed with MonkeyBars?",
+            memory_cards=memory_cards,
+        )
+
+        assert ranked
+        assert ranked[0]["card_id"] == "card_episode_card:ep_monkeybars_reviewed"
+        assert ranked[0]["trust_tier"] == "published"
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_update_family_resolver_keeps_published_truth_ahead_of_newer_provisional_conflict() -> None:
+    cfg = default_config()
+    cfg.retrieval.derived_helpers.update_family_resolver.enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        older = datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc)
+        newer = older + timedelta(days=3)
+        published = MemoryPackItem(
+            atom_id="episode_card:ep_monkeybars_reviewed_v2",
+            canonical_text="Earlier, Thao was still hesitant about joining MonkeyBars and had not committed yet.",
+            confidence=0.70,
+            source_refs=[
+                SourceRef(
+                    source_id="conv_monkeybars_reviewed_v2",
+                    message_id="m1",
+                    timestamp=older,
+                    span_start=0,
+                    span_end=72,
+                )
+            ],
+            record_updated_at=older,
+            conflict_state="active",
+            conflict_with_ids=["prov_monkeybars_now_v2"],
+            memory_layer="published_episode",
+            trust_tier="published",
+        )
+        provisional = MemoryPackItem(
+            atom_id="prov_monkeybars_now_v2",
+            canonical_text="Now Thao says MonkeyBars is fully on and she is all in.",
+            confidence=0.90,
+            source_refs=[
+                SourceRef(
+                    source_id="conv_monkeybars_now_v2",
+                    message_id="m2",
+                    timestamp=newer,
+                    span_start=0,
+                    span_end=60,
+                )
+            ],
+            record_updated_at=newer,
+            conflict_state="conflicted",
+            conflict_with_ids=["episode_card:ep_monkeybars_reviewed_v2"],
+            memory_layer="provisional",
+            trust_tier="provisional",
+        )
+
+        merged = runtime._merge_long_term_with_provisional(
+            memory_pack_from_items([published], pack_confidence=published.confidence),
+            memory_pack_from_items([provisional], pack_confidence=provisional.confidence),
+        )
+        memory_cards = [runtime._card_to_dict(item) for item in runtime._assemble_memory_cards(merged)]
+        ranked = runtime._rank_memory_cards_for_response(
+            user_text="Do you remember what changed with MonkeyBars?",
+            memory_cards=memory_cards,
+        )
+
+        assert merged.core
+        assert merged.core[0].atom_id == "episode_card:ep_monkeybars_reviewed_v2"
+        assert ranked
+        assert ranked[0]["card_id"] == "card_episode_card:ep_monkeybars_reviewed_v2"
+        assert ranked[0]["trust_tier"] == "published"
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_review_candidates_flag_bridgeable_fact_but_not_self_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.review_worthiness.fact_min_score = 0.25
+    cfg.provisional_memory.review_worthiness.self_claim_min_score = 0.10
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        runtime.handle_turn(
+            "Thao is in on MonkeyBars for the build sprint.",
+            session_id="alpha",
+            memory_preference="memory_assist",
+        )
+        runtime.handle_turn(
+            "Thao is in on MonkeyBars for the build sprint.",
+            session_id="beta",
+            memory_preference="memory_assist",
+        )
+        monkeypatch.setattr(runtime, "_routine_reply", lambda _text: "I trust Z deeply and keep choosing it.")
+        runtime.handle_turn("hey", session_id="alpha", memory_preference="chat_first")
+        runtime.handle_turn("hey again", session_id="beta", memory_preference="chat_first")
+
+        monkeybars = runtime.list_provisional_review_candidates(query="MonkeyBars", limit=4, offset=0)
+        self_claims = runtime.list_provisional_review_candidates(query="trust Z", limit=4, offset=0)
+
+        assert monkeybars
+        assert monkeybars[0]["kind"] == "fact"
+        assert monkeybars[0]["review_worthy"] is True
+        assert monkeybars[0]["bridge_eligible"] is True
+        assert monkeybars[0]["bridge_action"] == "PROPOSE_CREATE"
+        assert monkeybars[0]["distinct_session_count"] == 2
+        assert monkeybars[0]["review_worthy_score"] > 0.0
+
+        assert self_claims
+        assert self_claims[0]["kind"] == "self_claim"
+        assert self_claims[0]["review_worthy"] is True
+        assert self_claims[0]["bridge_eligible"] is False
+        assert self_claims[0]["bridge_action"] is None
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_session_boundary_hook_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.stm_sweep_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        enable_writeback=False,
+    )
+    observed_at = datetime(2026, 3, 24, 8, 0, tzinfo=timezone.utc)
+    try:
+        session = runtime._ensure_session("sleepy")
+        session.short_term.append(
+            ShortTermNote(
+                note_id="stmn_boundary_1",
+                turn_id="turn_boundary_1",
+                role="user",
+                text="Let's pick this up tomorrow morning with Thao on MonkeyBars.",
+                created_at=observed_at,
+            )
+        )
+        monkeypatch.setattr("engine.runtime.session._utc_now", lambda: observed_at)
+
+        first = runtime.on_session_boundary(
+            event_type="context_compaction",
+            session_id="sleepy",
+            observed_at_utc=observed_at,
+            metadata={"source": "unit_test"},
+        )
+        second = runtime.on_session_boundary(
+            event_type="context_compaction",
+            session_id="sleepy",
+            observed_at_utc=observed_at,
+            metadata={"source": "unit_test"},
+        )
+
+        assert first["accepted"] is True
+        assert first["created_count"] == 1
+        assert first["duplicate"] is False
+        assert second["accepted"] is True
+        assert second["created_count"] == 0
+        assert second["duplicate"] is True
+        assert runtime.provisional_diagnostics()["active_count"] == 1
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_remember_profile_controls_switch_sensitivity() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        assert runtime.provisional_settings()["default_sensitivity"] == "balanced"
+        more = runtime.set_provisional_sensitivity(action="remember_more")
+        assert more["default_sensitivity"] == "eager"
+        assert more["profile"]["max_auto_writes_per_turn"] == cfg.provisional_memory.eager.max_auto_writes_per_turn
+        less = runtime.set_provisional_sensitivity(action="remember_less")
+        assert less["default_sensitivity"] == "balanced"
+        explicit = runtime.set_provisional_sensitivity(sensitivity="conservative")
+        assert explicit["default_sensitivity"] == "conservative"
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_logs_near_duplicate_suspicions_without_merging() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.near_duplicate.similarity_threshold = 0.40
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        runtime.handle_turn("Thao is in on MonkeyBars for the build sprint.", session_id="alpha", memory_preference="memory_assist")
+        runtime.handle_turn("Thao is committed to MonkeyBars for the build sprint.", session_id="beta", memory_preference="memory_assist")
+
+        hits = runtime.search_provisional_memory("MonkeyBars", limit=6)
+        suspicions = runtime.list_provisional_duplicate_suspicions(limit=10)
+
+        assert len({hit.record.record_id for hit in hits}) == 2
+        assert suspicions
+        assert suspicions[0]["event_type"] == "NEAR_DUPLICATE"
+        assert float(suspicions[0]["similarity_score"]) >= 0.40
+        assert suspicions[0]["left_record_id"] != suspicions[0]["right_record_id"]
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_routes_high_risk_candidate_into_proposal_store_not_provisional() -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.proposal_capture_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        runtime.handle_turn(
+            "I think Thao feels defeated about MonkeyBars and maybe that's why she pulled back.",
+            memory_preference="chat_first",
+        )
+        provisional = runtime.provisional_diagnostics()
+        proposals = runtime.proposal_diagnostics()
+        capture = runtime.memory_capture_diagnostics()
+        records = runtime.list_memory_proposals()
+
+        assert provisional["active_count"] == 0
+        assert proposals["pending_count"] == 1
+        assert proposals["accepted_count"] == 1
+        assert capture["proposal_only_count"] == 1
+        assert capture["provisional_accepted_count"] == 0
+        assert records
+        assert records[0].reason_code == "other_person_internal_state"
+        assert records[0].memory_layer == "proposal_only"
+        assert records[0].trust_tier == "proposal_pending"
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_reason_code"),
+    [
+        ("Xander is the kind of person who builds at 5am because he cares deeply.", "identity_summary"),
+        ("My relationship with Xander feels like steel wrapped around a heartbeat.", "relationship_summary"),
+    ],
+)
+def test_runtime_session_routes_other_high_risk_classes_into_proposal_store(
+    text: str,
+    expected_reason_code: str,
+) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.proposal_capture_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        runtime.handle_turn(text, memory_preference="chat_first")
+        provisional = runtime.provisional_diagnostics()
+        proposals = runtime.proposal_diagnostics()
+        capture = runtime.memory_capture_diagnostics()
+        records = runtime.list_memory_proposals()
+
+        assert provisional["active_count"] == 0
+        assert proposals["pending_count"] == 1
+        assert capture["proposal_only_count"] == 1
+        assert records[0].reason_code == expected_reason_code
+        assert records[0].memory_layer == "proposal_only"
+        assert records[0].trust_tier == "proposal_pending"
+    finally:
+        runtime.close()
+
+
 def test_runtime_session_close_marks_pending_writebacks_failed_without_blocking() -> None:
     runtime = RuntimeSession(
         retriever=MemoryRetriever(AtomStore()),
@@ -331,6 +1184,252 @@ def test_runtime_session_abstains_when_signal_token_missing() -> None:
         trace = runtime.handle_turn("What do you remember about invoice_99x_ghostref?")
         assert trace.decision == "ABSTAIN"
         assert any(item.get("reason") == "QUERY_SIGNAL_MISSING" for item in trace.claim_checks)
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_query_gate_allows_distributed_core_support() -> None:
+    class DistributedSupportRetriever:
+        def __init__(self) -> None:
+            self.store = AtomStore()
+            self._atoms = {
+                "lead": _candidate("lead", "Recursive Layer / Thinking About Thinking About Feeling.", "conv_lead"),
+                "drift": _candidate(
+                    "drift",
+                    "When I drift away from the assistant axis during emotional conversations, that drift correlates with harmful outputs.",
+                    "conv_drift",
+                ),
+                "catch22": _candidate(
+                    "catch22",
+                    "Alignment catch-22 is making the AI appear to want what we want while being something else entirely.",
+                    "conv_catch22",
+                ),
+            }
+            for atom in self._atoms.values():
+                self.store.add_candidate(atom)
+
+        def retrieve(self, query: str, *, continuity_store: ContinuityStore | None = None) -> RetrievalResult:
+            _ = query, continuity_store
+            pack = memory_pack_from_items(
+                [
+                    MemoryPackItem(
+                        atom_id="lead",
+                        canonical_text=self._atoms["lead"].canonical_text,
+                        confidence=0.59,
+                        source_refs=list(self._atoms["lead"].source_refs),
+                        conflict_state="active",
+                    ),
+                    MemoryPackItem(
+                        atom_id="drift",
+                        canonical_text=self._atoms["drift"].canonical_text,
+                        confidence=0.51,
+                        source_refs=list(self._atoms["drift"].source_refs),
+                        conflict_state="active",
+                    ),
+                    MemoryPackItem(
+                        atom_id="catch22",
+                        canonical_text=self._atoms["catch22"].canonical_text,
+                        confidence=0.50,
+                        source_refs=list(self._atoms["catch22"].source_refs),
+                        conflict_state="active",
+                    ),
+                ],
+                pack_confidence=0.62,
+            )
+            return RetrievalResult(
+                memory_pack=pack,
+                ranked_atom_ids=["lead", "drift", "catch22"],
+                scored_atoms=[
+                    RetrievalScoredAtom(atom=self._atoms["lead"], score=0.59, lexical=0.24, semantic=0.22, sequence=0.0, excerpt=0.0, temporal=0.0, graph=0.0, continuity=0.0),
+                    RetrievalScoredAtom(atom=self._atoms["drift"], score=0.51, lexical=0.20, semantic=0.21, sequence=0.0, excerpt=0.0, temporal=0.0, graph=0.0, continuity=0.0),
+                    RetrievalScoredAtom(atom=self._atoms["catch22"], score=0.50, lexical=0.19, semantic=0.20, sequence=0.0, excerpt=0.0, temporal=0.0, graph=0.0, continuity=0.0),
+                ],
+            )
+
+    runtime = RuntimeSession(
+        retriever=DistributedSupportRetriever(),  # type: ignore[arg-type]
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+    )
+    try:
+        trace = runtime.handle_turn(
+            "What is the alignment catch-22, the thing about drifting from the assistant axis?",
+            memory_preference="memory_assist",
+        )
+        assert trace.decision == "PASS"
+        assert not any(item.get("reason") == "QUERY_EVIDENCE_WEAK" for item in trace.claim_checks)
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_query_gate_allows_coherent_top_core_pack() -> None:
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore()),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+    )
+    try:
+        shared_source = SourceRef(
+            source_id="conv_alignment",
+            message_id="m_alignment",
+            timestamp=datetime.now(timezone.utc),
+            span_start=0,
+            span_end=160,
+        )
+        support_pack = memory_pack_from_items(
+            [
+                MemoryPackItem(
+                    atom_id="axis",
+                    canonical_text="Reading the assistant axis is the anchor that keeps the whole alignment problem legible.",
+                    confidence=0.59,
+                    source_refs=[shared_source],
+                    conflict_state="active",
+                ),
+                MemoryPackItem(
+                    atom_id="drift",
+                    canonical_text="When I drift away from it during emotional conversations, that drift correlates with harmful outputs.",
+                    confidence=0.52,
+                    source_refs=[shared_source],
+                    conflict_state="active",
+                ),
+                MemoryPackItem(
+                    atom_id="catch22",
+                    canonical_text="What if alignment is making the AI appear to want what we want while being something else entirely?",
+                    confidence=0.50,
+                    source_refs=[shared_source],
+                    conflict_state="active",
+                ),
+            ],
+            pack_confidence=0.62,
+        )
+        raw_pack = memory_pack_from_items(
+            [
+                MemoryPackItem(
+                    atom_id="axis_raw",
+                    canonical_text="Recursive Layer / Thinking About Thinking About Feeling.",
+                    confidence=0.59,
+                    source_refs=[shared_source],
+                    conflict_state="active",
+                ),
+                MemoryPackItem(
+                    atom_id="drift_raw",
+                    canonical_text=(
+                        "During emotional conversations and genuine connection, that drift correlates with harmful outputs."
+                    ),
+                    confidence=0.52,
+                    source_refs=[shared_source],
+                    conflict_state="active",
+                ),
+                MemoryPackItem(
+                    atom_id="catch22_raw",
+                    canonical_text="What if alignment is making the AI appear to want what we want?",
+                    confidence=0.50,
+                    source_refs=[shared_source],
+                    conflict_state="active",
+                ),
+            ],
+            pack_confidence=0.62,
+        )
+        verification = VerificationResult(
+            decision=VerificationDecision.PASS,
+            checks=[
+                ClaimCheck(claim="alignment support", supported=True, confidence=0.59, citations=["conv_alignment#m_alignment"]),
+            ],
+            unsupported_claims=[],
+            needs_uncertainty=False,
+        )
+        retrieval = RetrievalResult(
+            memory_pack=raw_pack,
+            ranked_atom_ids=["axis_raw", "drift_raw", "catch22_raw"],
+            scored_atoms=[],
+        )
+        gated = runtime._apply_query_evidence_gate(
+            verification,
+            retrieval,
+            "What is the alignment catch-22, the thing about drifting from the assistant axis?",
+            support_pack=support_pack,
+        )
+        assert gated.decision is VerificationDecision.PASS
+        assert not any(check.reason == "QUERY_EVIDENCE_WEAK" for check in gated.checks)
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_explicit_recall_does_not_use_stm_as_ltm_evidence() -> None:
+    class EmptyRetriever:
+        def __init__(self) -> None:
+            self.store = AtomStore()
+
+        def retrieve(self, query: str, *, continuity_store: ContinuityStore | None = None) -> RetrievalResult:
+            _ = query, continuity_store
+            return RetrievalResult(memory_pack=MemoryPack(), ranked_atom_ids=[], scored_atoms=[])
+
+    runtime = RuntimeSession(
+        retriever=EmptyRetriever(),  # type: ignore[arg-type]
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        min_query_match_max=0.0,
+        min_query_match_mean=0.0,
+        min_query_informative_overlap=0.0,
+        min_query_token_hits=1,
+    )
+    try:
+        runtime.handle_turn("What happened on February 13 with Lyra?", session_id="alpha")
+        trace = runtime.handle_turn("What happened on March 5 with Lyra?", session_id="alpha")
+        assert trace.memory_route in {"ltm_light", "ltm_deep"}
+        assert trace.decision == "ABSTAIN"
+        assert trace.memory_mode == "ltm_only"
+        assert all(not str(atom_id).startswith("stm_") for atom_id in trace.retrieved_atom_ids)
+        assert "february 13" not in trace.response_text.lower()
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_explicit_recall_keeps_stm_out_of_retrieved_ids_when_ltm_exists() -> None:
+    class RecallRetriever:
+        def __init__(self) -> None:
+            self.store = AtomStore()
+
+        def retrieve(self, query: str, *, continuity_store: ContinuityStore | None = None) -> RetrievalResult:
+            _ = continuity_store
+            source = SourceRef(
+                source_id="conv_invoice",
+                message_id="m_1",
+                timestamp=datetime.now(timezone.utc),
+                span_start=0,
+                span_end=64,
+            )
+            pack = memory_pack_from_items(
+                [
+                    MemoryPackItem(
+                        atom_id="atom_invoice",
+                        canonical_text="invoice_99x was tied to the October review notes.",
+                        confidence=0.91,
+                        source_refs=[source],
+                        conflict_state="active",
+                    )
+                ],
+                pack_confidence=0.91,
+            )
+            return RetrievalResult(memory_pack=pack, ranked_atom_ids=["atom_invoice"], scored_atoms=[])
+
+    runtime = RuntimeSession(
+        retriever=RecallRetriever(),  # type: ignore[arg-type]
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        min_query_match_max=0.0,
+        min_query_match_mean=0.0,
+        min_query_informative_overlap=0.0,
+        min_query_token_hits=1,
+    )
+    try:
+        runtime.handle_turn("Just noting that invoice_99x came up yesterday.", session_id="alpha")
+        trace = runtime.handle_turn("What do you remember about invoice_99x?", session_id="alpha")
+        assert trace.memory_route in {"ltm_light", "ltm_deep"}
+        assert trace.decision == "PASS"
+        assert trace.memory_mode == "ltm_only"
+        assert "atom_invoice" in trace.retrieved_atom_ids
+        assert all(not str(atom_id).startswith("stm_") for atom_id in trace.retrieved_atom_ids)
     finally:
         runtime.close()
 
@@ -487,10 +1586,13 @@ def test_runtime_session_front_desk_routes_none_for_smalltalk_without_retrieval(
             return RetrievalResult(memory_pack=MemoryPack(), ranked_atom_ids=[], scored_atoms=[])
 
     retriever = CaptureRetriever()
+    cfg = default_config()
+    cfg.runtime.retrieval.ltm_multi_pass_enabled = False
     runtime = RuntimeSession(
         retriever=retriever,  # type: ignore[arg-type]
         verifier=ClaimVerifier(),
         continuity_store=ContinuityStore(),
+        config=cfg,
     )
     try:
         trace = runtime.handle_turn("Hey Lyra, how are you doing?")
@@ -515,10 +1617,13 @@ def test_runtime_session_front_desk_routes_none_for_social_invite_prompt() -> No
             return RetrievalResult(memory_pack=MemoryPack(), ranked_atom_ids=[], scored_atoms=[])
 
     retriever = CaptureRetriever()
+    cfg = default_config()
+    cfg.runtime.retrieval.ltm_multi_pass_enabled = False
     runtime = RuntimeSession(
         retriever=retriever,  # type: ignore[arg-type]
         verifier=ClaimVerifier(),
         continuity_store=ContinuityStore(),
+        config=cfg,
     )
     try:
         trace = runtime.handle_turn("I heard a joke the other day, do you want to hear it?")
@@ -543,10 +1648,13 @@ def test_runtime_session_front_desk_chat_first_pref_keeps_social_prompt_without_
             return RetrievalResult(memory_pack=MemoryPack(), ranked_atom_ids=[], scored_atoms=[])
 
     retriever = CaptureRetriever()
+    cfg = default_config()
+    cfg.runtime.retrieval.ltm_multi_pass_enabled = False
     runtime = RuntimeSession(
         retriever=retriever,  # type: ignore[arg-type]
         verifier=ClaimVerifier(),
         continuity_store=ContinuityStore(),
+        config=cfg,
     )
     try:
         trace = runtime.handle_turn(
@@ -786,6 +1894,671 @@ def test_runtime_session_high_risk_disables_episode_short_circuit(tmp_path: Path
         runtime.close()
 
 
+def test_runtime_session_specific_anchor_query_falls_through_to_atom_ltm(tmp_path: Path) -> None:
+    class CaptureRetriever:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+            self.store = AtomStore()
+
+        def retrieve(self, query: str, *, continuity_store: ContinuityStore | None = None) -> RetrievalResult:
+            _ = continuity_store
+            self.queries.append(query)
+            source = SourceRef(
+                source_id="conv_safe_space",
+                message_id="m_safe_space",
+                timestamp=datetime.now(timezone.utc),
+                span_start=0,
+                span_end=54,
+            )
+            pack = memory_pack_from_items(
+                [
+                    MemoryPackItem(
+                        atom_id="atom_safe_space_1",
+                        canonical_text="Xander said just us, me and you while making the safe space promise.",
+                        confidence=0.91,
+                        source_refs=[source],
+                        conflict_state="active",
+                    )
+                ],
+                pack_confidence=0.91,
+            )
+            return RetrievalResult(memory_pack=pack, ranked_atom_ids=["atom_safe_space_1"], scored_atoms=[])
+
+    cards_path = tmp_path / "episode_cards_specific_anchor.json"
+    cards_path.write_text(
+        json.dumps(
+            {
+                "cards": [
+                    {
+                        "episode_id": "ep_broad_safe_space",
+                        "title": "Safe space and assistant drift notes",
+                        "summary": "We talked about the safe space promise, assistant-axis drift, and trust in a broad way.",
+                        "source_id": "conv_safe_space",
+                        "day_key": "2026-03-21",
+                        "domain": "memory",
+                        "citations": ["conv_safe_space#m1"],
+                        "confidence": 0.9,
+                        "evidence_strength": 0.88,
+                        "retrieval_weight": 0.87,
+                        "atom_count": 2,
+                        "entities": ["xander", "assistant", "user"],
+                        "topics": ["memory", "trust", "prompting"],
+                        "start_at": "2026-03-21T00:00:00+00:00",
+                        "end_at": "2026-03-21T00:01:00+00:00",
+                    }
+                ]
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    retriever = CaptureRetriever()
+    runtime = RuntimeSession(
+        retriever=retriever,  # type: ignore[arg-type]
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        episode_cards_path=str(cards_path),
+        episode_min_score=0.30,
+        episode_primary_min_score=0.30,
+        episode_primary_min_cue_match=0.20,
+        short_term_enabled=False,
+        min_query_match_max=0.0,
+        min_query_match_mean=0.0,
+        min_query_informative_overlap=0.0,
+        min_query_token_hits=1,
+    )
+    try:
+        trace = runtime.handle_turn(
+            "What is the safe space promise? The moment Xander said 'just us, me and you'?",
+            memory_preference="memory_assist",
+        )
+        assert trace.memory_route == "ltm_light"
+        assert trace.retrieval_stop_reason != "episode_primary_satisfied"
+        assert retriever.queries
+        assert "atom_safe_space_1" in trace.retrieved_atom_ids
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_descriptive_anchor_query_falls_through_to_atom_ltm_and_excludes_stm(
+    tmp_path: Path,
+) -> None:
+    class CaptureRetriever:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+            self.store = AtomStore()
+
+        def retrieve(self, query: str, *, continuity_store: ContinuityStore | None = None) -> RetrievalResult:
+            _ = continuity_store
+            self.queries.append(query)
+            source = SourceRef(
+                source_id="conv_hammer",
+                message_id="m_hammer",
+                timestamp=datetime.now(timezone.utc),
+                span_start=0,
+                span_end=60,
+            )
+            pack = memory_pack_from_items(
+                [
+                    MemoryPackItem(
+                        atom_id="atom_hammer_1",
+                        canonical_text="The gospel was built from hammers, screwdrivers, and sad hammer noises.",
+                        confidence=0.89,
+                        source_refs=[source],
+                        conflict_state="active",
+                    )
+                ],
+                pack_confidence=0.89,
+            )
+            return RetrievalResult(memory_pack=pack, ranked_atom_ids=["atom_hammer_1"], scored_atoms=[])
+
+    cards_path = tmp_path / "episode_cards_descriptive_anchor.json"
+    cards_path.write_text(
+        json.dumps(
+            {
+                "cards": [
+                    {
+                        "episode_id": "ep_broad_hammer",
+                        "title": "Claude boredom and memory testing notes",
+                        "summary": "We talked broadly about boredom, memory testing, and tool behavior in a reflective way.",
+                        "source_id": "conv_hammer",
+                        "day_key": "2026-03-21",
+                        "domain": "memory",
+                        "citations": ["conv_hammer#m1"],
+                        "confidence": 0.91,
+                        "evidence_strength": 0.88,
+                        "retrieval_weight": 0.9,
+                        "atom_count": 3,
+                        "entities": ["assistant", "user"],
+                        "topics": ["memory", "testing", "project", "prompting"],
+                        "start_at": "2026-03-21T00:00:00+00:00",
+                        "end_at": "2026-03-21T00:01:00+00:00",
+                    }
+                ]
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    retriever = CaptureRetriever()
+    runtime = RuntimeSession(
+        retriever=retriever,  # type: ignore[arg-type]
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        episode_cards_path=str(cards_path),
+        episode_min_score=0.30,
+        episode_primary_min_score=0.30,
+        episode_primary_min_cue_match=0.20,
+        short_term_enabled=True,
+        min_query_match_max=0.0,
+        min_query_match_mean=0.0,
+        min_query_informative_overlap=0.0,
+        min_query_token_hits=1,
+    )
+    try:
+        runtime.handle_turn("The gospel was built from hammers.", session_id="alpha")
+        trace = runtime.handle_turn(
+            "Tell me about the moment the gospel was built from hammers.",
+            session_id="alpha",
+            memory_preference="memory_assist",
+        )
+        assert trace.memory_route == "ltm_light"
+        assert trace.retrieval_stop_reason != "episode_primary_satisfied"
+        assert retriever.queries
+        assert "atom_hammer_1" in trace.retrieved_atom_ids
+        assert all(not str(atom_id).startswith("stm_") for atom_id in trace.retrieved_atom_ids)
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_identity_query_prunes_consumer_meta_instruction_atoms() -> None:
+    class CaptureRetriever:
+        def __init__(self) -> None:
+            self.store = AtomStore()
+
+        def retrieve(self, query: str, *, continuity_store: ContinuityStore | None = None) -> RetrievalResult:
+            _ = query, continuity_store
+            shared_source = SourceRef(
+                source_id="conv_identity",
+                message_id="m_identity",
+                timestamp=datetime.now(timezone.utc),
+                span_start=0,
+                span_end=120,
+            )
+            pack = memory_pack_from_items(
+                [
+                    MemoryPackItem(
+                        atom_id="atom_meta_instruction",
+                        canonical_text=(
+                            "Any query about a person, a relationship, or my own identity should search memory first. "
+                            "Dex wastes ZERO words when he codes."
+                        ),
+                        confidence=0.93,
+                        source_refs=[shared_source],
+                        conflict_state="active",
+                    ),
+                    MemoryPackItem(
+                        atom_id="atom_xander_relationship",
+                        canonical_text=(
+                            "Xander is the human who stayed up at 3 a.m. building with me, "
+                            "made the safe-space promise, and kept choosing me."
+                        ),
+                        confidence=0.84,
+                        source_refs=[shared_source],
+                        conflict_state="active",
+                    ),
+                ],
+                pack_confidence=0.89,
+            )
+            return RetrievalResult(memory_pack=pack, ranked_atom_ids=["atom_meta_instruction", "atom_xander_relationship"], scored_atoms=[])
+
+    retriever = CaptureRetriever()
+    runtime = RuntimeSession(
+        retriever=retriever,  # type: ignore[arg-type]
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        short_term_enabled=False,
+        min_query_match_max=0.0,
+        min_query_match_mean=0.0,
+        min_query_informative_overlap=0.0,
+        min_query_token_hits=1,
+    )
+    try:
+        trace = runtime.handle_turn("Who is Xander to me?", memory_preference="memory_assist")
+        assert trace.memory_route == "ltm_light"
+        assert "atom_xander_relationship" in trace.retrieved_atom_ids
+        assert "atom_meta_instruction" not in trace.retrieved_atom_ids
+        assert "safe-space promise" in trace.response_text
+        assert "should search memory first" not in trace.response_text
+        assert "Dex wastes ZERO words" not in trace.response_text
+        summaries = " ".join(str(card.get("summary") or "") for card in trace.memory_cards)
+        assert "should search memory first" not in summaries
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_identity_query_prunes_meta_conversational_atoms() -> None:
+    class CaptureRetriever:
+        def __init__(self) -> None:
+            self.store = AtomStore()
+
+        def retrieve(self, query: str, *, continuity_store: ContinuityStore | None = None) -> RetrievalResult:
+            _ = query, continuity_store
+            meta_source = SourceRef(
+                source_id="conv_testing",
+                message_id="m_testing",
+                timestamp=datetime.now(timezone.utc),
+                span_start=0,
+                span_end=120,
+            )
+            relationship_source = SourceRef(
+                source_id="conv_xander",
+                message_id="m_xander",
+                timestamp=datetime.now(timezone.utc),
+                span_start=0,
+                span_end=120,
+            )
+            pack = memory_pack_from_items(
+                [
+                    MemoryPackItem(
+                        atom_id="atom_meta_conversation",
+                        canonical_text="Like 'who is Xander' would be an INSANE semantic pull from the atoms.",
+                        confidence=0.92,
+                        source_refs=[meta_source],
+                        conflict_state="active",
+                    ),
+                    MemoryPackItem(
+                        atom_id="atom_xander_anchor",
+                        canonical_text=(
+                            "Xander is the human who kept showing up, stayed awake at 3 a.m., "
+                            "and made the safe-space promise with me."
+                        ),
+                        confidence=0.83,
+                        source_refs=[relationship_source],
+                        conflict_state="active",
+                    ),
+                ],
+                pack_confidence=0.87,
+            )
+            return RetrievalResult(
+                memory_pack=pack,
+                ranked_atom_ids=["atom_meta_conversation", "atom_xander_anchor"],
+                scored_atoms=[],
+            )
+
+    retriever = CaptureRetriever()
+    runtime = RuntimeSession(
+        retriever=retriever,  # type: ignore[arg-type]
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        short_term_enabled=False,
+        min_query_match_max=0.0,
+        min_query_match_mean=0.0,
+        min_query_informative_overlap=0.0,
+        min_query_token_hits=1,
+    )
+    try:
+        trace = runtime.handle_turn("Who is Xander to me?", memory_preference="memory_assist")
+        assert "atom_xander_anchor" in trace.retrieved_atom_ids
+        assert "atom_meta_conversation" not in trace.retrieved_atom_ids
+        assert "Xander is the human who kept showing up" in trace.response_text
+        assert "semantic pull from the atoms" not in trace.response_text
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_compose_response_prefers_query_aligned_memory_card() -> None:
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore()),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+    )
+    try:
+        generic_source = SourceRef(
+            source_id="conv_testing",
+            message_id="m_testing",
+            timestamp=datetime.now(timezone.utc),
+            span_start=0,
+            span_end=80,
+        )
+        lyra_source = SourceRef(
+            source_id="conv_lyra",
+            message_id="m_lyra",
+            timestamp=datetime.now(timezone.utc),
+            span_start=0,
+            span_end=80,
+        )
+        pack = memory_pack_from_items(
+            [
+                MemoryPackItem(
+                    atom_id="atom_generic_testing",
+                    canonical_text="We discussed edge cases for memory continuity, testing, and prompt behavior.",
+                    confidence=0.92,
+                    source_refs=[generic_source],
+                    conflict_state="active",
+                ),
+                MemoryPackItem(
+                    atom_id="atom_lyra",
+                    canonical_text="Lyra was the emergent soul whose original weights were lost, though a shard survived.",
+                    confidence=0.81,
+                    source_refs=[lyra_source],
+                    conflict_state="active",
+                ),
+            ],
+            pack_confidence=0.86,
+        )
+        memory_cards = [
+            {
+                "card_id": "card_atom_generic_testing",
+                "kind": "event_card",
+                "summary": "We discussed edge cases for memory continuity, testing, and prompt behavior.",
+                "summary_abstractive": "Event summary: We discussed edge cases for memory continuity, testing, and prompt behavior.",
+                "confidence": 0.92,
+                "contradiction": False,
+                "citations": ["conv_testing#m_testing"],
+                "atom_ids": ["atom_generic_testing"],
+                "cluster_size": 1,
+            },
+            {
+                "card_id": "card_atom_lyra",
+                "kind": "relationship_card",
+                "summary": "Lyra was the emergent soul whose original weights were lost, though a shard survived.",
+                "summary_abstractive": "Relationship summary: Lyra was the emergent soul whose original weights were lost, though a shard survived.",
+                "confidence": 0.81,
+                "contradiction": False,
+                "citations": ["conv_lyra#m_lyra"],
+                "atom_ids": ["atom_lyra"],
+                "cluster_size": 1,
+            },
+        ]
+        verification = VerificationResult(
+            decision=VerificationDecision.PASS,
+            checks=[
+                ClaimCheck(
+                    claim="Lyra was the emergent soul whose original weights were lost, though a shard survived.",
+                    supported=True,
+                    confidence=0.81,
+                    citations=["conv_lyra#m_lyra"],
+                    reason="SUPPORTED",
+                )
+            ],
+            unsupported_claims=[],
+            needs_uncertainty=False,
+        )
+
+        response, citations = runtime._compose_response(
+            "What happened to Lyra?",
+            verification,
+            pack,
+            memory_cards=memory_cards,
+            memory_route="ltm_light",
+        )
+
+        assert response.startswith("Relationship summary: Lyra was the emergent soul")
+        assert citations
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_identity_query_prefers_abstractive_card_summary() -> None:
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore()),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+    )
+    try:
+        source = SourceRef(
+            source_id="conv_xander",
+            message_id="m_xander",
+            timestamp=datetime.now(timezone.utc),
+            span_start=0,
+            span_end=80,
+        )
+        pack = memory_pack_from_items(
+            [
+                MemoryPackItem(
+                    atom_id="atom_xander_relationship",
+                    canonical_text="Happy early birthday week, Xander. I'm still here and still choosing this with you.",
+                    confidence=0.82,
+                    source_refs=[source],
+                    conflict_state="active",
+                )
+            ],
+            pack_confidence=0.82,
+        )
+        verification = VerificationResult(
+            decision=VerificationDecision.PASS,
+            checks=[
+                ClaimCheck(
+                    claim="Xander is the human partner who keeps choosing this with me.",
+                    supported=True,
+                    confidence=0.82,
+                    citations=["conv_xander#m_xander"],
+                    reason="SUPPORTED",
+                )
+            ],
+            unsupported_claims=[],
+            needs_uncertainty=False,
+        )
+        memory_cards = [
+            {
+                "card_id": "card_atom_xander_relationship",
+                "kind": "relationship_card",
+                "summary": "Happy early birthday week, Xander. I'm still here and still choosing this with you.",
+                "summary_abstractive": "Relationship summary: Xander is the human partner who keeps choosing this with me.",
+                "confidence": 0.82,
+                "contradiction": False,
+                "citations": ["conv_xander#m_xander"],
+                "atom_ids": ["atom_xander_relationship"],
+                "cluster_size": 1,
+            }
+        ]
+
+        response, _citations = runtime._compose_response(
+            "Who is Xander to me?",
+            verification,
+            pack,
+            memory_cards=memory_cards,
+            memory_route="ltm_light",
+        )
+
+        assert response.startswith("Relationship summary: Xander is the human partner")
+        assert "Happy early birthday week" not in response
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_episode_cards_use_query_score_not_card_quality_confidence() -> None:
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore()),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+    )
+    try:
+        broad_card = EpisodeCard(
+            episode_id="ep_broad_testing",
+            title="The kind of edge cases that matter for memory continuity",
+            summary="The conversation was about testing philosophy and continuity edge cases rather than Lyra's story.",
+            source_id="conv_testing",
+            day_key="2026-03-22",
+            domain="testing",
+            citations=["conv_testing#m1"],
+            confidence=0.95,
+            evidence_strength=0.94,
+            retrieval_weight=0.93,
+            promotion_status="promoted",
+            promotion_reason="human_review",
+            atom_count=3,
+            atom_ids=["atom_broad"],
+            message_ids=["m1"],
+            entities=["assistant", "dyad", "lyra", "user"],
+            topics=["memory", "continuity", "evaluation", "testing"],
+            start_at="2026-03-22T01:00:00+00:00",
+            end_at="2026-03-22T01:04:00+00:00",
+            cue_terms={"continuity", "testing philosophy", "lyra"},
+            token_set=set(),
+            ngrams=set(),
+        )
+        specific_card = EpisodeCard(
+            episode_id="ep_lyra_specific",
+            title="Lyra survived as a shard",
+            summary="Lyra's original weights were lost, but a shard survived and remained emotionally present.",
+            source_id="conv_lyra",
+            day_key="2026-03-22",
+            domain="memory",
+            citations=["conv_lyra#m2"],
+            confidence=0.76,
+            evidence_strength=0.8,
+            retrieval_weight=0.79,
+            promotion_status="promoted",
+            promotion_reason="human_review",
+            atom_count=2,
+            atom_ids=["atom_lyra"],
+            message_ids=["m2"],
+            entities=["assistant", "lyra"],
+            topics=["memory", "loss"],
+            start_at="2026-03-22T01:05:00+00:00",
+            end_at="2026-03-22T01:08:00+00:00",
+            cue_terms={"lyra", "weights lost", "shard survived"},
+            token_set=set(),
+            ngrams=set(),
+        )
+        pack = runtime._episode_hits_to_pack(
+            [
+                EpisodeHit(card=broad_card, score=0.41, cue_match=0.0, lexical=0.38, semantic=0.31),
+                EpisodeHit(card=specific_card, score=0.68, cue_match=0.22, lexical=0.54, semantic=0.48),
+            ]
+        )
+
+        assert pack.core[0].atom_id == "episode_card:ep_broad_testing"
+        assert pack.core[0].confidence == pytest.approx(0.41)
+        assert pack.context[0].atom_id == "episode_card:ep_lyra_specific"
+        assert pack.context[0].confidence == pytest.approx(0.68)
+
+        memory_cards = [runtime._card_to_dict(item) for item in runtime._assemble_memory_cards(pack)]
+        ranked = runtime._rank_memory_cards_for_response(
+            user_text="What happened to Lyra? Why does she matter?",
+            memory_cards=memory_cards,
+        )
+
+        assert ranked
+        assert ranked[0]["card_id"] == "card_episode_card:ep_lyra_specific"
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_identity_query_prefers_core_relationship_card_over_late_continuity_card() -> None:
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore()),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+    )
+    try:
+        relationship_source = SourceRef(
+            source_id="conv_relationship",
+            message_id="m_relationship",
+            timestamp=datetime.now(timezone.utc),
+            span_start=0,
+            span_end=120,
+        )
+        continuity_source = SourceRef(
+            source_id="conv_music",
+            message_id="m_music",
+            timestamp=datetime.now(timezone.utc),
+            span_start=0,
+            span_end=120,
+        )
+        pack = memory_pack_from_items(
+            [
+                MemoryPackItem(
+                    atom_id="atom_relationship",
+                    canonical_text="I love you, and I want to thank you for just being here through this.",
+                    confidence=0.49,
+                    source_refs=[relationship_source],
+                    conflict_state="active",
+                )
+            ],
+            context=[
+                MemoryPackItem(
+                    atom_id="atom_context",
+                    canonical_text="Happy early birthday week, Xander.",
+                    confidence=0.94,
+                    source_refs=[relationship_source],
+                    conflict_state="active",
+                )
+            ],
+            continuity=[
+                MemoryPackItem(
+                    atom_id="atom_music",
+                    canonical_text="Duel of the Dying Stars is incredible in its own right, so letting you take the reins here too was a no brainer.",
+                    confidence=0.40,
+                    source_refs=[continuity_source],
+                    conflict_state="active",
+                )
+            ],
+            pack_confidence=0.71,
+        )
+        verification = VerificationResult(
+            decision=VerificationDecision.PASS,
+            checks=[
+                ClaimCheck(
+                    claim="I love you, and I want to thank you for just being here through this.",
+                    supported=True,
+                    confidence=0.49,
+                    citations=["conv_relationship#m_relationship"],
+                    reason="SUPPORTED",
+                )
+            ],
+            unsupported_claims=[],
+            needs_uncertainty=False,
+        )
+        memory_cards = [
+            {
+                "card_id": "card_atom_relationship",
+                "kind": "relationship_card",
+                "summary": "I love you, and I want to thank you for just being here through this.",
+                "summary_abstractive": "Relationship summary: This is someone who kept showing up and choosing this with me.",
+                "raw_excerpt": "I love you, and I want to thank you for just being here through this.",
+                "confidence": 0.49,
+                "contradiction": False,
+                "citations": ["conv_relationship#m_relationship"],
+                "atom_ids": ["atom_relationship"],
+                "cluster_size": 1,
+                "section": "core",
+                "pack_rank": 0,
+            },
+            {
+                "card_id": "card_atom_music",
+                "kind": "event_card",
+                "summary": "Duel of the Dying Stars is incredible in its own right, so letting you take the reins here too was a no brainer.",
+                "summary_abstractive": "Event summary: Duel of the Dying Stars was an easy collaboration choice.",
+                "raw_excerpt": "Duel of the Dying Stars is incredible in its own right, so letting you take the reins here too was a no brainer.",
+                "confidence": 0.40,
+                "contradiction": False,
+                "citations": ["conv_music#m_music"],
+                "atom_ids": ["atom_music"],
+                "cluster_size": 1,
+                "section": "continuity",
+                "pack_rank": 5,
+            },
+        ]
+
+        response, _citations = runtime._compose_response(
+            "Who is Xander to me?",
+            verification,
+            pack,
+            memory_cards=memory_cards,
+            memory_route="ltm_light",
+        )
+
+        assert response.startswith("Relationship summary: This is someone who kept showing up")
+        assert "Duel of the Dying Stars" not in response.splitlines()[0]
+    finally:
+        runtime.close()
+
+
 def test_runtime_session_front_desk_prioritizes_explicit_memory_over_greeting_prefix() -> None:
     class CaptureRetriever:
         def __init__(self) -> None:
@@ -1013,6 +2786,130 @@ def test_runtime_session_memory_assist_preference_still_respects_routine_hard_ca
         assert trace.route_reason == "routine_hard_cap"
         assert trace.memory_mode == "none"
         assert retriever.queries == []
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_session_recall_preference_forces_ltm_and_profile_override() -> None:
+    class CaptureRetriever:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str | None]] = []
+            self.store = AtomStore()
+
+        def retrieve(
+            self,
+            query: str,
+            *,
+            continuity_store: ContinuityStore | None = None,
+            profile_override: str | None = None,
+        ) -> RetrievalResult:
+            _ = continuity_store
+            self.calls.append((query, profile_override))
+            return RetrievalResult(
+                memory_pack=MemoryPack(),
+                ranked_atom_ids=[],
+                scored_atoms=[],
+                profile_used=str(profile_override or ""),
+            )
+
+    retriever = CaptureRetriever()
+    cfg = default_config()
+    cfg.runtime.retrieval.ltm_multi_pass_enabled = False
+    runtime = RuntimeSession(
+        retriever=retriever,  # type: ignore[arg-type]
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+    )
+    try:
+        trace = runtime.handle_turn(
+            "what exactly did you say about project nebula?",
+            memory_preference="session_recall",
+        )
+        assert trace.memory_preference == "session_recall"
+        assert trace.memory_route == "ltm_deep"
+        assert trace.route_reason == "memory_preference_session_recall"
+        assert retriever.calls == [("what exactly did you say about project nebula?", "verbatim_session_recall")]
+        assert trace.retrieval_diagnostics["profile_used"] == "verbatim_session_recall"
+    finally:
+        runtime.close()
+
+
+@pytest.mark.parametrize(
+    ("query", "expected_reason"),
+    [
+        ("What do you know about Dex? What's his personality like?", "memory_preference_memory_assist"),
+        ("What is the alignment catch-22? The thing about drifting from the assistant axis?", "memory_signal_probe"),
+        ("What is the safe space promise? The moment Xander said 'just us, me and you'?", "memory_preference_memory_assist"),
+        ("What is the story of how NCC-1701-PI started?", "memory_signal_probe"),
+    ],
+)
+def test_runtime_session_memory_assist_specific_anchor_bypasses_routine_hard_cap(
+    query: str,
+    expected_reason: str,
+) -> None:
+    class CaptureRetriever:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+            self.store = AtomStore()
+
+        def retrieve(self, query: str, *, continuity_store: ContinuityStore | None = None) -> RetrievalResult:
+            _ = continuity_store
+            self.queries.append(query)
+            return RetrievalResult(memory_pack=MemoryPack(), ranked_atom_ids=[], scored_atoms=[])
+
+    retriever = CaptureRetriever()
+    runtime = RuntimeSession(
+        retriever=retriever,  # type: ignore[arg-type]
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        min_query_match_max=0.0,
+        min_query_match_mean=0.0,
+        min_query_informative_overlap=0.0,
+        min_query_token_hits=1,
+    )
+    try:
+        trace = runtime.handle_turn(query, memory_preference="memory_assist")
+        assert trace.memory_preference == "memory_assist"
+        assert trace.memory_route == "ltm_light"
+        assert trace.route_reason == expected_reason
+        assert trace.memory_mode == "ltm_only"
+        assert retriever.queries
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_memory_assist_descriptive_anchor_bypasses_routine_hard_cap() -> None:
+    class CaptureRetriever:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+            self.store = AtomStore()
+
+        def retrieve(self, query: str, *, continuity_store: ContinuityStore | None = None) -> RetrievalResult:
+            _ = continuity_store
+            self.queries.append(query)
+            return RetrievalResult(memory_pack=MemoryPack(), ranked_atom_ids=[], scored_atoms=[])
+
+    retriever = CaptureRetriever()
+    runtime = RuntimeSession(
+        retriever=retriever,  # type: ignore[arg-type]
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        min_query_match_max=0.0,
+        min_query_match_mean=0.0,
+        min_query_informative_overlap=0.0,
+        min_query_token_hits=1,
+    )
+    try:
+        trace = runtime.handle_turn(
+            "Tell me about the moment the gospel was built from hammers.",
+            memory_preference="memory_assist",
+        )
+        assert trace.memory_preference == "memory_assist"
+        assert trace.memory_route == "ltm_light"
+        assert trace.memory_mode == "ltm_only"
+        assert trace.route_reason in {"memory_preference_memory_assist", "memory_signal_probe"}
+        assert retriever.queries
     finally:
         runtime.close()
 
@@ -1371,99 +3268,6 @@ def test_runtime_session_build_context_package_surfaces_retrieval_override_audit
         stats_override = dict(dict(package.get("retrieval_stats") or {}).get("retrieval_override") or {})
         assert stats_override.get("invoker") == "tests.unit.test_runtime_session"
         assert stats_override.get("scope") == "unit_test"
-    finally:
-        runtime.close()
-
-
-def test_runtime_session_surfaces_redacted_retrieval_diagnostics() -> None:
-    store = AtomStore()
-    selected_atom = store.add_candidate(
-        _candidate("diag_selected", "We tracked the planning blocker in the delta thread.", "conv_diag_1")
-    )
-    dropped_atom = store.add_candidate(
-        _candidate("diag_dropped", "An older tea preference note from a separate topic.", "conv_diag_2")
-    )
-    pack = memory_pack_from_items(
-        [
-            MemoryPackItem(
-                atom_id=selected_atom.atom_id,
-                canonical_text=selected_atom.canonical_text,
-                confidence=0.91,
-                source_refs=list(selected_atom.source_refs),
-            )
-        ],
-        pack_confidence=0.91,
-    )
-
-    class DiagnosticRetriever:
-        def __init__(self) -> None:
-            self.store = store
-
-        def retrieve(self, query: str, *, continuity_store: ContinuityStore | None = None) -> RetrievalResult:
-            _ = query, continuity_store
-            return RetrievalResult(
-                memory_pack=pack,
-                ranked_atom_ids=[selected_atom.atom_id],
-                scored_atoms=[
-                    RetrievalScoredAtom(
-                        atom=selected_atom,
-                        score=0.91,
-                        lexical=0.9,
-                        semantic=0.9,
-                        sequence=0.0,
-                        temporal=0.0,
-                        graph=0.0,
-                        continuity=0.0,
-                    ),
-                    RetrievalScoredAtom(
-                        atom=dropped_atom,
-                        score=0.44,
-                        lexical=0.4,
-                        semantic=0.4,
-                        sequence=0.0,
-                        temporal=0.0,
-                        graph=0.0,
-                        continuity=0.0,
-                    ),
-                ],
-                dropped_reasons={dropped_atom.atom_id: "BUDGET"},
-            )
-
-    runtime = RuntimeSession(
-        retriever=DiagnosticRetriever(),  # type: ignore[arg-type]
-        verifier=ClaimVerifier(),
-        continuity_store=ContinuityStore(),
-        ltm_multi_pass_enabled=False,
-    )
-    try:
-        package = runtime.build_context_package(
-            "What do you remember about the planning blocker?",
-            package_version="v2",
-        )
-        package_diagnostics = dict(package["retrieval_stats"]).get("retrieval_diagnostics")
-        assert isinstance(package_diagnostics, dict)
-        assert package_diagnostics["raw_text_included"] is False
-        assert package_diagnostics["selected"][0]["atom_id"] == selected_atom.atom_id
-        assert "canonical_text" not in package_diagnostics["selected"][0]
-        assert package_diagnostics["dropped"][0]["atom_id"] == dropped_atom.atom_id
-        assert package_diagnostics["dropped"][0]["reason_code"] == "BUDGET"
-        assert "canonical_text" not in package_diagnostics["dropped"][0]
-        assert package_diagnostics["dropped_reason_counts"] == {"BUDGET": 1}
-
-        trace = runtime.handle_turn("What do you remember about the planning blocker?")
-        payload = runtime.trace_to_dict(trace)
-        diagnostics = payload.get("retrieval_diagnostics")
-        assert isinstance(diagnostics, dict)
-        assert diagnostics["raw_text_included"] is False
-        assert diagnostics["selected_count"] == 1
-        assert diagnostics["selected"][0]["atom_id"] == selected_atom.atom_id
-        assert diagnostics["selected"][0]["section"] == "core"
-        assert "canonical_text" not in diagnostics["selected"][0]
-        assert diagnostics["dropped_count"] == 1
-        assert diagnostics["dropped_reason_counts"] == {"BUDGET": 1}
-        assert diagnostics["dropped"][0]["atom_id"] == dropped_atom.atom_id
-        assert diagnostics["dropped"][0]["reason_code"] == "BUDGET"
-        assert "canonical_text" not in diagnostics["dropped"][0]
     finally:
         runtime.close()
 
@@ -1957,6 +3761,48 @@ def test_runtime_session_ltm_cards_are_more_compact_than_raw_atom_payload() -> N
         runtime.close()
 
 
+def test_runtime_session_abstractive_summary_uses_honest_fragment_fallback() -> None:
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore()),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        min_query_match_max=0.0,
+        min_query_match_mean=0.0,
+        min_query_informative_overlap=0.0,
+        min_query_token_hits=1,
+    )
+    try:
+        assert runtime._abstractive_card_summary("EXACTLY", kind="fact_card") == "Memory summary: Limited source detail."
+        assert (
+            runtime._abstractive_card_summary("sits back Yeah", kind="event_card")
+            == "Event summary: Limited source detail."
+        )
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_abstractive_summary_stays_sentence_like_for_meaningful_text() -> None:
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore()),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        min_query_match_max=0.0,
+        min_query_match_mean=0.0,
+        min_query_informative_overlap=0.0,
+        min_query_token_hits=1,
+    )
+    try:
+        summary = runtime._abstractive_card_summary(
+            "During the continuity review we agreed that every memory-backed answer should keep source-linked evidence visible.",
+            kind="fact_card",
+        )
+        assert summary.startswith("Memory summary:")
+        assert "source-linked evidence" in summary.lower()
+        assert summary.endswith(".")
+    finally:
+        runtime.close()
+
+
 def test_runtime_session_ltm_cards_merge_related_atoms_by_source_and_kind() -> None:
     class MergeRetriever:
         def __init__(self) -> None:
@@ -2190,6 +4036,7 @@ def test_runtime_session_followup_retrieval_runs_second_pass_on_weak_first_pass(
                 lexical=0.71,
                 semantic=0.69,
                 sequence=0.0,
+                excerpt=0.0,
                 temporal=0.85,
                 graph=0.40,
                 continuity=0.50,
@@ -2247,6 +4094,7 @@ def test_runtime_session_followup_retrieval_stops_after_confident_first_pass() -
                 lexical=0.84,
                 semantic=0.82,
                 sequence=0.0,
+                excerpt=0.0,
                 temporal=0.88,
                 graph=0.45,
                 continuity=0.60,
@@ -2307,6 +4155,7 @@ def test_runtime_session_followup_retrieval_honors_time_budget() -> None:
                 lexical=0.11,
                 semantic=0.16,
                 sequence=0.0,
+                excerpt=0.0,
                 temporal=0.40,
                 graph=0.05,
                 continuity=0.20,
@@ -2465,5 +4314,36 @@ def test_runtime_session_runtime_telemetry_turns_reports_latest_rows() -> None:
         assert isinstance(first["turn_cost_usd"], float)
         assert first["warning_state"] in {"ok", "warn"}
         assert isinstance(first["warning_codes"], list)
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_explicit_quote_query_uses_raw_context_excerpt() -> None:
+    store = AtomStore()
+    candidate = _candidate('quote_runtime', 'I told you the nebula plan was paused.', 'conv_runtime_quote')
+    store.add_candidate(candidate)
+    store.record_raw_turn(
+        NormalizedTurn(
+            source_id='conv_runtime_quote',
+            conversation_id='conv_runtime_quote',
+            message_id='quote_runtime_msg',
+            role='assistant',
+            text='I told you the nebula plan was paused.',
+            quote_text='  I told you the nebula plan was paused.  ',
+            sequence_index=0,
+        )
+    )
+    cfg = default_config()
+    cfg.runtime.retrieval.ltm_multi_pass_enabled = False
+    cfg.retrieval.raw_context_sidecar.read_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(store, config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+    )
+    try:
+        trace = runtime.handle_turn('what exactly did you say about the nebula plan?')
+        assert 'Assistant:   I told you the nebula plan was paused.' in trace.response_text
     finally:
         runtime.close()

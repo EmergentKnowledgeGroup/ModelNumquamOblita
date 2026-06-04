@@ -5,26 +5,51 @@ import threading
 import time
 import logging
 import inspect
+import json
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from ..continuity import ContinuityStore
 from ..config import NumquamOblitaConfig, default_config
 from ..contracts import (
+    AtomType,
+    CandidateAtom,
     MemoryPack,
     MemoryPackItem,
     RetrievalDiagnosticsContract,
     RetrievalDroppedAtomContract,
+    RetrievalHelperLaneContract,
     RetrievalOverrideAuditContract,
     RetrievalOverrideRequestContract,
     RetrievalSelectedAtomContract,
     SourceRef,
     contract_to_dict,
     memory_pack_from_items,
+)
+from ..memory import (
+    InMemoryProvisionalMemoryStore,
+    ProvisionalMemoryCandidate,
+    ProvisionalMemoryEvent,
+    ProvisionalMemoryEventType,
+    ProvisionalMemoryKind,
+    ProvisionalMemoryRecord,
+    ProvisionalMemoryStatus,
+    ProvisionalSearchHit,
+    SqliteAtomStore,
+    SqliteProvisionalMemoryStore,
+    MutationReviewQueue,
+)
+from ..memory.proposal_store import (
+    InMemoryProposalStore,
+    ProposalCandidate,
+    ProposalKind,
+    ProposalRecord,
+    SqliteProposalStore,
 )
 from ..retrieval import (
     ClaimCheck,
@@ -45,6 +70,28 @@ _MIXING_PLAIN_OPTIONS_RE = re.compile(
 )
 _ABOUT_FOCUS_RE = re.compile(r"(?:about|regarding|on|re)\s+([A-Za-z0-9][A-Za-z0-9 '\-_]{2,120})", re.IGNORECASE)
 _WHO_FOCUS_RE = re.compile(r"(?:who is|who's|what is|what's)\s+([A-Za-z0-9][A-Za-z0-9 '\-_]{2,96})", re.IGNORECASE)
+_EVENT_FOCUS_RE = re.compile(
+    r"(?:what happened to|tell me about|what do you know about|why does|why did|why is)\s+([A-Za-z0-9][A-Za-z0-9 '\-_]{2,96})",
+    re.IGNORECASE,
+)
+_SESSION_RECALL_PHRASES = (
+    "quote it",
+    "quote this",
+    "quote that",
+    "what exactly did i say",
+    "what exactly did you say",
+    "what did i say",
+    "what did you say",
+    "did i say",
+    "did you say",
+    "assistant said",
+    "user said",
+    "who said",
+    "verbatim",
+    "exact wording",
+    "exact quote",
+    "word for word",
+)
 _INFO_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9'\-_]{2,}")
 _NAME_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9'\-_]{2,}")
 _DATE_LIKE_RE = re.compile(
@@ -118,6 +165,24 @@ _NAME_FREQ_IGNORE_TOKENS = _INFO_STOPWORDS.union(
         "there",
         "this",
         "that",
+    }
+)
+_FOCUS_CANDIDATE_IGNORE_TOKENS = _NAME_FREQ_IGNORE_TOKENS.union(
+    {
+        "does",
+        "did",
+        "happened",
+        "matter",
+        "he",
+        "her",
+        "hers",
+        "him",
+        "his",
+        "she",
+        "they",
+        "them",
+        "their",
+        "why",
     }
 )
 _SMALLTALK_PREFIX_RE = re.compile(r"^(hi|hello|hey|yo|sup)\b", re.IGNORECASE)
@@ -211,6 +276,215 @@ _FORCE_LTM_LIGHT_PHRASES = (
     "how did ",
     "has anyone told me",
 )
+_DESCRIPTIVE_RECALL_ANCHOR_TOKENS = {
+    "build",
+    "built",
+    "called",
+    "chose",
+    "line",
+    "moment",
+    "named",
+    "origin",
+    "phrase",
+    "promise",
+    "quote",
+    "start",
+    "started",
+    "story",
+}
+_CONSUMER_META_SYSTEM_TOKENS = {
+    "anchor",
+    "anchors",
+    "atom",
+    "atoms",
+    "citation",
+    "citations",
+    "evidence",
+    "ltm",
+    "memory",
+    "mcp",
+    "orient",
+    "pack",
+    "query",
+    "queries",
+    "recall",
+    "retrieval",
+    "route",
+    "routing",
+    "search",
+    "session",
+    "sessions",
+    "stm",
+    "tool",
+    "tools",
+}
+_CONSUMER_META_INSTRUCTION_TOKENS = {
+    "answer",
+    "call",
+    "exclude",
+    "include",
+    "must",
+    "need",
+    "needs",
+    "prefer",
+    "return",
+    "search",
+    "should",
+    "use",
+}
+_CONSUMER_META_PHRASES = (
+    "any query about",
+    "any question about",
+    "should search memory first",
+    "search memory first",
+    "search the atom store",
+    "use explore.orient",
+    "evidence pack",
+    "retrieval behavior",
+)
+_CONSUMER_META_CONVERSATION_TOKENS = {
+    "atom",
+    "atoms",
+    "continuity",
+    "evaluation",
+    "lexical",
+    "prompt",
+    "prompts",
+    "pull",
+    "query",
+    "queries",
+    "retrieval",
+    "semantic",
+    "test",
+    "testing",
+    "unit",
+}
+_CONSUMER_META_CONVERSATION_PHRASES = (
+    "semantic pull",
+    "lexical match",
+    "retrieval test",
+    "testing the system",
+    "unit test",
+)
+_PROVISIONAL_NOISE_PHRASES = (
+    "yeah i dunno",
+    "yeah i don't know",
+    "yeah whatever",
+    "i dunno man",
+    "not sure man",
+)
+_PROVISIONAL_PREFERENCE_HINTS = (
+    " like ",
+    " likes ",
+    " love ",
+    " loves ",
+    " prefer ",
+    " prefers ",
+    " favorite ",
+    " favourite ",
+    " hate ",
+    " hates ",
+    " dislike ",
+    " dislikes ",
+    " doesn't want ",
+    " does not want ",
+    " wants ",
+)
+_PROVISIONAL_PLAN_HINTS = (
+    "tomorrow",
+    "later",
+    "next",
+    "going to",
+    "gonna",
+    "we will",
+    "i will",
+    "we should",
+)
+_PROVISIONAL_CORRECTION_HINTS = (
+    "actually",
+    "finally",
+    "came around",
+    "changed",
+    "instead",
+    "no longer",
+    "not anymore",
+    "used to",
+)
+_PROVISIONAL_SELF_CLAIM_HINTS = (
+    "i am",
+    "i'm",
+    "i feel",
+    "i felt",
+    "i love",
+    "i trust",
+    "i want",
+    "i remember",
+    "i'm becoming",
+    "i am becoming",
+)
+_PROPOSAL_OTHER_PERSON_STATE_HINTS = (
+    " he feels ",
+    " she feels ",
+    " they feel ",
+    " feels defeated",
+    " feels hurt",
+    " feels broken",
+    " feels scared",
+    " feels lost",
+    " feels unsafe",
+    " seems defeated",
+    " seems hurt",
+    " seems broken",
+    " seems scared",
+    " seems lost",
+    " seems unsafe",
+    " maybe that's why ",
+    " maybe thats why ",
+)
+_PROPOSAL_IDENTITY_HINTS = (
+    " is the kind of person ",
+    " is the kind of guy ",
+    " is the kind of woman ",
+    " who he is ",
+    " who she is ",
+    " who they are ",
+)
+_PROPOSAL_RELATIONSHIP_HINTS = (
+    " relationship with ",
+    " means to me ",
+    " means that much to me ",
+    " what he is to me ",
+    " what she is to me ",
+    " what they are to me ",
+)
+_PROPOSAL_MOTIVE_HINTS = (
+    " because he cares ",
+    " because she cares ",
+    " because they care ",
+    " because he wants ",
+    " because she wants ",
+    " because they want ",
+    " because he's trying ",
+    " because she is trying ",
+    " because they are trying ",
+)
+_PROPOSAL_LIFE_STORY_HINTS = (
+    " this is the story of ",
+    " has always been the kind of person ",
+    " defines who ",
+    " defines what ",
+)
+_SOFT_CLOSE_HINTS = (
+    "going to bed",
+    "go to bed",
+    "go crash",
+    "going to crash",
+    "call it a night",
+    "pick this up tomorrow",
+    "wrap this tomorrow",
+    "catch this tomorrow",
+    "wrapping up",
+)
 _NAMED_ENTITY_QUESTION_RE = re.compile(
     r"\b(?i:(?:what(?:'s| is)|who(?:'s| is)|tell me about))\s+([A-Z][A-Za-z0-9'\-_]{2,})"
 )
@@ -223,10 +497,12 @@ _ROUTE_REASON_TEXT = {
     "explicit_memory_request": "Prompt explicitly asks for memory recall; deep route selected.",
     "memory_signal_probe": "Prompt carries memory-like signals; light retrieval route selected.",
     "default_memory_probe": "Default memory probe route selected for non-routine prompts.",
+    "verbatim_session_recall": "Quote/session-recall cue detected; deep retrieval route selected.",
     "retrieval_query_override": "Caller provided retrieval query override; light retrieval route selected.",
     "high_risk_escalation": "High-risk signal escalated retrieval to deep route.",
     "memory_preference_chat_first": "Memory preference is chat-first; retrieval was reduced.",
     "memory_preference_memory_assist": "Memory preference is memory-assist; retrieval was expanded.",
+    "memory_preference_session_recall": "Memory preference is session-recall; deep quote/session retrieval was forced.",
     "identity_relationship_probe": "Identity/relationship query detected; retrieval forced to memory assist.",
     "name_frequency_trigger": "Known recurring name/entity detected; retrieval forced to memory assist.",
 }
@@ -247,6 +523,10 @@ def _token_estimate(text: str) -> int:
 
 def _tokenize(text: str) -> list[str]:
     return _TOKEN_RE.findall(str(text or "").lower())
+
+
+def _normalize_text(value: str) -> str:
+    return " ".join(str(value or "").strip().lower().split())
 
 
 def _char_ngrams(text: str, n: int = 3) -> set[str]:
@@ -390,6 +670,10 @@ class SessionState:
     turn_ids: list[str] = field(default_factory=list)
     rolling_summary: str = ""
     summary_segments: deque[str] = field(default_factory=deque)
+    soft_close_hint_at: datetime | None = None
+    soft_close_hint_text: str = ""
+    last_provisional_sweep_at: datetime | None = None
+    provisional_write_count: int = 0
 
 
 @dataclass(slots=True)
@@ -404,6 +688,14 @@ class MemoryCard:
     cluster_size: int = 1
     summary_abstractive: str = ""
     raw_excerpt: str = ""
+    section: str = ""
+    pack_rank: int = 0
+    memory_layer: str = ""
+    trust_tier: str = ""
+    conflict_state: str = "active"
+    conflict_visible: bool = False
+    conflict_winner: bool = False
+    conflict_with: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -589,8 +881,24 @@ class RuntimeSession:
         self._latencies: list[float] = []
         self._stats = RuntimeStats()
         self._sessions: dict[str, SessionState] = {}
+        self._memory_capture_dropped_reason_counts: dict[str, int] = {}
+        self._memory_capture_provisional_accepted_count = 0
+        self._memory_capture_proposal_only_count = 0
+        self._memory_capture_sweep_promotion_count = 0
+        self._memory_capture_duplicate_suspected_count = 0
         self._note_seq = 0
         self._name_frequency_counts: dict[str, int] = {}
+        self._processed_boundary_keys: set[str] = set()
+        provisional_policy = self.config.provisional_memory
+        self._provisional_policy = provisional_policy
+        self._provisional_memory_enabled = bool(provisional_policy.enabled)
+        self._provisional_retrieval_enabled = self._provisional_memory_enabled and bool(provisional_policy.retrieval_enabled)
+        self._provisional_stm_sweep_enabled = self._provisional_memory_enabled and bool(provisional_policy.stm_sweep_enabled)
+        self._proposal_capture_enabled = self._provisional_memory_enabled and bool(
+            getattr(provisional_policy, "proposal_capture_enabled", False)
+        )
+        self._provisional_store = self._build_provisional_store() if self._provisional_memory_enabled else None
+        self._proposal_store = self._build_proposal_store() if self._proposal_capture_enabled else None
         self._sessions["default"] = self._new_session_state("default", label="default")
         self._hydrate_recognition_from_store()
         self._hydrate_name_frequency_cache()
@@ -599,8 +907,27 @@ class RuntimeSession:
             self._prewarm_runtime_caches()
 
     def close(self, *, wait_timeout_s: float = 2.0) -> None:
+        if self._provisional_stm_sweep_enabled:
+            with self._lock:
+                session_ids = list(self._sessions.keys())
+            for session_id in session_ids:
+                try:
+                    self.on_session_boundary(
+                        event_type="runtime_close",
+                        session_id=session_id,
+                        observed_at_utc=_utc_now(),
+                        metadata={"source": "runtime_close"},
+                    )
+                except Exception:
+                    _LOGGER.exception("provisional STM sweep failed during runtime close for session %s", session_id)
         executor = self._executor
         if executor is None:
+            closer = getattr(self._provisional_store, "close", None)
+            if callable(closer):
+                closer()
+            proposal_closer = getattr(self._proposal_store, "close", None)
+            if callable(proposal_closer):
+                proposal_closer()
             return
         self._executor = None
 
@@ -628,6 +955,12 @@ class RuntimeSession:
             self._writeback_futures.clear()
 
         executor.shutdown(wait=False, cancel_futures=True)
+        closer = getattr(self._provisional_store, "close", None)
+        if callable(closer):
+            closer()
+        proposal_closer = getattr(self._proposal_store, "close", None)
+        if callable(proposal_closer):
+            proposal_closer()
 
     def _normalize_session_id(self, session_id: str | None) -> str:
         raw = str(session_id or "default").strip()
@@ -654,6 +987,538 @@ class RuntimeSession:
             short_term=deque(),
             summary_segments=deque(maxlen=self.short_term_summary_segments),
         )
+
+    def _build_provisional_store(self) -> InMemoryProvisionalMemoryStore | SqliteProvisionalMemoryStore:
+        store = getattr(self.retriever, "store", None)
+        if isinstance(store, SqliteAtomStore):
+            db_path = Path(store.db_path)
+            sidecar_path = (
+                db_path.with_suffix(".provisional.sqlite3")
+                if db_path.suffix
+                else db_path.parent / f"{db_path.name}.provisional.sqlite3"
+            )
+            return SqliteProvisionalMemoryStore(sidecar_path)
+        return InMemoryProvisionalMemoryStore()
+
+    def _build_proposal_store(self) -> InMemoryProposalStore | SqliteProposalStore:
+        store = getattr(self.retriever, "store", None)
+        if isinstance(store, SqliteAtomStore):
+            db_path = Path(store.db_path)
+            sidecar_path = (
+                db_path.with_suffix(".proposals.sqlite3")
+                if db_path.suffix
+                else db_path.parent / f"{db_path.name}.proposals.sqlite3"
+            )
+            return SqliteProposalStore(sidecar_path)
+        return InMemoryProposalStore()
+
+    def _provisional_profile(self):
+        name = str(self._provisional_policy.default_sensitivity or "balanced").strip().lower()
+        return getattr(self._provisional_policy, name, self._provisional_policy.balanced)
+
+    def provisional_diagnostics(self) -> dict[str, Any]:
+        if self._provisional_store is None:
+            return {
+                "enabled": False,
+                "retrieval_enabled": False,
+                "stm_sweep_enabled": False,
+                "total_count": 0,
+                "active_count": 0,
+                "superseded_count": 0,
+                "conflicted_count": 0,
+                "archived_count": 0,
+                "event_count": 0,
+                "accepted_count": 0,
+            }
+        snapshot = dict(self._provisional_store.diagnostics_snapshot())
+        snapshot.update(
+            {
+                "enabled": bool(self._provisional_memory_enabled),
+                "retrieval_enabled": bool(self._provisional_retrieval_enabled),
+                "stm_sweep_enabled": bool(self._provisional_stm_sweep_enabled),
+                "accepted_count": int(self._memory_capture_provisional_accepted_count),
+            }
+        )
+        return snapshot
+
+    def proposal_diagnostics(self) -> dict[str, Any]:
+        if self._proposal_store is None:
+            return {
+                "enabled": False,
+                "total_count": 0,
+                "pending_count": 0,
+                "reviewed_count": 0,
+                "dismissed_count": 0,
+                "event_count": 0,
+                "accepted_count": 0,
+            }
+        snapshot = dict(self._proposal_store.diagnostics_snapshot())
+        snapshot["enabled"] = bool(self._proposal_capture_enabled)
+        snapshot["accepted_count"] = int(self._memory_capture_proposal_only_count)
+        return snapshot
+
+    def provisional_settings(self) -> dict[str, Any]:
+        profile_name = str(self._provisional_policy.default_sensitivity or "balanced").strip().lower() or "balanced"
+        profile = self._provisional_profile()
+        return {
+            "enabled": bool(self._provisional_memory_enabled),
+            "default_sensitivity": profile_name,
+            "profile": {
+                "worthiness_threshold": float(profile.worthiness_threshold),
+                "self_claim_threshold": float(profile.self_claim_threshold),
+                "max_auto_writes_per_turn": int(profile.max_auto_writes_per_turn),
+                "max_auto_writes_per_session": int(profile.max_auto_writes_per_session),
+            },
+            "review_worthiness_enabled": bool(getattr(self._provisional_policy.review_worthiness, "enabled", True)),
+            "near_duplicate_enabled": bool(getattr(self._provisional_policy.near_duplicate, "enabled", True)),
+            "inactivity_gap_seconds": int(self._provisional_policy.inactivity_gap_seconds),
+        }
+
+    def set_provisional_sensitivity(
+        self,
+        *,
+        sensitivity: str | None = None,
+        action: str | None = None,
+    ) -> dict[str, Any]:
+        valid = ["conservative", "balanced", "eager"]
+        current = str(self._provisional_policy.default_sensitivity or "balanced").strip().lower() or "balanced"
+        target = current
+        explicit = str(sensitivity or "").strip().lower()
+        if explicit:
+            if explicit not in valid:
+                raise ValueError("sensitivity must be one of: conservative, balanced, eager")
+            target = explicit
+        else:
+            normalized_action = str(action or "").strip().lower()
+            if normalized_action not in {"remember_more", "remember_less"}:
+                raise ValueError("action must be remember_more or remember_less")
+            idx = valid.index(current if current in valid else "balanced")
+            if normalized_action == "remember_more":
+                target = valid[min(len(valid) - 1, idx + 1)]
+            else:
+                target = valid[max(0, idx - 1)]
+        self._provisional_policy.default_sensitivity = target
+        return self.provisional_settings()
+
+    def list_memory_proposals(self) -> list[ProposalRecord]:
+        if self._proposal_store is None:
+            return []
+        return list(self._proposal_store.list_records())
+
+    def memory_capture_diagnostics(self) -> dict[str, Any]:
+        return {
+            "enabled": bool(self._provisional_memory_enabled),
+            "proposal_capture_enabled": bool(self._proposal_capture_enabled),
+            "provisional_accepted_count": int(self._memory_capture_provisional_accepted_count),
+            "proposal_only_count": int(self._memory_capture_proposal_only_count),
+            "duplicate_suspected_count": int(self._memory_capture_duplicate_suspected_count),
+            "dropped_count": int(sum(self._memory_capture_dropped_reason_counts.values())),
+            "dropped_reason_counts": dict(self._memory_capture_dropped_reason_counts),
+            "sweep_promotion_count": int(self._memory_capture_sweep_promotion_count),
+            "default_sensitivity": str(self._provisional_policy.default_sensitivity or "balanced"),
+            "time_source": "system_utc",
+        }
+
+    def _record_memory_capture_drop(self, reason: str) -> None:
+        normalized = str(reason or "").strip().lower() or "unknown"
+        with self._lock:
+            self._memory_capture_dropped_reason_counts[normalized] = (
+                self._memory_capture_dropped_reason_counts.get(normalized, 0) + 1
+            )
+
+    def search_provisional_memory(self, query: str, *, limit: int = 5) -> list[ProvisionalSearchHit]:
+        if self._provisional_store is None:
+            return []
+        return list(self._provisional_store.search(str(query or ""), limit=max(1, int(limit))))
+
+    def list_provisional_records(
+        self,
+        *,
+        status: str = "all",
+        query: str = "",
+        limit: int = 60,
+        offset: int = 0,
+    ) -> list[ProvisionalMemoryRecord]:
+        if self._provisional_store is None:
+            return []
+        rows = list(self._provisional_store.list_records(status=status))
+        search = str(query or "").strip().lower()
+        if search:
+            filtered: list[ProvisionalMemoryRecord] = []
+            for record in rows:
+                hay = " ".join(
+                    [
+                        str(record.record_id or ""),
+                        str(record.canonical_text or ""),
+                        str(record.kind.value),
+                        str(record.source_role or ""),
+                        str(record.session_id or ""),
+                        " ".join(str(item) for item in list(record.conflict_with_record_ids)),
+                    ]
+                ).lower()
+                if search in hay:
+                    filtered.append(record)
+            rows = filtered
+        start = max(0, int(offset))
+        end = start + max(1, int(limit))
+        return rows[start:end]
+
+    def mark_provisional_conflict(
+        self,
+        record_id: str,
+        other_record_id: str,
+        *,
+        reason: str = "runtime_operator_conflict",
+    ) -> tuple[ProvisionalMemoryRecord, ProvisionalMemoryRecord]:
+        if self._provisional_store is None:
+            raise RuntimeError("provisional memory is disabled")
+        return self._provisional_store.mark_conflict(record_id, other_record_id, reason=reason)
+
+    def list_provisional_record_payloads(
+        self,
+        *,
+        status: str = "all",
+        query: str = "",
+        limit: int = 60,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return [
+            self._serialize_provisional_record(record)
+            for record in self.list_provisional_records(status=status, query=query, limit=limit, offset=offset)
+        ]
+
+    def list_provisional_review_candidates(
+        self,
+        *,
+        query: str = "",
+        limit: int = 60,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        records = self.list_provisional_records(status="live", query=query, limit=limit, offset=offset)
+        payloads = [self._provisional_review_candidate_payload(record) for record in records]
+        payloads.sort(
+            key=lambda item: (
+                bool(item.get("review_worthy")),
+                float(item.get("review_worthy_score") or 0.0),
+                min(8, int(item.get("reinforcement_count") or 0)),
+                float(item.get("stability") or 0.0),
+                float(item.get("salience") or 0.0),
+                str(item.get("updated_at") or ""),
+                str(item.get("record_id") or ""),
+            ),
+            reverse=True,
+        )
+        return payloads
+
+    def get_provisional_record_detail(self, record_id: str) -> dict[str, Any]:
+        if self._provisional_store is None:
+            raise RuntimeError("provisional memory is disabled")
+        record = self._provisional_store.get_record(str(record_id or "").strip())
+        payload = self._provisional_review_candidate_payload(record)
+        duplicate_suspicions = self.list_provisional_duplicate_suspicions(record_id=record.record_id, limit=200, offset=0)
+        payload["duplicate_suspicions"] = duplicate_suspicions
+        payload["duplicate_suspicion_count"] = len(duplicate_suspicions)
+        return payload
+
+    @staticmethod
+    def _provisional_distinct_session_count(record: ProvisionalMemoryRecord) -> int:
+        raw = str(dict(record.metadata or {}).get("distinct_session_count") or "").strip()
+        try:
+            value = int(raw)
+        except Exception:
+            value = 1
+        return max(1, value)
+
+    @staticmethod
+    def _provisional_review_threshold(kind: ProvisionalMemoryKind, policy: Any) -> float:
+        mapping = {
+            ProvisionalMemoryKind.FACT: "fact_min_score",
+            ProvisionalMemoryKind.PREFERENCE: "preference_min_score",
+            ProvisionalMemoryKind.PLAN: "plan_min_score",
+            ProvisionalMemoryKind.EVENT_NOTE: "event_note_min_score",
+            ProvisionalMemoryKind.SELF_CLAIM: "self_claim_min_score",
+            ProvisionalMemoryKind.CORRECTION: "correction_min_score",
+        }
+        return float(getattr(policy, mapping[kind], 1.0))
+
+    def _provisional_review_worthiness(self, record: ProvisionalMemoryRecord) -> dict[str, Any]:
+        policy = self._provisional_policy.review_worthiness
+        distinct_session_count = self._provisional_distinct_session_count(record)
+        reinforcement_score = min(1.0, float(record.reinforcement_count) / 4.0)
+        session_score = min(1.0, float(distinct_session_count) / 3.0)
+        score = (
+            float(record.stability) * float(policy.stability_weight)
+            + float(record.salience) * float(policy.salience_weight)
+            + reinforcement_score * float(policy.reinforcement_weight)
+            + session_score * float(policy.distinct_session_weight)
+        )
+        conflict_penalty_applied = bool(record.status is ProvisionalMemoryStatus.CONFLICTED)
+        self_claim_penalty_applied = bool(record.kind is ProvisionalMemoryKind.SELF_CLAIM)
+        if conflict_penalty_applied:
+            score -= float(policy.conflict_penalty)
+        if self_claim_penalty_applied:
+            score -= float(policy.self_claim_penalty)
+        score = _clamp01(score)
+        threshold = self._provisional_review_threshold(record.kind, policy)
+        review_worthy = bool(policy.enabled) and score >= threshold
+        return {
+            "review_worthy_score": score,
+            "review_worthy": review_worthy,
+            "review_worthy_threshold": threshold,
+            "distinct_session_count": distinct_session_count,
+            "conflict_penalty_applied": conflict_penalty_applied,
+            "self_claim_penalty_applied": self_claim_penalty_applied,
+        }
+
+    @staticmethod
+    def _provisional_bridge_eligible(record: ProvisionalMemoryRecord) -> bool:
+        return record.kind in {
+            ProvisionalMemoryKind.FACT,
+            ProvisionalMemoryKind.PREFERENCE,
+            ProvisionalMemoryKind.PLAN,
+            ProvisionalMemoryKind.EVENT_NOTE,
+        }
+
+    @staticmethod
+    def _provisional_kind_to_atom_type(kind: ProvisionalMemoryKind) -> AtomType:
+        if kind is ProvisionalMemoryKind.EVENT_NOTE:
+            return AtomType.EPISODE
+        return AtomType.ATOMIC_FACT
+
+    def flush_session_to_provisional(self, session_id: str | None, *, reason: str = "session_boundary") -> int:
+        if self._provisional_store is None or not self._provisional_stm_sweep_enabled:
+            return 0
+        session = self._ensure_session(session_id)
+        with self._lock:
+            last_sweep_at = session.last_provisional_sweep_at
+            notes = [
+                note
+                for note in list(session.short_term)
+                if last_sweep_at is None or note.created_at > last_sweep_at
+            ]
+        created = 0
+        for note in notes:
+            created += self._capture_provisional_memory_from_text(
+                text=note.text,
+                source_role=note.role,
+                session=session,
+                source_id=f"stm:{note.turn_id}",
+                message_id=note.note_id,
+                timestamp=note.created_at,
+                reason=reason,
+            )
+        with self._lock:
+            session.last_provisional_sweep_at = _utc_now()
+            session.soft_close_hint_at = None
+            session.soft_close_hint_text = ""
+        return created
+
+    def on_session_boundary(
+        self,
+        *,
+        event_type: str,
+        session_id: str | None,
+        observed_at_utc: datetime | str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        allowed = {"runtime_close", "session_timeout", "context_compaction", "manual_compact"}
+        normalized_type = str(event_type or "").strip().lower()
+        if normalized_type not in allowed:
+            raise ValueError("event_type must be one of: runtime_close, session_timeout, context_compaction, manual_compact")
+        if isinstance(observed_at_utc, datetime):
+            observed_at = observed_at_utc
+        else:
+            observed_at = datetime.fromisoformat(str(observed_at_utc))
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=timezone.utc)
+        else:
+            observed_at = observed_at.astimezone(timezone.utc)
+        session = self._ensure_session(session_id)
+        boundary_key = "|".join([normalized_type, session.session_id, observed_at.isoformat()])
+        with self._lock:
+            duplicate = boundary_key in self._processed_boundary_keys
+            if not duplicate:
+                self._processed_boundary_keys.add(boundary_key)
+        created = 0 if duplicate else self.flush_session_to_provisional(session.session_id, reason=normalized_type)
+        return {
+            "accepted": bool(self._provisional_stm_sweep_enabled),
+            "duplicate": duplicate,
+            "event_type": normalized_type,
+            "session_id": session.session_id,
+            "observed_at_utc": observed_at.isoformat(),
+            "created_count": int(created),
+            "metadata": dict(metadata or {}),
+            "time_source": "system_utc",
+        }
+
+    def list_provisional_duplicate_suspicions(
+        self,
+        *,
+        record_id: str | None = None,
+        limit: int = 60,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        if self._provisional_store is None:
+            return []
+        events = self._provisional_store.list_events(record_id=record_id, event_type=ProvisionalMemoryEventType.NEAR_DUPLICATE)
+        rows: list[dict[str, Any]] = []
+        for event in events:
+            payload = self._serialize_provisional_event(event)
+            metadata = dict(payload.get("metadata") or {})
+            rows.append(
+                {
+                    **payload,
+                    "left_record_id": str(event.record_id or ""),
+                    "right_record_id": str(metadata.get("other_record_id") or ""),
+                    "similarity_score": float(metadata.get("similarity_score") or 0.0),
+                    "same_session": str(metadata.get("same_session") or "false").strip().lower() == "true",
+                    "same_source_role": str(metadata.get("same_source_role") or "false").strip().lower() == "true",
+                    "same_kind": str(metadata.get("same_kind") or "false").strip().lower() == "true",
+                    "same_conflict_state": str(metadata.get("same_conflict_state") or "false").strip().lower() == "true",
+                    "timestamp_order": str(metadata.get("timestamp_order") or ""),
+                }
+            )
+        start = max(0, int(offset))
+        end = start + max(1, int(limit))
+        return rows[start:end]
+
+    def create_provisional_bridge_proposal(
+        self,
+        record_id: str,
+        *,
+        review_queue: MutationReviewQueue,
+    ) -> Any:
+        if self._provisional_store is None:
+            raise RuntimeError("provisional memory is disabled")
+        record = self._provisional_store.get_record(str(record_id or "").strip())
+        if not self._provisional_bridge_eligible(record):
+            raise ValueError("provisional record kind is not bridge-eligible")
+        for existing in list(review_queue.list_all()):
+            if (
+                str(getattr(getattr(existing, "action", None), "value", getattr(existing, "action", ""))) == "PROPOSE_CREATE"
+                and str((getattr(existing, "metadata", {}) or {}).get("provisional_record_id") or "").strip() == record.record_id
+                and str(getattr(getattr(existing, "status", None), "value", getattr(existing, "status", ""))) in {"pending", "approved", "applied"}
+            ):
+                return existing
+        candidate = CandidateAtom(
+            candidate_id=f"cand_{record.record_id}",
+            atom_type=self._provisional_kind_to_atom_type(record.kind),
+            canonical_text=record.canonical_text,
+            source_refs=list(record.source_refs),
+            entities=[],
+            topics=[],
+            confidence=float(record.confidence),
+            salience=float(record.salience),
+        )
+        return review_queue.propose_create(
+            candidate=candidate,
+            reason_code="provisional_bridge_create",
+            metadata={
+                "source": "provisional_bridge",
+                "provisional_record_id": record.record_id,
+                "provisional_kind": record.kind.value,
+                "provisional_source_role": record.source_role,
+                "provisional_session_id": record.session_id,
+                "provisional_reinforcement_count": str(record.reinforcement_count),
+                "provisional_distinct_session_count": str(self._provisional_distinct_session_count(record)),
+                "provisional_stability": f"{float(record.stability):.4f}",
+                "provisional_salience": f"{float(record.salience):.4f}",
+                "provisional_conflict_with_json": json.dumps(list(record.conflict_with_record_ids), ensure_ascii=False),
+                "provisional_supersedes_record_id": str(record.supersedes_record_id or ""),
+            },
+        )
+
+    def _provisional_lineage_record_ids(self, record: ProvisionalMemoryRecord) -> list[str]:
+        if self._provisional_store is None:
+            return [record.record_id]
+        lineage: list[str] = []
+        current: ProvisionalMemoryRecord | None = record
+        seen: set[str] = set()
+        while current is not None and current.record_id not in seen:
+            seen.add(current.record_id)
+            lineage.append(current.record_id)
+            previous_id = str(current.supersedes_record_id or "").strip()
+            if not previous_id:
+                break
+            try:
+                current = self._provisional_store.get_record(previous_id)
+            except Exception:
+                current = None
+        lineage.reverse()
+        return lineage
+
+    def _serialize_provisional_event(self, event: ProvisionalMemoryEvent) -> dict[str, Any]:
+        source_refs: list[dict[str, Any]] = []
+        for ref in list(event.source_refs):
+            payload = dict(contract_to_dict(ref))
+            timestamp = payload.get("timestamp")
+            if timestamp is not None and hasattr(timestamp, "isoformat"):
+                payload["timestamp"] = timestamp.isoformat()
+            source_refs.append(payload)
+        return {
+            "event_id": str(event.event_id or ""),
+            "event_type": str(getattr(event.event_type, "value", event.event_type) or ""),
+            "record_id": str(event.record_id or ""),
+            "timestamp": event.timestamp.isoformat() if getattr(event, "timestamp", None) else None,
+            "reason": str(event.reason or ""),
+            "metadata": dict(event.metadata or {}),
+            "source_refs": source_refs,
+        }
+
+    def _serialize_provisional_record(self, record: ProvisionalMemoryRecord) -> dict[str, Any]:
+        source_refs: list[dict[str, Any]] = []
+        for ref in list(record.source_refs):
+            payload = dict(contract_to_dict(ref))
+            timestamp = payload.get("timestamp")
+            if timestamp is not None and hasattr(timestamp, "isoformat"):
+                payload["timestamp"] = timestamp.isoformat()
+            source_refs.append(payload)
+        return {
+            "record_id": str(record.record_id or ""),
+            "kind": str(getattr(record.kind, "value", record.kind) or ""),
+            "canonical_text": str(record.canonical_text or ""),
+            "source_role": str(record.source_role or ""),
+            "session_id": str(record.session_id or ""),
+            "confidence": float(record.confidence),
+            "salience": float(record.salience),
+            "stability": float(record.stability),
+            "reinforcement_count": int(record.reinforcement_count),
+            "distinct_session_count": int(self._provisional_distinct_session_count(record)),
+            "status": str(getattr(record.status, "value", record.status) or ""),
+            "supersedes_record_id": str(record.supersedes_record_id or "") or None,
+            "superseded_by_record_id": str(record.superseded_by_record_id or "") or None,
+            "conflict_with_record_ids": list(record.conflict_with_record_ids),
+            "created_at": record.created_at.isoformat() if record.created_at else None,
+            "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+            "last_reinforced_at": record.last_reinforced_at.isoformat() if record.last_reinforced_at else None,
+            "memory_layer": "provisional",
+            "trust_tier": "provisional",
+            "source_refs": source_refs,
+            "metadata": dict(record.metadata or {}),
+        }
+
+    def _provisional_review_candidate_payload(self, record: ProvisionalMemoryRecord) -> dict[str, Any]:
+        if self._provisional_store is None:
+            raise RuntimeError("provisional memory is disabled")
+        events = [self._serialize_provisional_event(event) for event in self._provisional_store.list_events(record_id=record.record_id)]
+        payload = self._serialize_provisional_record(record)
+        worthiness = self._provisional_review_worthiness(record)
+        bridge_eligible = self._provisional_bridge_eligible(record)
+        payload.update(
+            {
+                "review_candidate_id": f"prc_{record.record_id}",
+                "bridge_state": "candidate_only",
+                "review_path": "existing_review_pipeline",
+                "lineage_record_ids": self._provisional_lineage_record_ids(record),
+                "history": events,
+                "history_event_count": len(events),
+                "human_review_required": True,
+                "bridge_eligible": bridge_eligible,
+                "bridge_action": "PROPOSE_CREATE" if bridge_eligible else None,
+                **worthiness,
+            }
+        )
+        return payload
 
     def _auto_session_label(self, *, created_at: datetime, topic_hint: str | None) -> str:
         local = created_at.astimezone(timezone.utc)
@@ -843,9 +1708,12 @@ class RuntimeSession:
                     if str(card.title or "").strip()
                     else str(card.summary or "").strip()
                 ),
-                confidence=_clamp01(max(float(hit.score), float(card.confidence))),
+                confidence=_clamp01(float(hit.score)),
                 source_refs=refs,
+                record_updated_at=timestamp,
                 conflict_state="active",
+                memory_layer="published_episode",
+                trust_tier="published",
             )
             confidence_values.append(item.confidence)
             if idx == 0:
@@ -881,6 +1749,9 @@ class RuntimeSession:
         dropped_seen: set[str] = set()
         dropped_raw = getattr(retrieval, "dropped_reasons", {}) if retrieval is not None else {}
         scored_atoms = list(getattr(retrieval, "scored_atoms", []) or []) if retrieval is not None else []
+        profile_used = str(getattr(retrieval, "profile_used", "") or "").strip()
+        ann = getattr(retrieval, "ann", None)
+        helper_lanes = list(getattr(retrieval, "helper_lanes", []) or []) if retrieval is not None else []
 
         for scored in scored_atoms:
             atom = getattr(scored, "atom", None)
@@ -938,9 +1809,22 @@ class RuntimeSession:
             selected=selected[:24],
             dropped=dropped,
             dropped_reason_counts=dropped_reason_counts,
+            profile_used=profile_used,
             selected_count=len(selected),
             dropped_count=sum(dropped_reason_counts.values()),
             raw_text_included=False,
+            helper_lanes=[
+                lane
+                for lane in helper_lanes
+                if isinstance(lane, RetrievalHelperLaneContract)
+            ],
+            ann_enabled=bool(getattr(ann, "enabled", False)),
+            ann_used=bool(getattr(ann, "used", False)),
+            ann_candidate_count=int(getattr(ann, "candidate_count", 0) or 0),
+            ann_latency_ms=float(getattr(ann, "latency_ms", 0.0) or 0.0),
+            ann_fallback_reason=str(getattr(ann, "fallback_reason", "") or "").strip(),
+            ann_store_fingerprint=str(getattr(ann, "store_fingerprint", "") or "").strip(),
+            ann_backend_version=str(getattr(ann, "backend_version", "") or "").strip(),
         )
         return contract_to_dict(diagnostics)
 
@@ -1050,8 +1934,16 @@ class RuntimeSession:
                 out.append(clean)
         return out
 
-    def _can_short_circuit_episode_primary(self, hits: list[EpisodeHit]) -> bool:
+    def _can_short_circuit_episode_primary(
+        self,
+        hits: list[EpisodeHit],
+        *,
+        user_text: str = "",
+        retrieval_text: str = "",
+    ) -> bool:
         if not hits:
+            return False
+        if self._has_specific_recall_anchor(text=user_text) or self._has_specific_recall_anchor(text=retrieval_text):
             return False
         top = hits[0]
         if float(top.score) < float(self.episode_primary_min_score):
@@ -1148,6 +2040,7 @@ class RuntimeSession:
                     "auto": 0,
                     "chat_first": 0,
                     "memory_assist": 0,
+                    "session_recall": 0,
                 },
                 "rolling_summary": session.rolling_summary,
                 "short_term_notes": len(session.short_term),
@@ -1165,6 +2058,7 @@ class RuntimeSession:
             "auto": 0,
             "chat_first": 0,
             "memory_assist": 0,
+            "session_recall": 0,
         }
         total_tokens = 0
         total_cost = 0.0
@@ -1206,7 +2100,7 @@ class RuntimeSession:
                 "total_tokens": 0,
                 "total_cost_usd": 0.0,
                 "route_counts": {"none": 0, "stm_only": 0, "ltm_light": 0, "ltm_deep": 0},
-                "memory_preference_counts": {"auto": 0, "chat_first": 0, "memory_assist": 0},
+                "memory_preference_counts": {"auto": 0, "chat_first": 0, "memory_assist": 0, "session_recall": 0},
                 "mode_counts": {"none": 0, "stm_primary": 0, "hybrid": 0, "ltm_only": 0},
                 "route_reason_counts": {},
                 "stop_reason_counts": {},
@@ -1215,7 +2109,7 @@ class RuntimeSession:
             }
 
         route_counts = {"none": 0, "stm_only": 0, "ltm_light": 0, "ltm_deep": 0}
-        memory_preference_counts = {"auto": 0, "chat_first": 0, "memory_assist": 0}
+        memory_preference_counts = {"auto": 0, "chat_first": 0, "memory_assist": 0, "session_recall": 0}
         mode_counts = {"none": 0, "stm_primary": 0, "hybrid": 0, "ltm_only": 0}
         route_reason_counts: dict[str, int] = {}
         stop_reason_counts: dict[str, int] = {}
@@ -1323,6 +2217,7 @@ class RuntimeSession:
         if not text:
             raise ValueError("message is required")
         session = self._ensure_session(session_id)
+        self._handle_soft_close_state(session=session, upcoming_text=text)
         memory_pref = self._normalize_memory_preference(memory_preference)
         turn_id = f"turn_{uuid4().hex}"
         started = time.perf_counter()
@@ -1338,6 +2233,11 @@ class RuntimeSession:
         retrieval_query_tokens = _token_estimate(retrieval_text)
         memory_route = override_resolution.decision.route
         route_reason = override_resolution.decision.reason
+        isolate_stm_from_ltm = self._should_isolate_stm_from_ltm_evidence(
+            memory_route=str(memory_route or ""),
+            route_reason=str(route_reason or ""),
+            user_text=text,
+        )
 
         retrieve_start = time.perf_counter()
         stm_pack, stm_ids, stm_hits, stm_best = self._retrieve_short_term(text, session=session)
@@ -1362,6 +2262,7 @@ class RuntimeSession:
                 memory_route == "ltm_light"
                 and stm_hits > 0
                 and stm_best >= self.short_term_primary_score
+                and not isolate_stm_from_ltm
             ):
                 memory_mode = "stm_primary"
                 pack = stm_pack
@@ -1372,7 +2273,11 @@ class RuntimeSession:
                     episode_hits
                     and not high_risk
                     and not retrieval_override_active
-                    and self._can_short_circuit_episode_primary(episode_hits)
+                    and self._can_short_circuit_episode_primary(
+                        episode_hits,
+                        user_text=text,
+                        retrieval_text=retrieval_text,
+                    )
                 ):
                     memory_mode = "ltm_only"
                     retrieval_passes = 1
@@ -1381,7 +2286,11 @@ class RuntimeSession:
                     ltm_ids = self._episode_retrieved_ids(episode_hits)
                 else:
                     memory_mode = "ltm_only"
-                    retrieval_outcome = self._retrieve_ltm(retrieval_text, retrieval_override_active=retrieval_override_active)
+                    retrieval_outcome = self._retrieve_ltm(
+                        retrieval_text,
+                        retrieval_override_active=retrieval_override_active,
+                        profile_override=self._retrieval_profile_override(memory_pref, route_reason=route_reason),
+                    )
                     retrieval = retrieval_outcome.retrieval
                     retrieval_passes = retrieval_outcome.passes_used
                     retrieval_stop_reason = retrieval_outcome.stop_reason
@@ -1393,7 +2302,12 @@ class RuntimeSession:
                             episode_hits,
                             recall_priority=self._is_recall_style_prompt(text),
                         )
-                if stm_hits > 0:
+                provisional_pack, provisional_ids, _provisional_hits, _provisional_best = self._retrieve_provisional_memory(retrieval_text)
+                if provisional_ids:
+                    ltm_pack = self._merge_long_term_with_provisional(ltm_pack, provisional_pack)
+                    ltm_seen = set(ltm_ids)
+                    ltm_ids = list(ltm_ids) + [item_id for item_id in provisional_ids if item_id not in ltm_seen]
+                if stm_hits > 0 and not isolate_stm_from_ltm:
                     memory_mode = "hybrid"
                     pack = self._merge_packs(stm_pack, ltm_pack)
                     stm_id_set = set(stm_ids)
@@ -1402,13 +2316,17 @@ class RuntimeSession:
                     pack = ltm_pack
                     retrieved_atom_ids = ltm_ids
         else:
-            retrieval_outcome = self._retrieve_ltm(retrieval_text, retrieval_override_active=retrieval_override_active)
+            retrieval_outcome = self._retrieve_ltm(
+                retrieval_text,
+                retrieval_override_active=retrieval_override_active,
+                profile_override=self._retrieval_profile_override(memory_pref, route_reason=route_reason),
+            )
             retrieval = retrieval_outcome.retrieval
             retrieval_passes = retrieval_outcome.passes_used
             retrieval_stop_reason = retrieval_outcome.stop_reason
             ltm_pack = retrieval.memory_pack
             ltm_ids = list(retrieval.ranked_atom_ids)
-            if stm_hits > 0:
+            if stm_hits > 0 and not isolate_stm_from_ltm:
                 memory_mode = "hybrid"
                 pack = self._merge_packs(stm_pack, ltm_pack)
                 stm_id_set = set(stm_ids)
@@ -1419,6 +2337,11 @@ class RuntimeSession:
 
         # Keep retrieved_atom_ids aligned with the evidence pack (not broad rerank candidate lists).
         if pack.core or pack.context or pack.continuity or pack.conflict:
+            pack = self._prune_consumer_meta_evidence(
+                pack,
+                route_reason=route_reason,
+                user_text=text,
+            )
             retrieved_atom_ids = self._pack_retrieved_ids(pack)
 
         if memory_mode == "stm_primary":
@@ -1449,7 +2372,12 @@ class RuntimeSession:
                 needs_uncertainty=False,
             )
         if retrieval is not None:
-            verification = self._apply_query_evidence_gate(verification, retrieval, gate_text)
+            verification = self._apply_query_evidence_gate(
+                verification,
+                retrieval,
+                gate_text,
+                support_pack=pack,
+            )
         elif memory_route != "none":
             verification = self._apply_pack_query_gate(
                 verification,
@@ -1465,6 +2393,8 @@ class RuntimeSession:
         verifier_ms = (time.perf_counter() - verify_start) * 1000.0
 
         memory_cards = [self._card_to_dict(item) for item in self._assemble_memory_cards(pack)]
+        memory_cards = self._rank_memory_cards_for_response(user_text=text, memory_cards=memory_cards)
+        memory_cards = self._annotate_memory_card_conflicts(user_text=text, memory_cards=memory_cards)
         response_text, citations = self._compose_response(
             text,
             verification,
@@ -1553,6 +2483,18 @@ class RuntimeSession:
             response_text=response_text,
             session=session,
         )
+        if self._provisional_memory_enabled:
+            self._capture_provisional_turn(
+                turn_id=turn_id,
+                session=session,
+                user_text=text,
+                response_text=response_text,
+                timestamp=trace.timestamp,
+            )
+            if self._looks_like_soft_close_hint(text) or self._looks_like_soft_close_hint(response_text):
+                with self._lock:
+                    session.soft_close_hint_at = trace.timestamp
+                    session.soft_close_hint_text = text if self._looks_like_soft_close_hint(text) else response_text
         return trace
 
     def list_turns(self) -> list[TurnTrace]:
@@ -1715,6 +2657,11 @@ class RuntimeSession:
         retrieval_text = override_resolution.retrieval_text
         memory_route = str(override_resolution.decision.route or "none").strip()
         route_reason = str(override_resolution.decision.reason or "").strip()
+        isolate_stm_from_ltm = self._should_isolate_stm_from_ltm_evidence(
+            memory_route=memory_route,
+            route_reason=route_reason,
+            user_text=text,
+        )
         retrieval_override_active = bool(override_resolution.audit.applied)
 
         predicted_mode, arbitration_reason, will_query_ltm = self._predict_memory_mode(
@@ -1756,7 +2703,12 @@ class RuntimeSession:
                 pack = stm_pack
                 retrieved_atom_ids = list(stm_ids)
         elif memory_route in {"ltm_light", "ltm_deep"}:
-            if memory_route == "ltm_light" and stm_hits > 0 and stm_best >= self.short_term_primary_score:
+            if (
+                memory_route == "ltm_light"
+                and stm_hits > 0
+                and stm_best >= self.short_term_primary_score
+                and not isolate_stm_from_ltm
+            ):
                 memory_mode = "stm_primary"
                 pack = stm_pack
                 retrieved_atom_ids = list(stm_ids)
@@ -1766,14 +2718,22 @@ class RuntimeSession:
                     episode_hits
                     and not high_risk
                     and not retrieval_override_active
-                    and self._can_short_circuit_episode_primary(episode_hits)
+                    and self._can_short_circuit_episode_primary(
+                        episode_hits,
+                        user_text=text,
+                        retrieval_text=retrieval_text,
+                    )
                 ):
                     memory_mode = "ltm_only"
                     pack = self._episode_hits_to_pack(episode_hits)
                     retrieved_atom_ids = self._episode_retrieved_ids(episode_hits)
                     retrieval_stop_reason = "episode_short_circuit"
                 else:
-                    retrieval_outcome = self._retrieve_ltm(retrieval_text, retrieval_override_active=retrieval_override_active)
+                    retrieval_outcome = self._retrieve_ltm(
+                        retrieval_text,
+                        retrieval_override_active=retrieval_override_active,
+                        profile_override=self._retrieval_profile_override(memory_pref, route_reason=route_reason),
+                    )
                     retrieval = retrieval_outcome.retrieval
                     retrieval_passes = retrieval_outcome.passes_used
                     retrieval_stop_reason = retrieval_outcome.stop_reason
@@ -1786,7 +2746,7 @@ class RuntimeSession:
                             recall_priority=self._is_recall_style_prompt(text),
                         )
                         ltm_ids = self._pack_retrieved_ids(ltm_pack)
-                    if stm_hits > 0:
+                    if stm_hits > 0 and not isolate_stm_from_ltm:
                         memory_mode = "hybrid"
                         pack = self._merge_packs(stm_pack, ltm_pack)
                         stm_id_set = set(stm_ids)
@@ -1796,13 +2756,17 @@ class RuntimeSession:
                         pack = ltm_pack
                         retrieved_atom_ids = ltm_ids
         else:
-            retrieval_outcome = self._retrieve_ltm(retrieval_text, retrieval_override_active=retrieval_override_active)
+            retrieval_outcome = self._retrieve_ltm(
+                retrieval_text,
+                retrieval_override_active=retrieval_override_active,
+                profile_override=self._retrieval_profile_override(memory_pref, route_reason=route_reason),
+            )
             retrieval = retrieval_outcome.retrieval
             retrieval_passes = retrieval_outcome.passes_used
             retrieval_stop_reason = retrieval_outcome.stop_reason
             ltm_pack = retrieval.memory_pack
             ltm_ids = list(retrieval.ranked_atom_ids)
-            if stm_hits > 0:
+            if stm_hits > 0 and not isolate_stm_from_ltm:
                 memory_mode = "hybrid"
                 pack = self._merge_packs(stm_pack, ltm_pack)
                 stm_id_set = set(stm_ids)
@@ -1814,6 +2778,11 @@ class RuntimeSession:
 
         # Keep retrieved_atom_ids aligned with the evidence pack (not broad rerank candidate lists).
         if pack.core or pack.context or pack.continuity or pack.conflict:
+            pack = self._prune_consumer_meta_evidence(
+                pack,
+                route_reason=route_reason,
+                user_text=text,
+            )
             retrieved_atom_ids = self._pack_retrieved_ids(pack)
 
         if memory_mode == "stm_primary":
@@ -1844,7 +2813,12 @@ class RuntimeSession:
             )
         gate_text = retrieval_text
         if retrieval is not None:
-            verification = self._apply_query_evidence_gate(verification, retrieval, gate_text)
+            verification = self._apply_query_evidence_gate(
+                verification,
+                retrieval,
+                gate_text,
+                support_pack=pack,
+            )
         elif memory_route != "none":
             verification = self._apply_pack_query_gate(
                 verification,
@@ -1952,7 +2926,11 @@ class RuntimeSession:
                     continue
                 citations = self._citations_for_item(item)
                 role_hint, anchors = self._evidence_role_and_anchors(atom_id)
-                summary, verbatim = self._evidence_summaries(item.canonical_text, role_hint=role_hint)
+                summary, verbatim = self._evidence_summaries(
+                    item.canonical_text,
+                    role_hint=role_hint,
+                    raw_context=str(getattr(item, "raw_context_text", "") or ""),
+                )
                 contradiction = bool(section == "conflict" or str(item.conflict_state).lower() != "active")
                 out.append(
                     {
@@ -2052,10 +3030,11 @@ class RuntimeSession:
         ranked = sorted(clauses, key=lambda piece: (len(_tokenize(piece)), len(piece)), reverse=True)
         return ranked[0]
 
-    def _evidence_summaries(self, text: str, *, role_hint: str) -> tuple[str, str]:
+    def _evidence_summaries(self, text: str, *, role_hint: str, raw_context: str = "") -> tuple[str, str]:
         clause = self._evidence_best_clause(text)
         clause_compact = self._compact_text(clause, max_chars=180)
-        verbatim = self._compact_text(str(text or ""), max_chars=320)
+        verbatim_source = str(raw_context or text or "")
+        verbatim = self._compact_text(verbatim_source, max_chars=320)
         if role_hint == "user":
             return f"User: {clause_compact}", verbatim
         if role_hint == "assistant":
@@ -2106,6 +3085,121 @@ class RuntimeSession:
             )
         )
 
+    def _should_isolate_stm_from_ltm_evidence(
+        self,
+        *,
+        memory_route: str,
+        route_reason: str,
+        user_text: str,
+    ) -> bool:
+        if memory_route not in {"ltm_light", "ltm_deep"}:
+            return False
+        if str(route_reason or "").strip() == "explicit_memory_request":
+            return True
+        if self._has_specific_recall_anchor(text=user_text):
+            return True
+        return self._is_recall_style_prompt(user_text)
+
+    def _should_prune_consumer_meta_evidence(self, *, route_reason: str, user_text: str) -> bool:
+        reason = str(route_reason or "").strip().lower()
+        if reason in {"identity_relationship_probe", "name_frequency_trigger"}:
+            return True
+        normalized = str(user_text or "").strip().lower()
+        return self._is_identity_relationship_query(normalized)
+
+    def _looks_like_consumer_meta_instruction_text(self, text: str) -> bool:
+        normalized = re.sub(r"\s+", " ", str(text or "").strip().lower())
+        if not normalized:
+            return False
+        tokens = set(_tokenize(normalized))
+        system_hits = len(tokens.intersection(_CONSUMER_META_SYSTEM_TOKENS))
+        instruction_hits = len(tokens.intersection(_CONSUMER_META_INSTRUCTION_TOKENS))
+        phrase_hit = any(phrase in normalized for phrase in _CONSUMER_META_PHRASES)
+        if not phrase_hit and not (system_hits >= 2 and instruction_hits >= 1):
+            return False
+        if "memory system" in normalized and instruction_hits == 0:
+            return False
+        return True
+
+    def _looks_like_consumer_meta_conversation_text(self, text: str, *, user_text: str) -> bool:
+        normalized = re.sub(r"\s+", " ", str(text or "").strip().lower())
+        if not normalized:
+            return False
+        tokens = set(_tokenize(normalized))
+        meta_hits = len(tokens.intersection(_CONSUMER_META_CONVERSATION_TOKENS))
+        phrase_hit = any(phrase in normalized for phrase in _CONSUMER_META_CONVERSATION_PHRASES)
+        if not phrase_hit and meta_hits < 2:
+            return False
+        query_normalized = str(user_text or "").strip().lower()
+        focus_tokens = set(self._query_focus_candidates(text=user_text, normalized=query_normalized))
+        focus_hit = bool(focus_tokens.intersection(tokens))
+        quoted_focus = any(
+            bool(focus_tokens.intersection(set(_tokenize(quoted))))
+            for quoted in _QUOTE_RE.findall(str(text or ""))
+        )
+        if not focus_hit and not quoted_focus:
+            return False
+        if phrase_hit or quoted_focus:
+            return True
+        return meta_hits >= 3 and ("would be" in normalized or "for example" in normalized)
+
+    def _prune_consumer_meta_evidence(
+        self,
+        pack: MemoryPack,
+        *,
+        route_reason: str,
+        user_text: str,
+    ) -> MemoryPack:
+        if not self._should_prune_consumer_meta_evidence(route_reason=route_reason, user_text=user_text):
+            return pack
+
+        removed_any = False
+        kept_any_non_meta = False
+
+        def _filtered(items: list[MemoryPackItem]) -> list[MemoryPackItem]:
+            nonlocal removed_any, kept_any_non_meta
+            out: list[MemoryPackItem] = []
+            for item in items:
+                atom_id = str(getattr(item, "atom_id", "") or "").strip()
+                if atom_id.startswith("episode_card:"):
+                    out.append(item)
+                    kept_any_non_meta = True
+                    continue
+                text = str(getattr(item, "canonical_text", "") or "").strip()
+                if self._looks_like_consumer_meta_instruction_text(text) or self._looks_like_consumer_meta_conversation_text(
+                    text,
+                    user_text=user_text,
+                ):
+                    removed_any = True
+                    continue
+                out.append(item)
+                kept_any_non_meta = True
+            return out
+
+        filtered_core = _filtered(list(pack.core))
+        filtered_context = _filtered(list(pack.context))
+        filtered_continuity = _filtered(list(pack.continuity))
+        filtered_conflict = _filtered(list(pack.conflict))
+        if not removed_any or not kept_any_non_meta:
+            return pack
+
+        confidence_values = [
+            float(getattr(item, "confidence", 0.0) or 0.0)
+            for item in filtered_core + filtered_context + filtered_continuity + filtered_conflict
+        ]
+        pack_confidence = (
+            _clamp01(sum(confidence_values) / max(1, len(confidence_values)))
+            if confidence_values
+            else float(getattr(pack, "pack_confidence", 0.0) or 0.0)
+        )
+        return memory_pack_from_items(
+            filtered_core,
+            context=filtered_context,
+            continuity=filtered_continuity,
+            conflict=filtered_conflict,
+            pack_confidence=pack_confidence,
+        )
+
     def _route_turn(self, *, text: str, high_risk: bool, memory_preference: str = "auto") -> FrontDeskDecision:
         normalized = str(text or "").strip().lower()
         token_count = len(_tokenize(normalized))
@@ -2124,6 +3218,8 @@ class RuntimeSession:
             route, reason = "none", "smalltalk_routine"
         elif explicit_memory_request:
             route, reason = "ltm_deep", "explicit_memory_request"
+        elif self._has_verbatim_session_recall_intent(text=text, normalized=normalized):
+            route, reason = "ltm_deep", "verbatim_session_recall"
         else:
             forced_reason = self._force_ltm_light_reason(text=text, normalized=normalized)
             if forced_reason:
@@ -2159,11 +3255,16 @@ class RuntimeSession:
             else:
                 decision = FrontDeskDecision(route=route, reason=reason)
 
+        if preference == "session_recall":
+            decision = FrontDeskDecision(route="ltm_deep", reason="memory_preference_session_recall")
+
         if self._should_force_routine_no_memory(
+            text=text,
             normalized=normalized,
             token_count=token_count,
             explicit_memory_request=explicit_memory_request,
             force_memory_lookup=force_memory_lookup,
+            memory_preference=preference,
             decision=decision,
         ):
             return FrontDeskDecision(route="none", reason="routine_hard_cap")
@@ -2271,9 +3372,15 @@ class RuntimeSession:
             "assist": "memory_assist",
             "memory": "memory_assist",
             "memoryassist": "memory_assist",
+            "quote": "session_recall",
+            "quotes": "session_recall",
+            "verbatim": "session_recall",
+            "session": "session_recall",
+            "benchmark": "session_recall",
+            "benchmark_recall": "session_recall",
         }
         normalized = aliases.get(raw, raw)
-        if normalized not in {"auto", "chat_first", "memory_assist"}:
+        if normalized not in {"auto", "chat_first", "memory_assist", "session_recall"}:
             return "auto"
         return normalized
 
@@ -2298,17 +3405,28 @@ class RuntimeSession:
     def _should_force_routine_no_memory(
         self,
         *,
+        text: str,
         normalized: str,
         token_count: int,
         explicit_memory_request: bool,
         force_memory_lookup: bool,
+        memory_preference: str,
         decision: FrontDeskDecision,
     ) -> bool:
         if not self.routine_hard_cap_enabled:
             return False
         if explicit_memory_request:
             return False
+        if str(decision.reason or "").strip() == "verbatim_session_recall":
+            return False
         if force_memory_lookup:
+            return False
+        if (
+            str(memory_preference or "").strip() == "memory_assist"
+            and self._has_specific_recall_anchor(text=text, normalized=normalized)
+        ):
+            return False
+        if str(memory_preference or "").strip() == "session_recall":
             return False
         route = str(decision.route or "").strip()
         if route not in {"ltm_light", "ltm_deep"}:
@@ -2326,11 +3444,78 @@ class RuntimeSession:
             return True
         return False
 
+    def _has_specific_recall_anchor(self, *, text: str, normalized: str | None = None) -> bool:
+        raw_text = str(text or "").strip()
+        if not raw_text:
+            return False
+        if _QUOTE_RE.search(raw_text):
+            return True
+        normalized_text = str(normalized if normalized is not None else raw_text.lower())
+        informative = self._ordered_informative_tokens(normalized_text)
+        if any(self._is_high_signal_token(tok) for tok in informative[:10]):
+            return True
+        if len(informative) >= 2 and any(tok in _DESCRIPTIVE_RECALL_ANCHOR_TOKENS for tok in informative[:10]):
+            return True
+        if self._name_frequency_trigger_token(text=raw_text, normalized=normalized_text):
+            return True
+        for focus in list(_ABOUT_FOCUS_RE.findall(raw_text)) + list(_WHO_FOCUS_RE.findall(raw_text)):
+            if self._has_title_case_anchor_token(focus):
+                return True
+        return False
+
+    def _has_title_case_anchor_token(self, text: str) -> bool:
+        ignored = {
+            "a",
+            "an",
+            "and",
+            "can",
+            "could",
+            "how",
+            "i",
+            "me",
+            "moment",
+            "story",
+            "tell",
+            "that",
+            "the",
+            "these",
+            "this",
+            "those",
+            "we",
+            "what",
+            "when",
+            "where",
+            "who",
+            "why",
+            "you",
+            "your",
+        }
+        for raw in _NAME_TOKEN_RE.findall(str(text or "")):
+            token = str(raw or "").strip()
+            if not token or not token[0].isupper():
+                continue
+            lowered = token.lower()
+            if lowered in _NAME_FREQ_IGNORE_TOKENS or lowered in ignored:
+                continue
+            return True
+        return False
+
     def _has_explicit_memory_cues(self, normalized: str) -> bool:
         if any(phrase in normalized for phrase in _MEMORY_SIGNAL_PHRASES):
             return True
         ordered = self._ordered_informative_tokens(normalized)
         return any(self._is_high_signal_token(tok) for tok in ordered[:10])
+
+    def _has_verbatim_session_recall_intent(self, *, text: str, normalized: str) -> bool:
+        raw_text = str(text or "").strip()
+        if not raw_text:
+            return False
+        if any(phrase in normalized for phrase in _SESSION_RECALL_PHRASES):
+            return True
+        tokens = set(_tokenize(normalized))
+        if "said" in tokens and tokens.intersection({"assistant", "user", "exactly", "verbatim"}):
+            return True
+        return False
 
     def _casual_prompt_should_skip(self, normalized: str, *, token_count: int) -> bool:
         if not self._is_casual_prompt(normalized, token_count=token_count):
@@ -2433,6 +3618,34 @@ class RuntimeSession:
                 out.append(token)
         return out
 
+    def _query_focus_candidates(self, *, text: str, normalized: str) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        focus_spans = (
+            list(_ABOUT_FOCUS_RE.findall(text))
+            + list(_WHO_FOCUS_RE.findall(text))
+            + list(_EVENT_FOCUS_RE.findall(text))
+        )
+        for focus in focus_spans:
+            for raw in _NAME_TOKEN_RE.findall(str(focus or "")):
+                token = str(raw or "").strip().lower()
+                if len(token) < 3 or token in _FOCUS_CANDIDATE_IGNORE_TOKENS or token.isdigit():
+                    continue
+                if token in seen:
+                    continue
+                seen.add(token)
+                out.append(token)
+        if out:
+            return out
+        for token in self._query_name_candidates(text=text, normalized=normalized):
+            if token in _FOCUS_CANDIDATE_IGNORE_TOKENS:
+                continue
+            if token in seen:
+                continue
+            seen.add(token)
+            out.append(token)
+        return out
+
     def _is_name_frequency_candidate(self, token: str) -> bool:
         cleaned = str(token or "").strip().lower()
         if len(cleaned) < 3:
@@ -2475,19 +3688,50 @@ class RuntimeSession:
             ordered.append(tok)
         return ordered
 
-    def _retrieve_ltm(self, retrieval_text: str, *, retrieval_override_active: bool) -> RetrievalPassResult:
-        if retrieval_override_active:
-            retrieval = self.retriever.retrieve(str(retrieval_text or "").strip(), continuity_store=self.continuity_store)
-            return RetrievalPassResult(retrieval=retrieval, passes_used=1, stop_reason="override_single_pass")
-        return self._retrieve_ltm_multi_pass(retrieval_text)
+    def _retrieval_profile_override(
+        self,
+        memory_preference: str | None,
+        *,
+        route_reason: str | None = None,
+    ) -> str | None:
+        if str(memory_preference or "").strip() == "session_recall":
+            return "verbatim_session_recall"
+        if str(route_reason or "").strip() == "verbatim_session_recall":
+            return "verbatim_session_recall"
+        return None
 
-    def _retrieve_ltm_multi_pass(self, retrieval_text: str) -> RetrievalPassResult:
+    def _retriever_retrieve(self, query: str, *, profile_override: str | None = None) -> RetrievalResult:
+        if profile_override:
+            try:
+                return self.retriever.retrieve(
+                    query,
+                    continuity_store=self.continuity_store,
+                    profile_override=profile_override,
+                )
+            except TypeError as exc:
+                if "profile_override" not in str(exc):
+                    raise
+        return self.retriever.retrieve(query, continuity_store=self.continuity_store)
+
+    def _retrieve_ltm(
+        self,
+        retrieval_text: str,
+        *,
+        retrieval_override_active: bool,
+        profile_override: str | None = None,
+    ) -> RetrievalPassResult:
+        if retrieval_override_active:
+            retrieval = self._retriever_retrieve(str(retrieval_text or "").strip(), profile_override=profile_override)
+            return RetrievalPassResult(retrieval=retrieval, passes_used=1, stop_reason="override_single_pass")
+        return self._retrieve_ltm_multi_pass(retrieval_text, profile_override=profile_override)
+
+    def _retrieve_ltm_multi_pass(self, retrieval_text: str, *, profile_override: str | None = None) -> RetrievalPassResult:
         base_query = str(retrieval_text or "").strip()
         if not base_query:
-            retrieval = self.retriever.retrieve(retrieval_text, continuity_store=self.continuity_store)
+            retrieval = self._retriever_retrieve(retrieval_text, profile_override=profile_override)
             return RetrievalPassResult(retrieval=retrieval, passes_used=1, stop_reason="single_pass")
         if not self.ltm_multi_pass_enabled or self.ltm_max_passes <= 1:
-            retrieval = self.retriever.retrieve(base_query, continuity_store=self.continuity_store)
+            retrieval = self._retriever_retrieve(base_query, profile_override=profile_override)
             return RetrievalPassResult(retrieval=retrieval, passes_used=1, stop_reason="single_pass")
 
         best = None
@@ -2519,7 +3763,7 @@ class RuntimeSession:
                 if pass_idx > 0:
                     stop_reason = "query_budget_exceeded"
                     break
-            result = self.retriever.retrieve(query, continuity_store=self.continuity_store)
+            result = self._retriever_retrieve(query, profile_override=profile_override)
             passes_used += 1
             seen_queries.add(query)
             match_max, match_mean = self._query_match_stats(result)
@@ -2528,7 +3772,7 @@ class RuntimeSession:
                 best = result
                 best_key = key
         if best is None:
-            retrieval = self.retriever.retrieve(retrieval_text, continuity_store=self.continuity_store)
+            retrieval = self._retriever_retrieve(retrieval_text, profile_override=profile_override)
             return RetrievalPassResult(retrieval=retrieval, passes_used=1, stop_reason="single_pass")
         if passes_used <= 1 and stop_reason == "max_passes_reached":
             stop_reason = "single_pass"
@@ -2701,6 +3945,64 @@ class RuntimeSession:
             return 0.0, 0.0
         return max(scores), (sum(scores) / len(scores))
 
+    def _pack_query_support_profile(self, query_text: str, pack: MemoryPack) -> tuple[float, float, int]:
+        q_tokens = self._informative_tokens(query_text)
+        if not q_tokens:
+            return 0.0, 0.0, 0
+        union_matches: set[str] = set()
+        per_item_overlap: list[float] = []
+        for item in (list(pack.core) + list(pack.context))[:6]:
+            tokens = self._informative_tokens(item.canonical_text)
+            if not tokens:
+                continue
+            matched = q_tokens.intersection(tokens)
+            if not matched:
+                continue
+            union_matches.update(matched)
+            per_item_overlap.append(len(matched) / max(1, len(q_tokens)))
+        if not per_item_overlap:
+            return 0.0, 0.0, 0
+        return len(union_matches) / max(1, len(q_tokens)), max(per_item_overlap), len(per_item_overlap)
+
+    def _core_distributed_query_support(self, query_text: str, pack: MemoryPack) -> tuple[float, int, float]:
+        q_tokens = self._informative_tokens(query_text)
+        if not q_tokens:
+            return 0.0, 0, 0.0
+        core_items = [item for item in list(pack.core)[:3] if self._informative_tokens(item.canonical_text)]
+        if len(core_items) < 3:
+            return 0.0, 0, 0.0
+        union_tokens: set[str] = set()
+        confidence_values: list[float] = []
+        for item in core_items:
+            union_tokens.update(self._informative_tokens(item.canonical_text))
+            confidence_values.append(_clamp01(float(getattr(item, "confidence", 0.0) or 0.0)))
+        if not union_tokens or not confidence_values:
+            return 0.0, 0, 0.0
+        matched = q_tokens.intersection(union_tokens)
+        overlap = len(matched) / max(1, len(q_tokens))
+        mean_confidence = sum(confidence_values) / len(confidence_values)
+        return overlap, len(matched), mean_confidence
+
+    def _has_coherent_distributed_core_support(
+        self,
+        query_text: str,
+        pack: MemoryPack,
+        *,
+        informative_count: int,
+        required_hits: int,
+    ) -> bool:
+        core_overlap, core_match_count, core_mean_confidence = self._core_distributed_query_support(query_text, pack)
+        distributed_overlap_floor = max(
+            self.min_query_informative_overlap,
+            required_hits / max(1, informative_count),
+        )
+        distributed_confidence_floor = min(0.75, float(getattr(self.verifier, "support_threshold", 0.40)) + 0.10)
+        return (
+            core_match_count >= required_hits
+            and core_overlap >= distributed_overlap_floor
+            and core_mean_confidence >= distributed_confidence_floor
+        )
+
     def _needs_followup(self, retrieval: Any) -> bool:
         if retrieval is None:
             return True
@@ -2747,22 +4049,32 @@ class RuntimeSession:
         verification: VerificationResult,
         retrieval: Any,
         retrieval_query: str,
+        *,
+        support_pack: MemoryPack | None = None,
     ) -> VerificationResult:
         if verification.decision is not VerificationDecision.PASS:
             return verification
         match_max, match_mean = self._query_match_stats(retrieval)
+        gate_pack = support_pack or getattr(retrieval, "memory_pack", MemoryPack())
         informative_overlap, informative_count, informative_matches, signal_count, signal_matches = self._query_informative_overlap(
             retrieval_query,
-            retrieval.memory_pack,
+            gate_pack,
+        )
+        required_hits = 1 if informative_count == 2 else min(self.min_query_token_hits, informative_count) if informative_count >= 2 else 1
+        has_distributed_core_support = self._has_coherent_distributed_core_support(
+            retrieval_query,
+            gate_pack,
+            informative_count=informative_count,
+            required_hits=required_hits,
         )
         if signal_count > 0 and signal_matches == 0:
-            return self._force_abstain(
-                verification,
-                reason="QUERY_SIGNAL_MISSING",
-                confidence=informative_overlap,
-            )
+            if not has_distributed_core_support:
+                return self._force_abstain(
+                    verification,
+                    reason="QUERY_SIGNAL_MISSING",
+                    confidence=informative_overlap,
+                )
         if informative_count >= 2:
-            required_hits = 1 if informative_count == 2 else min(self.min_query_token_hits, informative_count)
             if informative_matches < required_hits:
                 return self._force_abstain(
                     verification,
@@ -2777,10 +4089,20 @@ class RuntimeSession:
                 )
         if match_max >= self.min_query_match_max or match_mean >= self.min_query_match_mean:
             return verification
+        pack_overlap, pack_item_max, pack_support_items = self._pack_query_support_profile(
+            retrieval_query,
+            gate_pack,
+        )
+        if pack_support_items >= 2 and (
+            pack_overlap >= self.min_query_informative_overlap or pack_item_max >= self.min_query_match_max
+        ):
+            return verification
+        if has_distributed_core_support:
+            return verification
         return self._force_abstain(
             verification,
             reason="QUERY_EVIDENCE_WEAK",
-            confidence=max(match_max, match_mean),
+            confidence=max(match_max, match_mean, pack_item_max, informative_overlap),
         )
 
     def _apply_pack_query_gate(
@@ -2844,6 +4166,496 @@ class RuntimeSession:
             unsupported_claims=unsupported,
             needs_uncertainty=verification.needs_uncertainty,
         )
+
+    def _is_provisional_noise(self, text: str) -> bool:
+        normalized = re.sub(r"\s+", " ", str(text or "").strip().lower())
+        if not normalized:
+            return True
+        if normalized.endswith("?"):
+            return True
+        if any(phrase in normalized for phrase in _PROVISIONAL_NOISE_PHRASES):
+            return True
+        informative = self._ordered_informative_tokens(normalized)
+        return len(informative) < 3
+
+    def _provisional_kind_and_score(self, *, text: str, source_role: str) -> tuple[ProvisionalMemoryKind, float] | None:
+        normalized = f" {re.sub(r'\\s+', ' ', str(text or '').strip().lower())} "
+        if self._is_provisional_noise(normalized):
+            return None
+        informative_tokens = self._ordered_informative_tokens(normalized)
+        info_score = min(0.30, 0.05 * float(len(informative_tokens)))
+        if source_role == "assistant" and normalized.strip().startswith("i ") and any(
+            hint in normalized for hint in _PROVISIONAL_SELF_CLAIM_HINTS
+        ):
+            return ProvisionalMemoryKind.SELF_CLAIM, min(1.0, 0.40 + info_score + 0.18)
+        if any(hint in normalized for hint in _PROVISIONAL_CORRECTION_HINTS):
+            return ProvisionalMemoryKind.CORRECTION, min(1.0, 0.38 + info_score + 0.16)
+        if any(hint in normalized for hint in _PROVISIONAL_PREFERENCE_HINTS):
+            return ProvisionalMemoryKind.PREFERENCE, min(1.0, 0.36 + info_score + 0.14)
+        if any(hint in normalized for hint in _PROVISIONAL_PLAN_HINTS):
+            return ProvisionalMemoryKind.PLAN, min(1.0, 0.34 + info_score + 0.14)
+        if "remember this" in normalized or "important" in normalized:
+            return ProvisionalMemoryKind.EVENT_NOTE, min(1.0, 0.34 + info_score + 0.12)
+        if len(informative_tokens) >= 5:
+            return ProvisionalMemoryKind.FACT, min(1.0, 0.32 + info_score + 0.10)
+        return None
+
+    def _proposal_kind_and_score(self, *, text: str, source_role: str) -> tuple[ProposalKind, str, float] | None:
+        normalized = f" {re.sub(r'\\s+', ' ', str(text or '').strip().lower())} "
+        if self._is_provisional_noise(normalized):
+            return None
+        info_score = min(0.24, 0.04 * float(len(self._ordered_informative_tokens(normalized))))
+        if source_role == "assistant" and normalized.strip().startswith("i "):
+            return None
+        if any(hint in normalized for hint in _PROPOSAL_OTHER_PERSON_STATE_HINTS):
+            return ProposalKind.OTHER_PERSON_INTERNAL_STATE, "other_person_internal_state", min(1.0, 0.48 + info_score)
+        if any(hint in normalized for hint in _PROPOSAL_IDENTITY_HINTS):
+            return ProposalKind.IDENTITY_SUMMARY, "identity_summary", min(1.0, 0.44 + info_score)
+        if any(hint in normalized for hint in _PROPOSAL_RELATIONSHIP_HINTS):
+            return ProposalKind.RELATIONSHIP_SUMMARY, "relationship_summary", min(1.0, 0.44 + info_score)
+        if any(hint in normalized for hint in _PROPOSAL_MOTIVE_HINTS):
+            return ProposalKind.INFERRED_MOTIVE, "inferred_motive", min(1.0, 0.42 + info_score)
+        if any(hint in normalized for hint in _PROPOSAL_LIFE_STORY_HINTS):
+            return ProposalKind.LIFE_STORY_CLAIM, "life_story_claim", min(1.0, 0.42 + info_score)
+        return None
+
+    def _proposal_candidate(
+        self,
+        *,
+        text: str,
+        source_role: str,
+        source_id: str,
+        message_id: str,
+        timestamp: datetime,
+        session_id: str,
+    ) -> ProposalCandidate | None:
+        candidate, _drop_reason = self._proposal_candidate_with_reason(
+            text=text,
+            source_role=source_role,
+            source_id=source_id,
+            message_id=message_id,
+            timestamp=timestamp,
+            session_id=session_id,
+        )
+        return candidate
+
+    def _proposal_candidate_with_reason(
+        self,
+        *,
+        text: str,
+        source_role: str,
+        source_id: str,
+        message_id: str,
+        timestamp: datetime,
+        session_id: str,
+    ) -> tuple[ProposalCandidate | None, str | None]:
+        if self._proposal_store is None or not self._proposal_capture_enabled:
+            return None, "proposal_capture_disabled"
+        resolved = self._proposal_kind_and_score(text=text, source_role=source_role)
+        if resolved is None:
+            return None, "not_high_risk_class"
+        kind, reason_code, score = resolved
+        source_ref = SourceRef(
+            source_id=source_id,
+            message_id=message_id,
+            timestamp=timestamp,
+            span_start=0,
+            span_end=max(1, len(str(text or ""))),
+        )
+        return (
+            ProposalCandidate(
+                kind=kind,
+                canonical_text=self._compact_text(str(text or "").strip(), max_chars=280),
+                source_refs=[source_ref],
+                source_role=source_role,
+                session_id=session_id,
+                reason_code=reason_code,
+                confidence=_clamp01(0.18 + score * 0.82),
+                metadata={
+                    "capture_reason": "turn_proposal_only",
+                    "memory_layer": "proposal_only",
+                    "trust_tier": "proposal_pending",
+                },
+            ),
+            None,
+        )
+
+    def _provisional_candidate(
+        self,
+        *,
+        text: str,
+        source_role: str,
+        source_id: str,
+        message_id: str,
+        timestamp: datetime,
+        session_id: str,
+    ) -> ProvisionalMemoryCandidate | None:
+        candidate, _drop_reason = self._provisional_candidate_with_reason(
+            text=text,
+            source_role=source_role,
+            source_id=source_id,
+            message_id=message_id,
+            timestamp=timestamp,
+            session_id=session_id,
+        )
+        return candidate
+
+    def _provisional_candidate_with_reason(
+        self,
+        *,
+        text: str,
+        source_role: str,
+        source_id: str,
+        message_id: str,
+        timestamp: datetime,
+        session_id: str,
+    ) -> tuple[ProvisionalMemoryCandidate | None, str | None]:
+        resolved = self._provisional_kind_and_score(text=text, source_role=source_role)
+        if resolved is None:
+            normalized = f" {re.sub(r'\\s+', ' ', str(text or '').strip().lower())} "
+            if self._is_provisional_noise(normalized):
+                return None, "noise_or_low_signal"
+            return None, "no_supported_memory_class"
+        kind, score = resolved
+        profile = self._provisional_profile()
+        threshold = profile.self_claim_threshold if kind is ProvisionalMemoryKind.SELF_CLAIM else profile.worthiness_threshold
+        if source_role == "assistant" and kind is not ProvisionalMemoryKind.SELF_CLAIM:
+            return None, "assistant_non_self_claim"
+        if kind is ProvisionalMemoryKind.SELF_CLAIM and not self._provisional_policy.allow_self_claim_auto_write:
+            return None, "self_claim_auto_write_disabled"
+        if score < threshold:
+            if kind is ProvisionalMemoryKind.SELF_CLAIM:
+                return None, "self_claim_below_threshold"
+            return None, "worthiness_below_threshold"
+        source_ref = SourceRef(
+            source_id=source_id,
+            message_id=message_id,
+            timestamp=timestamp,
+            span_start=0,
+            span_end=max(1, len(str(text or ""))),
+        )
+        stability = 0.12 if kind is ProvisionalMemoryKind.SELF_CLAIM else 0.24
+        return (
+            ProvisionalMemoryCandidate(
+                kind=kind,
+                canonical_text=self._compact_text(str(text or "").strip(), max_chars=280),
+                source_refs=[source_ref],
+                source_role=source_role,
+                session_id=session_id,
+                confidence=_clamp01(0.22 + score * 0.78),
+                salience=_clamp01(0.18 + score * 0.82),
+                stability=stability,
+                metadata={"capture_reason": "turn_auto_write", "source_role": source_role},
+            ),
+            None,
+        )
+
+    def _capture_provisional_memory_from_text(
+        self,
+        *,
+        text: str,
+        source_role: str,
+        session: SessionState,
+        source_id: str,
+        message_id: str,
+        timestamp: datetime,
+        reason: str,
+    ) -> int:
+        if self._provisional_store is None:
+            return 0
+        profile = self._provisional_profile()
+        with self._lock:
+            if session.provisional_write_count >= profile.max_auto_writes_per_session:
+                self._record_memory_capture_drop("session_cap_reached")
+                return 0
+        proposal_candidate, proposal_drop_reason = self._proposal_candidate_with_reason(
+            text=text,
+            source_role=source_role,
+            source_id=source_id,
+            message_id=message_id,
+            timestamp=timestamp,
+            session_id=session.session_id,
+        )
+        if proposal_candidate is not None:
+            self._proposal_store.upsert_candidate(proposal_candidate, reason=reason)
+            with self._lock:
+                session.provisional_write_count += 1
+                self._memory_capture_proposal_only_count += 1
+            return 1
+        candidate, drop_reason = self._provisional_candidate_with_reason(
+            text=text,
+            source_role=source_role,
+            source_id=source_id,
+            message_id=message_id,
+            timestamp=timestamp,
+            session_id=session.session_id,
+        )
+        if candidate is None:
+            self._record_memory_capture_drop(drop_reason or proposal_drop_reason or "unclassified_drop")
+            return 0
+        if candidate.kind is ProvisionalMemoryKind.CORRECTION:
+            record = self._apply_provisional_correction_candidate(candidate, reason=reason)
+        else:
+            record = self._provisional_store.upsert_candidate(candidate, reason=reason)
+        if record is None:
+            self._record_memory_capture_drop("correction_target_missing")
+            return 0
+        self._detect_and_log_near_duplicates(record)
+        with self._lock:
+            session.provisional_write_count += 1
+            self._memory_capture_provisional_accepted_count += 1
+            if reason == "soft_close_gap" or reason == "runtime_close" or reason == "session_boundary":
+                self._memory_capture_sweep_promotion_count += 1
+        return 1
+
+    def _apply_provisional_correction_candidate(
+        self,
+        candidate: ProvisionalMemoryCandidate,
+        *,
+        reason: str,
+    ) -> ProvisionalMemoryRecord | None:
+        if self._provisional_store is None:
+            return None
+        hits = self._provisional_store.search(candidate.canonical_text, limit=4)
+        previous = next(
+            (
+                hit.record
+                for hit in hits
+                if hit.record.status is ProvisionalMemoryStatus.ACTIVE
+                and hit.record.record_id
+                and hit.record.canonical_text.strip().lower() != candidate.canonical_text.strip().lower()
+                and len(hit.matched_terms) >= 2
+            ),
+            None,
+        )
+        if previous is None:
+            return self._provisional_store.upsert_candidate(candidate, reason=reason)
+        replacement_kind = previous.kind if previous.kind is not ProvisionalMemoryKind.CORRECTION else ProvisionalMemoryKind.FACT
+        replacement = ProvisionalMemoryCandidate(
+            kind=replacement_kind,
+            canonical_text=candidate.canonical_text,
+            source_refs=list(candidate.source_refs),
+            source_role=candidate.source_role,
+            session_id=candidate.session_id,
+            confidence=candidate.confidence,
+            salience=candidate.salience,
+            stability=max(candidate.stability, previous.stability),
+            metadata=dict(candidate.metadata),
+        )
+        return self._provisional_store.supersede_record(previous.record_id, replacement, reason=reason)
+
+    def _has_near_duplicate_event(self, *, record_id: str, other_record_id: str) -> bool:
+        if self._provisional_store is None:
+            return False
+        for event in self._provisional_store.list_events(record_id=record_id, event_type=ProvisionalMemoryEventType.NEAR_DUPLICATE):
+            if str((event.metadata or {}).get("other_record_id") or "").strip() == other_record_id:
+                return True
+        return False
+
+    def _detect_and_log_near_duplicates(self, record: ProvisionalMemoryRecord) -> int:
+        if self._provisional_store is None:
+            return 0
+        policy = self._provisional_policy.near_duplicate
+        if not bool(policy.enabled):
+            return 0
+        hits = self._provisional_store.search(record.canonical_text, limit=8)
+        logged = 0
+        for hit in hits:
+            other = hit.record
+            if other.record_id == record.record_id:
+                continue
+            if _normalize_text(other.canonical_text) == _normalize_text(record.canonical_text):
+                continue
+            similarity = float(hit.score)
+            if similarity < float(policy.similarity_threshold):
+                continue
+            if self._has_near_duplicate_event(record_id=record.record_id, other_record_id=other.record_id):
+                continue
+            created_at = getattr(record, "created_at", None)
+            other_created_at = getattr(other, "created_at", None)
+            ordering = "same_time"
+            if created_at is not None and other_created_at is not None:
+                if created_at < other_created_at:
+                    ordering = "left_before_right"
+                elif created_at > other_created_at:
+                    ordering = "left_after_right"
+            self._provisional_store.record_near_duplicate(
+                record_id=record.record_id,
+                other_record_id=other.record_id,
+                similarity_score=similarity,
+                metadata={
+                    "left_record_id": record.record_id,
+                    "right_record_id": other.record_id,
+                    "same_session": "true" if record.session_id == other.session_id else "false",
+                    "same_source_role": "true" if record.source_role == other.source_role else "false",
+                    "same_kind": "true" if record.kind is other.kind else "false",
+                    "same_conflict_state": "true" if record.status is other.status else "false",
+                    "timestamp_order": ordering,
+                },
+            )
+            logged += 1
+            if logged >= int(policy.max_pairs_per_record):
+                break
+        if logged > 0:
+            with self._lock:
+                self._memory_capture_duplicate_suspected_count += logged
+        return logged
+
+    def _capture_provisional_turn(
+        self,
+        *,
+        turn_id: str,
+        session: SessionState,
+        user_text: str,
+        response_text: str,
+        timestamp: datetime,
+    ) -> int:
+        if self._provisional_store is None:
+            return 0
+        profile = self._provisional_profile()
+        created = 0
+        entries = [
+            ("user", user_text, f"turn:{turn_id}:user", f"{turn_id}:user"),
+            ("assistant", response_text, f"turn:{turn_id}:assistant", f"{turn_id}:assistant"),
+        ]
+        for source_role, text, source_id, message_id in entries:
+            if created >= profile.max_auto_writes_per_turn:
+                break
+            created += self._capture_provisional_memory_from_text(
+                text=text,
+                source_role=source_role,
+                session=session,
+                source_id=source_id,
+                message_id=message_id,
+                timestamp=timestamp,
+                reason="turn_auto_write",
+            )
+        return created
+
+    def _looks_like_soft_close_hint(self, text: str) -> bool:
+        normalized = re.sub(r"\s+", " ", str(text or "").strip().lower())
+        if not normalized:
+            return False
+        return any(hint in normalized for hint in _SOFT_CLOSE_HINTS)
+
+    def _handle_soft_close_state(self, *, session: SessionState, upcoming_text: str) -> int:
+        if not self._provisional_stm_sweep_enabled:
+            return 0
+        now = _utc_now()
+        with self._lock:
+            hint_at = session.soft_close_hint_at
+        if hint_at is None:
+            return 0
+        gap_seconds = max(1, int(self._provisional_policy.inactivity_gap_seconds))
+        idle_seconds = max(0.0, (now - hint_at).total_seconds())
+        if idle_seconds >= float(gap_seconds):
+            return self.flush_session_to_provisional(session.session_id, reason="soft_close_gap")
+        if str(upcoming_text or "").strip():
+            with self._lock:
+                session.soft_close_hint_at = None
+                session.soft_close_hint_text = ""
+        return 0
+
+    def _retrieve_provisional_memory(self, query_text: str) -> tuple[MemoryPack, list[str], int, float]:
+        if self._provisional_store is None or not self._provisional_retrieval_enabled:
+            return MemoryPack(), [], 0, 0.0
+        hits = self.search_provisional_memory(query_text, limit=4)
+        if not hits:
+            return MemoryPack(), [], 0, 0.0
+        core_items: list[MemoryPackItem] = []
+        context_items: list[MemoryPackItem] = []
+        ranked_ids: list[str] = []
+        for idx, hit in enumerate(hits):
+            confidence = min(0.78, 0.32 + float(hit.score) * 0.70)
+            item = MemoryPackItem(
+                atom_id=hit.record.record_id,
+                canonical_text=hit.record.canonical_text,
+                confidence=_clamp01(confidence),
+                source_refs=list(hit.record.source_refs),
+                record_updated_at=hit.record.updated_at,
+                conflict_state=hit.record.status.value,
+                conflict_with_ids=list(hit.record.conflict_with_record_ids),
+                memory_layer="provisional",
+                trust_tier="provisional",
+            )
+            if idx == 0:
+                core_items.append(item)
+            else:
+                context_items.append(item)
+            ranked_ids.append(item.atom_id)
+        pack_confidence = _clamp01(max(item.confidence for item in list(core_items) + list(context_items)))
+        return (
+            memory_pack_from_items(core_items, context=context_items, pack_confidence=pack_confidence),
+            ranked_ids,
+            len(hits),
+            pack_confidence,
+        )
+
+    def _merge_long_term_with_provisional(self, long_term: MemoryPack, provisional: MemoryPack) -> MemoryPack:
+        if not provisional.core and not provisional.context:
+            return long_term
+        if not long_term.core and not long_term.context and not long_term.continuity and not long_term.conflict:
+            return provisional
+        authority_resolver_enabled = bool(
+            self.config.retrieval.derived_helpers.temporal_lift.enabled
+            or self.config.retrieval.derived_helpers.update_family_resolver.enabled
+        )
+
+        def _unique(items: list[MemoryPackItem], limit: int) -> list[MemoryPackItem]:
+            out: list[MemoryPackItem] = []
+            seen: set[str] = set()
+            for item in items:
+                if item.atom_id in seen:
+                    continue
+                seen.add(item.atom_id)
+                out.append(item)
+                if len(out) >= limit:
+                    break
+            return out
+
+        core_items = list(long_term.core) + list(provisional.core)
+        context_items = list(long_term.context) + list(provisional.context)
+        if authority_resolver_enabled:
+            core_items = sorted(core_items, key=self._memory_item_precedence_key, reverse=True)
+            context_items = sorted(context_items, key=self._memory_item_precedence_key, reverse=True)
+        core = _unique(core_items, 6)
+        context = _unique(context_items, 8)
+        conflict = _unique(list(long_term.conflict), 6)
+        continuity = _unique(list(long_term.continuity), 6)
+        pack_confidence = _clamp01(long_term.pack_confidence * 0.75 + provisional.pack_confidence * 0.25)
+        return memory_pack_from_items(
+            core,
+            context=context,
+            conflict=conflict,
+            continuity=continuity,
+            pack_confidence=pack_confidence,
+        )
+
+    @staticmethod
+    def _memory_item_precedence_key(item: MemoryPackItem) -> tuple[int, int, str, str, str]:
+        trust_tier = str(getattr(item, "trust_tier", "") or "").strip().lower()
+        authority_rank = {
+            "published": 3,
+            "evidence": 2,
+            "provisional": 1,
+        }.get(trust_tier, 0)
+        conflict_state = str(getattr(item, "conflict_state", "active") or "active").strip().lower()
+        status_rank = {
+            "active": 3,
+            "conflicted": 2,
+            "superseded": 1,
+        }.get(conflict_state, 0)
+        source_time = ""
+        for ref in list(getattr(item, "source_refs", []) or []):
+            timestamp = getattr(ref, "timestamp", None)
+            if timestamp is None:
+                continue
+            normalized = timestamp.isoformat()
+            if normalized > source_time:
+                source_time = normalized
+        updated_at = getattr(item, "record_updated_at", None)
+        updated_key = updated_at.isoformat() if isinstance(updated_at, datetime) else ""
+        return (authority_rank, status_rank, source_time, updated_key, str(item.atom_id or ""))
 
     def _session_working_set_tokens(self, session: SessionState) -> int:
         short_term_tokens = sum(_token_estimate(note.text) for note in session.short_term)
@@ -2982,7 +4794,10 @@ class RuntimeSession:
                     canonical_text=note.text,
                     confidence=score,
                     source_refs=[source],
+                    record_updated_at=note.created_at,
                     conflict_state="active",
+                    memory_layer="short_term",
+                    trust_tier="ephemeral",
                 )
             )
             ranked_ids.append(atom_id)
@@ -3001,7 +4816,10 @@ class RuntimeSession:
                 canonical_text=rolling_summary,
                 confidence=summary_score,
                 source_refs=[summary_source],
+                record_updated_at=active.updated_at,
                 conflict_state="active",
+                memory_layer="short_term",
+                trust_tier="ephemeral",
             )
             if core_items:
                 context_items.append(summary_item)
@@ -3047,22 +4865,40 @@ class RuntimeSession:
     def _assemble_memory_cards(self, pack: MemoryPack) -> list[MemoryCard]:
         cards: list[MemoryCard] = []
         seen_ids: set[str] = set()
+        next_rank = 0
 
-        def add_items(items: list[MemoryPackItem], *, contradiction: bool) -> None:
+        def add_items(items: list[MemoryPackItem], *, contradiction: bool, section: str) -> None:
+            nonlocal next_rank
             for item in items:
+                current_rank = next_rank
+                next_rank += 1
                 if item.atom_id in seen_ids:
                     continue
-                card = self._item_to_card(item, contradiction=contradiction)
+                card = self._item_to_card(
+                    item,
+                    contradiction=contradiction,
+                    section=section,
+                    pack_rank=current_rank,
+                )
                 if card is None:
                     continue
                 cards.append(card)
                 seen_ids.add(item.atom_id)
 
-        add_items(list(pack.core)[:3], contradiction=False)
-        add_items(list(pack.context)[:2], contradiction=False)
-        add_items(list(pack.continuity)[:2], contradiction=False)
-        add_items(list(pack.conflict)[:2], contradiction=True)
+        add_items(list(pack.core)[:3], contradiction=False, section="core")
+        add_items(list(pack.context)[:2], contradiction=False, section="context")
+        add_items(list(pack.continuity)[:2], contradiction=False, section="continuity")
+        add_items(list(pack.conflict)[:2], contradiction=True, section="conflict")
         return self._merge_related_cards(cards, max_cards=6)
+
+    @staticmethod
+    def _memory_card_section_priority(section: str) -> int:
+        return {
+            "core": 4,
+            "context": 3,
+            "continuity": 2,
+            "conflict": 1,
+        }.get(str(section or "").strip().lower(), 0)
 
     def _merge_related_cards(self, cards: list[MemoryCard], *, max_cards: int) -> list[MemoryCard]:
         if not cards:
@@ -3089,6 +4925,14 @@ class RuntimeSession:
                         cluster_size=max(1, int(card.cluster_size)),
                         summary_abstractive=str(card.summary_abstractive or ""),
                         raw_excerpt=str(card.raw_excerpt or ""),
+                        section=str(card.section or "").strip().lower(),
+                        pack_rank=max(0, int(card.pack_rank)),
+                        memory_layer=str(card.memory_layer or "").strip().lower(),
+                        trust_tier=str(card.trust_tier or "").strip().lower(),
+                        conflict_state=str(card.conflict_state or "active").strip().lower(),
+                        conflict_visible=bool(card.conflict_visible),
+                        conflict_winner=bool(card.conflict_winner),
+                        conflict_with=list(card.conflict_with),
                     )
                 )
                 index_by_key[key] = len(merged) - 1
@@ -3111,6 +4955,17 @@ class RuntimeSession:
             existing.cluster_size = int(existing.cluster_size) + max(1, int(card.cluster_size))
             existing.citations = self._merge_unique(existing.citations, card.citations)
             existing.atom_ids = self._merge_unique(existing.atom_ids, card.atom_ids)
+            if self._memory_card_section_priority(card.section) > self._memory_card_section_priority(existing.section):
+                existing.section = str(card.section or "").strip().lower()
+            existing.pack_rank = min(int(existing.pack_rank), int(card.pack_rank))
+            if str(card.trust_tier or "").strip().lower() == "published":
+                existing.memory_layer = str(card.memory_layer or "").strip().lower()
+                existing.trust_tier = str(card.trust_tier or "").strip().lower()
+            if str(existing.conflict_state or "active").strip().lower() == "active":
+                existing.conflict_state = str(card.conflict_state or existing.conflict_state or "active").strip().lower()
+            existing.conflict_visible = bool(existing.conflict_visible or card.conflict_visible)
+            existing.conflict_winner = bool(existing.conflict_winner or card.conflict_winner)
+            existing.conflict_with = self._merge_unique(existing.conflict_with, card.conflict_with)
 
         limit = max(1, int(max_cards))
         if len(merged) <= limit:
@@ -3166,15 +5021,24 @@ class RuntimeSession:
             out.append(normalized)
         return out
 
-    def _item_to_card(self, item: MemoryPackItem, *, contradiction: bool) -> MemoryCard | None:
+    def _item_to_card(
+        self,
+        item: MemoryPackItem,
+        *,
+        contradiction: bool,
+        section: str,
+        pack_rank: int,
+    ) -> MemoryCard | None:
         citations = self._citations_for_item(item)
         if not citations:
             return None
         summary = self._compact_text(item.canonical_text, max_chars=180)
-        raw_excerpt = self._compact_text(item.canonical_text, max_chars=320)
+        raw_source = str(getattr(item, "raw_context_text", "") or "")
+        raw_excerpt = self._truncate_text_preserving_spacing(raw_source, max_chars=320) if raw_source else self._compact_text(item.canonical_text, max_chars=320)
         kind = self._card_kind(item.atom_id)
         summary_abstractive = self._abstractive_card_summary(item.canonical_text, kind=kind)
         contradiction_flag = bool(contradiction or str(item.conflict_state).lower() != "active")
+        initial_conflict_with = [f"card_{item_id}" for item_id in list(getattr(item, "conflict_with_ids", []) or []) if str(item_id).strip()]
         return MemoryCard(
             card_id=f"card_{item.atom_id}",
             kind=kind,
@@ -3186,20 +5050,74 @@ class RuntimeSession:
             cluster_size=1,
             summary_abstractive=summary_abstractive,
             raw_excerpt=raw_excerpt,
+            section=str(section or "").strip().lower(),
+            pack_rank=max(0, int(pack_rank)),
+            memory_layer=str(getattr(item, "memory_layer", "") or "").strip().lower(),
+            trust_tier=str(getattr(item, "trust_tier", "") or "").strip().lower(),
+            conflict_state=str(getattr(item, "conflict_state", "active") or "active").strip().lower(),
+            conflict_visible=bool(initial_conflict_with),
+            conflict_winner=False,
+            conflict_with=initial_conflict_with,
         )
 
     def _abstractive_card_summary(self, text: str, *, kind: str) -> str:
-        clause = self._evidence_best_clause(text)
-        compact = self._compact_text(clause or str(text or ""), max_chars=150)
-        if not compact:
-            return "Memory note: no content available."
+        raw = str(text or "").strip()
+        if not raw:
+            return "Memory summary: no content available."
+        clause = self._evidence_best_clause(raw)
+        normalized = self._normalize_summary_sentence(clause)
+        if self._summary_sentence_is_fragmentary(normalized):
+            return self._fallback_abstractive_card_summary(raw, kind=kind)
+        prefix = self._card_summary_prefix(kind)
+        return self._compact_text(f"{prefix} {normalized}", max_chars=180)
+
+    @staticmethod
+    def _card_summary_prefix(kind: str) -> str:
         prefix_map = {
-            "event_card": "Event memory:",
-            "relationship_card": "Relationship memory:",
-            "fact_card": "Memory note:",
+            "event_card": "Event summary:",
+            "relationship_card": "Relationship summary:",
+            "fact_card": "Memory summary:",
         }
-        prefix = prefix_map.get(str(kind or "").strip().lower(), "Memory note:")
-        return self._compact_text(f"{prefix} {compact}", max_chars=180)
+        return prefix_map.get(str(kind or "").strip().lower(), "Memory summary:")
+
+    def _normalize_summary_sentence(self, text: str) -> str:
+        cleaned = re.sub(r"\s+", " ", str(text or "")).strip("`\"'[]{}()|- ")
+        if not cleaned:
+            return ""
+        cleaned = self._compact_text(cleaned, max_chars=150)
+        if not cleaned:
+            return ""
+        if cleaned.isupper() and len(cleaned) <= 24:
+            cleaned = cleaned.lower()
+        cleaned = cleaned[0].upper() + cleaned[1:] if cleaned else ""
+        if cleaned and cleaned[-1] not in ".!?":
+            cleaned = f"{cleaned}."
+        return cleaned
+
+    def _summary_sentence_is_fragmentary(self, text: str) -> bool:
+        cleaned = str(text or "").strip()
+        if not cleaned:
+            return True
+        tokens = _tokenize(cleaned)
+        if len(tokens) < 4:
+            return True
+        informative = self._ordered_informative_tokens(cleaned)
+        if len(informative) < 2:
+            return True
+        alpha_chars = sum(1 for ch in cleaned if ch.isalpha())
+        if alpha_chars < max(8, len(cleaned) // 3):
+            return True
+        return False
+
+    def _fallback_abstractive_card_summary(self, text: str, *, kind: str) -> str:
+        prefix = self._card_summary_prefix(kind)
+        if len(str(text or "").strip()) < 24:
+            return f"{prefix} Limited source detail."
+        informative = self._ordered_informative_tokens(text)
+        if len(informative) >= 3:
+            lead = ", ".join(informative[:3])
+            return self._compact_text(f"{prefix} About {lead}.", max_chars=180)
+        return f"{prefix} Limited source detail."
 
     def _card_kind(self, atom_id: str) -> str:
         if str(atom_id).startswith("episode_card:"):
@@ -3239,18 +5157,46 @@ class RuntimeSession:
             return cleaned
         return f"{cleaned[: max_chars - 3].rstrip()}..."
 
+    def _truncate_text_preserving_spacing(self, text: str, *, max_chars: int) -> str:
+        raw = str(text or "")
+        if len(raw) <= max_chars:
+            return raw
+        return f"{raw[: max_chars - 3].rstrip()}..."
+
     def _card_to_dict(self, card: MemoryCard) -> dict[str, Any]:
-        return {
+        payload = {
             "card_id": card.card_id,
             "kind": card.kind,
             "summary": card.summary,
-            "summary_abstractive": card.summary_abstractive or card.summary,
             "confidence": card.confidence,
             "contradiction": card.contradiction,
             "citations": list(card.citations),
             "atom_ids": list(card.atom_ids),
-            "cluster_size": int(card.cluster_size),
+            "section": str(card.section or "").strip().lower(),
+            "pack_rank": int(card.pack_rank),
         }
+        memory_layer = str(card.memory_layer or "").strip().lower()
+        trust_tier = str(card.trust_tier or "").strip().lower()
+        conflict_state = str(card.conflict_state or "active").strip().lower()
+        if memory_layer and memory_layer != "atom":
+            payload["memory_layer"] = memory_layer
+        if trust_tier and trust_tier != "evidence":
+            payload["trust_tier"] = trust_tier
+        if conflict_state and conflict_state != "active":
+            payload["conflict_state"] = conflict_state
+        if bool(card.conflict_visible):
+            payload["conflict_visible"] = True
+            payload["conflict_winner"] = bool(card.conflict_winner)
+            payload["conflict_with"] = list(card.conflict_with)
+        summary_abstractive = str(card.summary_abstractive or "").strip()
+        if summary_abstractive and summary_abstractive != str(card.summary or "").strip():
+            payload["summary_abstractive"] = summary_abstractive
+        raw_excerpt = str(card.raw_excerpt or "").strip()
+        if raw_excerpt and raw_excerpt != str(card.summary or "").strip():
+            payload["raw_excerpt"] = raw_excerpt
+        if int(card.cluster_size) > 1:
+            payload["cluster_size"] = int(card.cluster_size)
+        return payload
 
     def _compact_card_dict(self, payload: dict[str, Any]) -> dict[str, Any]:
         citations = [str(item).strip() for item in list(payload.get("citations") or []) if str(item).strip()]
@@ -3262,7 +5208,220 @@ class RuntimeSession:
             "confidence": payload.get("confidence"),
             "citation_count": len(citations),
             "top_citation": citations[0] if citations else "",
+            "memory_layer": str(payload.get("memory_layer") or "").strip().lower(),
+            "trust_tier": str(payload.get("trust_tier") or "").strip().lower(),
+            "conflict_state": str(payload.get("conflict_state") or "active").strip().lower(),
+            "conflict_visible": bool(payload.get("conflict_visible")),
+            "conflict_winner": bool(payload.get("conflict_winner")),
+            "conflict_with_count": len(list(payload.get("conflict_with") or [])),
         }
+
+    def _rank_memory_cards_for_response(
+        self,
+        *,
+        user_text: str,
+        memory_cards: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if len(memory_cards) <= 1:
+            return list(memory_cards)
+        normalized = str(user_text or "").strip().lower()
+        query_tokens = set(self._ordered_informative_tokens(normalized))
+        focus_tokens = set(self._query_focus_candidates(text=user_text, normalized=normalized))
+        identity_query = self._is_identity_relationship_query(normalized)
+        event_query = normalized.startswith("what happened") or normalized.startswith("tell me about")
+        person_focus_query = bool(focus_tokens) and (
+            identity_query
+            or event_query
+            or normalized.startswith("why does ")
+            or normalized.startswith("why did ")
+            or normalized.startswith("why is ")
+        )
+
+        def _score(card: dict[str, Any]) -> tuple[float, float, float, str]:
+            summary = str(card.get("summary_abstractive") or card.get("summary") or "").strip()
+            raw_excerpt = str(card.get("raw_excerpt") or card.get("summary") or "").strip()
+            summary_tokens = set(self._ordered_informative_tokens(summary))
+            raw_tokens = set(self._ordered_informative_tokens(raw_excerpt))
+            overlap = len(query_tokens.intersection(summary_tokens)) / max(1, len(query_tokens)) if query_tokens else 0.0
+            focus_overlap = len(focus_tokens.intersection(summary_tokens.union(raw_tokens)))
+            lead_tokens = self._ordered_informative_tokens(raw_excerpt)[:8]
+            lead_focus = len(focus_tokens.intersection(lead_tokens))
+            confidence = float(card.get("confidence") or 0.0)
+            kind = str(card.get("kind") or "").strip().lower()
+            section = str(card.get("section") or "").strip().lower()
+            pack_rank = max(0, int(card.get("pack_rank") or 0))
+            kind_boost = 0.0
+            if identity_query and kind == "relationship_card":
+                kind_boost = 0.14
+            elif event_query and kind == "event_card":
+                kind_boost = 0.06
+            section_boost = 0.0
+            if identity_query:
+                section_boost = {
+                    "core": 0.16,
+                    "context": 0.08,
+                    "continuity": -0.06,
+                    "conflict": -0.10,
+                }.get(section, 0.0)
+            elif event_query:
+                section_boost = {
+                    "core": 0.10,
+                    "context": 0.04,
+                    "continuity": -0.02,
+                    "conflict": -0.08,
+                }.get(section, 0.0)
+            rank_boost = max(0.0, 0.10 - (0.015 * min(pack_rank, 6)))
+            meta_penalty = 0.55 if self._looks_like_consumer_meta_instruction_text(summary) else 0.0
+            meta_penalty += 0.45 if self._looks_like_consumer_meta_conversation_text(summary, user_text=user_text) else 0.0
+            contradiction_penalty = 0.12 if bool(card.get("contradiction")) else 0.0
+            authority_bonus = 0.0
+            if bool(
+                self.config.retrieval.derived_helpers.temporal_lift.enabled
+                or self.config.retrieval.derived_helpers.update_family_resolver.enabled
+            ):
+                trust_tier = str(card.get("trust_tier") or "evidence").strip().lower()
+                conflict_state = str(card.get("conflict_state") or "active").strip().lower()
+                authority_bonus = {
+                    "published": 0.08,
+                    "evidence": 0.03,
+                    "provisional": -0.03,
+                    "proposal_pending": -0.08,
+                }.get(trust_tier, 0.0)
+                if bool(card.get("conflict_visible")) or bool(card.get("contradiction")):
+                    authority_bonus *= 2.0
+                authority_bonus -= {
+                    "superseded": 0.10,
+                    "conflicted": 0.04,
+                }.get(conflict_state, 0.0)
+            centrality_bonus = 0.0
+            centrality_penalty = 0.0
+            if person_focus_query and focus_tokens:
+                focusable_tokens = summary_tokens.union(raw_tokens)
+                focus_density = focus_overlap / max(1, len(focusable_tokens))
+                centrality_bonus += min(0.24, 0.08 * focus_overlap + 0.10 * lead_focus + 0.70 * focus_density)
+                non_focus_breadth = max(0, len(focusable_tokens.difference(focus_tokens)))
+                if kind != "relationship_card" and lead_focus == 0 and focus_overlap <= 1:
+                    centrality_penalty += min(0.22, 0.04 * max(0, non_focus_breadth - 4))
+            score = overlap * 0.58 + min(0.26, 0.16 * focus_overlap) + confidence * 0.08 + kind_boost + section_boost + rank_boost
+            score += centrality_bonus + authority_bonus
+            score -= meta_penalty + contradiction_penalty + centrality_penalty
+            return score, confidence, -float(pack_rank), summary.lower()
+
+        ranked = list(memory_cards)
+        ranked.sort(key=_score, reverse=True)
+        return ranked
+
+    def _annotate_memory_card_conflicts(
+        self,
+        *,
+        user_text: str,
+        memory_cards: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if len(memory_cards) <= 1:
+            return list(memory_cards)
+        normalized = str(user_text or "").strip().lower()
+        query_tokens = set(self._ordered_informative_tokens(normalized))
+        focus_tokens = set(self._query_focus_candidates(text=user_text, normalized=normalized))
+        basis_tokens = focus_tokens or query_tokens
+        if not basis_tokens:
+            return list(memory_cards)
+
+        def _card_tokens(card: dict[str, Any]) -> set[str]:
+            summary = str(card.get("summary_abstractive") or card.get("summary") or "").strip()
+            return set(self._ordered_informative_tokens(summary))
+
+        annotated = [dict(card) for card in memory_cards]
+        conflict_groups: list[list[int]] = []
+
+        def _merge_into_groups(indices: list[int]) -> None:
+            if len(indices) <= 1:
+                return
+            unique = sorted(set(indices))
+            for group in conflict_groups:
+                if any(index in group for index in unique):
+                    for index in unique:
+                        if index not in group:
+                            group.append(index)
+                    return
+            conflict_groups.append(unique)
+
+        card_index_by_id = {
+            str(card.get("card_id") or ""): idx
+            for idx, card in enumerate(annotated)
+            if str(card.get("card_id") or "").strip()
+        }
+        for idx, card in enumerate(annotated):
+            explicit_links = [
+                card_index_by_id[item_id]
+                for item_id in list(card.get("conflict_with") or [])
+                if str(item_id or "").strip() in card_index_by_id
+            ]
+            if explicit_links:
+                _merge_into_groups([idx] + explicit_links)
+
+        for idx, card in enumerate(annotated):
+            tier = str(card.get("trust_tier") or "").strip().lower()
+            if tier not in {"published", "provisional"}:
+                continue
+            tokens = _card_tokens(card)
+            basis_overlap = tokens.intersection(basis_tokens)
+            if not basis_overlap:
+                continue
+            for jdx in range(idx + 1, len(annotated)):
+                other = annotated[jdx]
+                other_tier = str(other.get("trust_tier") or "").strip().lower()
+                if other_tier not in {"published", "provisional"}:
+                    continue
+                other_tokens = _card_tokens(other)
+                if not other_tokens.intersection(basis_tokens):
+                    continue
+                shared_basis = basis_overlap.intersection(other_tokens)
+                if not shared_basis:
+                    continue
+                card_text = self._compact_text(str(card.get("summary") or ""), max_chars=220).lower()
+                other_text = self._compact_text(str(other.get("summary") or ""), max_chars=220).lower()
+                if card_text == other_text:
+                    continue
+                _merge_into_groups([idx, jdx])
+
+        for group in conflict_groups:
+            ordered = sorted(set(group))
+            winner_idx = ordered[0]
+            for idx in ordered:
+                current = annotated[idx]
+                others = [annotated[item]["card_id"] for item in ordered if item != idx]
+                current["conflict_visible"] = True
+                current["conflict_winner"] = idx == winner_idx
+                current["conflict_with"] = others
+        return annotated
+
+    def _response_prefers_abstractive_summary(self, user_text: str) -> bool:
+        normalized = str(user_text or "").strip().lower()
+        if not normalized:
+            return False
+        identity_query = self._is_identity_relationship_query(normalized)
+        named_person_event_query = normalized.startswith("what happened to ")
+        if self._has_specific_recall_anchor(text=user_text, normalized=normalized) and not (
+            identity_query or named_person_event_query
+        ):
+            return False
+        if identity_query:
+            return True
+        if _NAMED_ENTITY_QUESTION_RE.search(str(user_text or "").strip()):
+            return True
+        return named_person_event_query
+
+    def _response_card_text(self, card: dict[str, Any], *, user_text: str) -> str:
+        normalized = str(user_text or "").strip().lower()
+        if self._has_verbatim_session_recall_intent(text=user_text, normalized=normalized):
+            raw_excerpt = str(card.get("raw_excerpt") or "")
+            if raw_excerpt:
+                return self._truncate_text_preserving_spacing(raw_excerpt, max_chars=320)
+        if self._response_prefers_abstractive_summary(user_text):
+            summary_abstractive = str(card.get("summary_abstractive") or "").strip()
+            if summary_abstractive:
+                return summary_abstractive
+        return str(card.get("summary") or "").strip()
 
     def _remember_short_term(
         self,
@@ -3314,16 +5473,18 @@ class RuntimeSession:
         )
 
         if verification.decision is VerificationDecision.PASS:
+            verbatim_intent = self._has_verbatim_session_recall_intent(text=user_text, normalized=str(user_text or "").strip().lower())
             lead = ""
             lead_sources: set[str] = set()
             support = ""
             support_sources: set[str] = set()
             if memory_cards:
-                lead = str(memory_cards[0].get("summary") or "").strip()
-                lead_sources = self._card_source_ids(memory_cards[0])
-                if len(memory_cards) > 1:
-                    support = str(memory_cards[1].get("summary") or "").strip()
-                    support_sources = self._card_source_ids(memory_cards[1])
+                ranked_cards = self._rank_memory_cards_for_response(user_text=user_text, memory_cards=memory_cards)
+                lead = self._response_card_text(ranked_cards[0], user_text=user_text)
+                lead_sources = self._card_source_ids(ranked_cards[0])
+                if len(ranked_cards) > 1:
+                    support = self._response_card_text(ranked_cards[1], user_text=user_text)
+                    support_sources = self._card_source_ids(ranked_cards[1])
             elif pack.core:
                 lead = str(pack.core[0].canonical_text or "").strip()
                 lead_sources = self._pack_item_source_ids(pack.core[0])
@@ -3353,7 +5514,8 @@ class RuntimeSession:
                     rejected_compact = self._compact_text(rejected, max_chars=96)
                     parts = [f"I can support \"{chosen_compact}\", not \"{rejected_compact}\"."]
                     if lead:
-                        parts.append(self._compact_text(lead, max_chars=260))
+                        lead_text = self._truncate_text_preserving_spacing(lead, max_chars=260) if verbatim_intent else self._compact_text(lead, max_chars=260)
+                        parts.append(lead_text)
                     if support and self._allow_related_context(
                         user_text=user_text,
                         lead_text=lead,
@@ -3362,11 +5524,13 @@ class RuntimeSession:
                         support_sources=support_sources,
                         ranked_citations=citations,
                     ):
-                        parts.append(f"Related context: {self._compact_text(support, max_chars=220)}")
+                        support_text = self._truncate_text_preserving_spacing(support, max_chars=220) if verbatim_intent else self._compact_text(support, max_chars=220)
+                        parts.append(f"Related context: {support_text}")
                     return "\n".join(parts), citations
 
             if lead:
-                parts = [self._compact_text(lead, max_chars=260)]
+                lead_text = self._truncate_text_preserving_spacing(lead, max_chars=260) if verbatim_intent else self._compact_text(lead, max_chars=260)
+                parts = [lead_text]
             else:
                 parts = ["I can cite a related memory, but it is too sparse to restate cleanly."]
             if support and self._allow_related_context(
@@ -3377,7 +5541,8 @@ class RuntimeSession:
                 support_sources=support_sources,
                 ranked_citations=citations,
             ):
-                parts.append(f"Related context: {self._compact_text(support, max_chars=220)}")
+                support_text = self._truncate_text_preserving_spacing(support, max_chars=220) if verbatim_intent else self._compact_text(support, max_chars=220)
+                parts.append(f"Related context: {support_text}")
             return "\n".join(parts), citations
 
         if verification.decision is VerificationDecision.CLARIFY:
@@ -3622,7 +5787,11 @@ class RuntimeSession:
             with self._lock:
                 writeback_event = self._writebacks[event_id]
                 writeback_event.status = "running"
-            core = [item for item in pack.core if not item.atom_id.startswith("stm_")][:2]
+            core = [
+                item
+                for item in pack.core
+                if not item.atom_id.startswith(("stm_", "prov_", "episode_card:"))
+            ][:2]
             recognized = verification.decision is VerificationDecision.PASS
             recorder = getattr(self.retriever.store, "record_recognition_event", None)
             for item in core:

@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
-from ..contracts import AtomType, CandidateAtom, SourceRef, contract_to_dict, source_ref_from_dict
+from ..contracts import AtomType, CandidateAtom, NormalizedTurn, SourceRef, contract_to_dict, source_ref_from_dict
 from .store import (
     AtomStatus,
     AtomStore,
@@ -16,6 +17,7 @@ from .store import (
     EventType,
     MemoryAtom,
     ProvenanceEvent,
+    RawContextTurn,
     RecognitionRecord,
     half_life_days_for_atom_type,
 )
@@ -26,30 +28,50 @@ SCHEMA_VERSION = 3
 class SqliteProvenanceLedger:
     """Append-only provenance ledger backed by sqlite."""
 
-    def __init__(self, conn: sqlite3.Connection, lock: threading.RLock) -> None:
+    def __init__(self, conn: sqlite3.Connection, lock: threading.RLock, *, batch_active: callable) -> None:
         self._conn = conn
         self._lock = lock
+        self._batch_active = batch_active
 
     def append(self, event: ProvenanceEvent) -> None:
         source_refs_json = json.dumps([contract_to_dict(ref) for ref in event.source_refs], ensure_ascii=False)
         metadata_json = json.dumps(dict(event.metadata), ensure_ascii=False)
-        with self._lock, self._conn:
-            self._conn.execute(
-                """
-                INSERT INTO provenance_events (
-                    event_id, event_type, atom_id, timestamp, source_refs_json, reason, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event.event_id,
-                    event.event_type.value,
-                    event.atom_id,
-                    event.timestamp.isoformat(),
-                    source_refs_json,
-                    event.reason,
-                    metadata_json,
-                ),
-            )
+        with self._lock:
+            if self._batch_active():
+                self._conn.execute(
+                    """
+                    INSERT INTO provenance_events (
+                        event_id, event_type, atom_id, timestamp, source_refs_json, reason, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event.event_id,
+                        event.event_type.value,
+                        event.atom_id,
+                        event.timestamp.isoformat(),
+                        source_refs_json,
+                        event.reason,
+                        metadata_json,
+                    ),
+                )
+            else:
+                with self._conn:
+                    self._conn.execute(
+                        """
+                        INSERT INTO provenance_events (
+                            event_id, event_type, atom_id, timestamp, source_refs_json, reason, metadata_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            event.event_id,
+                            event.event_type.value,
+                            event.atom_id,
+                            event.timestamp.isoformat(),
+                            source_refs_json,
+                            event.reason,
+                            metadata_json,
+                        ),
+                    )
 
     def all_events(self) -> list[ProvenanceEvent]:
         with self._lock:
@@ -108,11 +130,12 @@ class SqliteAtomStore:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._batch_depth = 0
         with self._conn:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
-        self.ledger = SqliteProvenanceLedger(self._conn, self._lock)
+        self.ledger = SqliteProvenanceLedger(self._conn, self._lock, batch_active=lambda: self._batch_depth > 0)
 
     def close(self) -> None:
         with self._lock:
@@ -125,6 +148,33 @@ class SqliteAtomStore:
 
     def _now(self) -> datetime:
         return datetime.now(timezone.utc)
+
+    @contextmanager
+    def _write_scope(self):
+        if self._batch_depth > 0:
+            yield
+            return
+        with self._conn:
+            yield
+
+    @contextmanager
+    def write_batch(self):
+        with self._lock:
+            outermost = self._batch_depth == 0
+            if outermost:
+                self._conn.execute("BEGIN")
+            self._batch_depth += 1
+            try:
+                yield
+            except Exception:
+                self._batch_depth -= 1
+                if outermost:
+                    self._conn.rollback()
+                raise
+            else:
+                self._batch_depth -= 1
+                if outermost:
+                    self._conn.commit()
 
     def _init_schema(self) -> None:
         version = self.schema_version()
@@ -146,6 +196,7 @@ class SqliteAtomStore:
             return
         if version != SCHEMA_VERSION:
             raise RuntimeError(f"unsupported schema version: {version}")
+        self._ensure_raw_context_schema()
 
     def _create_schema_v2(self) -> None:
         with self._conn:
@@ -228,6 +279,8 @@ class SqliteAtomStore:
                 CREATE INDEX IF NOT EXISTS idx_slk_phrase_norm ON shared_language_keys(phrase_norm);
                 """
             )
+        self._ensure_raw_context_schema()
+        self._ensure_raw_context_schema()
 
     def _migrate_1_to_2(self) -> None:
         with self._conn:
@@ -269,6 +322,27 @@ class SqliteAtomStore:
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_slk_phrase_norm ON shared_language_keys(phrase_norm);
+                """
+            )
+        self._ensure_raw_context_schema()
+
+    def _ensure_raw_context_schema(self) -> None:
+        with self._conn:
+            self._conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS raw_context_turns (
+                    turn_key TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL,
+                    conversation_id TEXT,
+                    message_id TEXT,
+                    sequence_index INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    quote_text TEXT NOT NULL,
+                    timestamp TEXT
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_raw_context_source_seq ON raw_context_turns(source_id, sequence_index);
+                CREATE INDEX IF NOT EXISTS idx_raw_context_source_msg ON raw_context_turns(source_id, message_id);
                 """
             )
 
@@ -316,7 +390,7 @@ class SqliteAtomStore:
             entities=candidate.entities,
             topics=candidate.topics,
         )
-        with self._lock, self._conn:
+        with self._lock, self._write_scope():
             row = self._conn.execute("SELECT atom_id FROM atoms WHERE dedupe_key = ?", (key,)).fetchone()
             if row is None:
                 atom = MemoryAtom(
@@ -428,6 +502,126 @@ class SqliteAtomStore:
             # Use indexed ordering to avoid temp-sort failures on large stores.
             rows = self._conn.execute("SELECT * FROM atoms ORDER BY updated_at ASC").fetchall()
         return [self._row_to_atom(row) for row in rows]
+
+    def record_raw_turn(self, turn: NormalizedTurn) -> RawContextTurn:
+        source_id = str(turn.source_id or "").strip()
+        message_id = str(turn.message_id or "").strip() or None
+        sequence_index = int(turn.sequence_index if turn.sequence_index is not None else 0)
+        turn_key = f"{source_id}|{message_id or ''}|{sequence_index}"
+        record = RawContextTurn(
+            source_id=source_id,
+            conversation_id=str(turn.conversation_id or "").strip() or None,
+            message_id=message_id,
+            sequence_index=sequence_index,
+            role=str(turn.role or "").strip().lower(),
+            quote_text=str(turn.quote_text if turn.quote_text is not None else turn.text),
+            timestamp=turn.timestamp,
+        )
+        with self._lock, self._write_scope():
+            self._conn.execute(
+                """
+                INSERT INTO raw_context_turns (
+                    turn_key, source_id, conversation_id, message_id, sequence_index, role, quote_text, timestamp
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(turn_key) DO UPDATE SET
+                    conversation_id = excluded.conversation_id,
+                    message_id = excluded.message_id,
+                    sequence_index = excluded.sequence_index,
+                    role = excluded.role,
+                    quote_text = excluded.quote_text,
+                    timestamp = excluded.timestamp
+                """,
+                (
+                    turn_key,
+                    record.source_id,
+                    record.conversation_id,
+                    record.message_id,
+                    record.sequence_index,
+                    record.role,
+                    record.quote_text,
+                    record.timestamp.isoformat() if record.timestamp else None,
+                ),
+            )
+        return record
+
+    def fetch_raw_context_slice(
+        self,
+        source_id: str,
+        *,
+        message_id: str | None = None,
+        sequence_index: int | None = None,
+        before: int = 1,
+        after: int = 1,
+        max_turns: int = 3,
+        max_chars: int = 1200,
+    ) -> list[RawContextTurn]:
+        source_key = str(source_id or "").strip()
+        if not source_key:
+            return []
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT source_id, conversation_id, message_id, sequence_index, role, quote_text, timestamp
+                FROM raw_context_turns
+                WHERE source_id = ?
+                ORDER BY sequence_index ASC
+                """,
+                (source_key,),
+            ).fetchall()
+        if not rows:
+            return []
+        turns = [
+            RawContextTurn(
+                source_id=str(row["source_id"]),
+                conversation_id=str(row["conversation_id"] or "").strip() or None,
+                message_id=str(row["message_id"] or "").strip() or None,
+                sequence_index=int(row["sequence_index"]),
+                role=str(row["role"]),
+                quote_text=str(row["quote_text"]),
+                timestamp=datetime.fromisoformat(str(row["timestamp"])) if row["timestamp"] else None,
+            )
+            for row in rows
+        ]
+        center = None
+        target_message_id = str(message_id or "").strip() or None
+        if target_message_id is not None:
+            for idx, row in enumerate(turns):
+                if row.message_id == target_message_id:
+                    center = idx
+                    break
+        if center is None and sequence_index is not None:
+            for idx, row in enumerate(turns):
+                if row.sequence_index == int(sequence_index):
+                    center = idx
+                    break
+        if center is None:
+            return []
+        start = max(0, center - max(0, int(before)))
+        end = min(len(turns), center + max(0, int(after)) + 1)
+        window = turns[start:end][: max(1, int(max_turns))]
+        bounded: list[RawContextTurn] = []
+        chars_used = 0
+        budget = max(1, int(max_chars))
+        for row in window:
+            text = str(row.quote_text or "")
+            remaining = budget - chars_used
+            if remaining <= 0:
+                break
+            if len(text) > remaining:
+                text = text[: max(1, remaining - 1)].rstrip() + "…"
+            bounded.append(
+                RawContextTurn(
+                    source_id=row.source_id,
+                    conversation_id=row.conversation_id,
+                    message_id=row.message_id,
+                    sequence_index=row.sequence_index,
+                    role=row.role,
+                    quote_text=text,
+                    timestamp=row.timestamp,
+                )
+            )
+            chars_used += len(text)
+        return bounded
 
     def supersede_atom(self, atom_id: str, replacement: CandidateAtom, *, reason: str = "manual_update") -> MemoryAtom:
         old = self.get_atom(atom_id)
@@ -546,6 +740,9 @@ class SqliteAtomStore:
             provenance_row = self._conn.execute(
                 "SELECT COUNT(*) AS provenance_count FROM provenance_events"
             ).fetchone()
+            raw_context_row = self._conn.execute(
+                "SELECT COUNT(*) AS raw_turn_count, COALESCE(MAX(sequence_index), -1) AS raw_turn_max_seq FROM raw_context_turns"
+            ).fetchone()
         return (
             "sqlite-atom-store-cache-v2",
             self._cache_scope_id,
@@ -554,6 +751,8 @@ class SqliteAtomStore:
             int(shared_row["shared_key_count"] if shared_row is not None else 0),
             str(atom_row["atom_updated_at_max"] if atom_row is not None else ""),
             str(shared_row["shared_updated_at_max"] if shared_row is not None else ""),
+            int(raw_context_row["raw_turn_count"] if raw_context_row is not None else 0),
+            int(raw_context_row["raw_turn_max_seq"] if raw_context_row is not None else -1),
             int(provenance_row["provenance_count"] if provenance_row is not None else 0),
         )
 

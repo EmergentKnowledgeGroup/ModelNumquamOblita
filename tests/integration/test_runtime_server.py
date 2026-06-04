@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,7 +11,7 @@ from urllib.request import Request, urlopen
 
 from engine.continuity import ContinuityBuilder, ContinuityStore
 from engine.contracts import AtomType, CandidateAtom, SourceRef
-from engine.memory import AtomStore
+from engine.memory import AtomStore, SqliteAtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
 from engine.runtime import RuntimeSession, start_runtime_server, stop_runtime_server
 
@@ -226,6 +227,24 @@ def test_runtime_health_exposes_binding_and_desktop_shutdown(tmp_path: Path) -> 
         assert server.socket.fileno() == -1
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_runtime_default_binding_uses_store_validation_fingerprint_contract(tmp_path: Path) -> None:
+    store_path = tmp_path / "atoms.sqlite3"
+    store = SqliteAtomStore(store_path)
+    try:
+        store.add_candidate(_candidate("bind_1", "Runtime binding should match wizard store fingerprints.", "conv_bind"))
+        continuity = ContinuityStore()
+        continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
+        runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity)
+        server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+        try:
+            binding = dict(getattr(server, "active_runtime_binding", {}) or {})
+            assert str(binding.get("store_fingerprint") or "").startswith("sqlite_store:v3:")
+        finally:
+            stop_runtime_server(server, thread, runtime=runtime)
+    finally:
+        store.close()
 
 
 def test_runtime_http_server_session_endpoints_roundtrip() -> None:
@@ -546,6 +565,15 @@ def test_runtime_http_server_methodology_lifecycle_roundtrip() -> None:
         assert rolled_back["ok"] is True
         assert str(rolled_back["rolled_back_methodology_id"]) == methodology_id
 
+        listed_with_retired = _json_get(f"{base}/api/methodology/records?status=all&include_retired=true")
+        assert listed_with_retired["ok"] is True
+        assert any(str(dict(row).get("methodology_id") or "") == methodology_id for row in list(listed_with_retired["records"]))
+
+        listed_without_retired = _json_get(f"{base}/api/methodology/records?status=all&include_retired=false")
+        assert listed_without_retired["ok"] is True
+        assert all(str(dict(row).get("methodology_id") or "") != methodology_id for row in list(listed_without_retired["records"]))
+        assert listed_without_retired["include_retired"] is False
+
         fetched = _json_get(f"{base}/api/methodology/records/{quote(methodology_id)}")
         assert fetched["ok"] is True
         assert str(dict(fetched["record"]).get("status") or "") in {"retired", "active"}
@@ -609,6 +637,7 @@ def test_runtime_http_server_exposes_phase6_chat_shell_cards_and_reason_catalog(
         assert "id=\"chatLog\"" in html
         assert "id=\"btnSimpleMode\"" in html
         assert "id=\"btnAdvancedMode\"" in html
+        assert "id=\"btnDesktopHome\"" in html
         assert "id=\"modeHint\"" in html
         assert "id=\"memoryKind\"" in html
         assert "id=\"memoryContradiction\"" in html
@@ -627,13 +656,86 @@ def test_runtime_http_server_exposes_phase6_chat_shell_cards_and_reason_catalog(
         assert "id=\"wizardReviewMeta\"" in html
         assert "id=\"wizardReviewPageSize\"" in html
         assert "id=\"wizardReviewList\"" in html
+        assert "id=\"btnWizardReviewFacetToggle\"" in html
+        assert "id=\"wizardReviewFacetMenu\"" in html
+        assert "id=\"wizardReviewActorFilters\"" in html
+        assert "id=\"wizardReviewTopicFilters\"" in html
+        assert "id=\"wizardReviewEditorDialog\"" in html
+        assert "id=\"btnWizardReviewEditorPrev\"" in html
+        assert "id=\"btnWizardReviewEditorNext\"" in html
+        assert "id=\"btnWizardReviewEditorApprove\"" in html
+        assert "id=\"btnWizardReviewEditorReject\"" in html
+        assert "id=\"btnWizardReviewEditorActorsToggle\"" in html
+        assert "id=\"btnWizardReviewEditorTopicsToggle\"" in html
+        assert "id=\"wizardReviewEditorActorsMenu\"" in html
+        assert "id=\"wizardReviewEditorTopicsMenu\"" in html
+        assert "id=\"wizardReviewActorSummary\"" in html
+        assert "id=\"wizardReviewTopicSummary\"" in html
+        assert "id=\"wizardDraftCurationPanel\"" in html
+        assert "id=\"btnWizardDraftCurationRefresh\"" in html
+        assert "id=\"btnWizardDraftCurationForceRelease\"" in html
+        assert "id=\"wizardDraftCurationList\"" in html
+        assert "id=\"wizardDraftCurationProposalDialog\"" in html
+        assert 'id="btnWizardDraftCurationPromoteAll"' in html
+        assert "id=\"btnWizardDraftCurationReject\"" in html
+        assert "id=\"btnWizardDraftCurationPromote\"" in html
+        assert "id=\"wizardDraftCurationMcpScope\"" in html
+        assert "id=\"btnWizardDraftCurationMcpRefresh\"" in html
+        assert "id=\"btnWizardDraftCurationMcpExport\"" in html
+        assert "id=\"wizardPublishSummary\"" in html
         assert "id=\"btnWizardReviewPrev\"" in html
         assert "id=\"btnWizardReviewNext\"" in html
         assert "id=\"wizardVerifyLinks\"" in html
         assert "id=\"btnWizardGoLive\"" in html
+        assert "id=\"wizardOperateState\"" in html
+        assert "id=\"btnWizardOperateChat\"" in html
         assert "id=\"wizardGoLiveConfig\"" in html
+        assert 'id="wizardImportResult" class="wizard-card-result" role="status" aria-live="polite"' in html
+        assert re.search(
+            r'id="wizardReviewMeta" class="[^"]*wizard-card-result[^"]*" role="status" aria-live="polite" tabindex="-1"',
+            html,
+        )
+        assert 'id="wizardGoLiveResult" class="wizard-card-result" role="status" aria-live="polite"' in html
         assert "Developer tools (unsafe, local only)" in html
         assert "Start here. The normal path needs no terminal" in html
+        assert "Publish Reviewed Memory Set" in html
+        assert ("Connect assistant/agent / MCP" in html) or ("Set Up Assistant/Agent / MCP" in html) or ("Set Up Claude / MCP" in html)
+        assert "Open Chat Test" in html
+        assert "Memory label" in html
+        assert "What this memory is about" in html
+        assert "Weekend garage cleanup" in html
+        assert re.search(
+            r'<article class="wizard-card" data-wizard-step="2">.*?<div class="wizard-card-title-group">.*?<h3>Review</h3>.*?data-dialog-open="wizardReviewDialog"',
+            html,
+            re.S,
+        )
+        assert re.search(
+            r'<article class="wizard-card" data-wizard-step="3">.*?<div class="wizard-card-title-group">.*?<h3>Publish</h3>.*?data-dialog-open="wizardPublishDialog"',
+            html,
+            re.S,
+        )
+        assert re.search(
+            r'<article class="wizard-card" data-wizard-step="4">.*?<div class="wizard-card-title-group">.*?<h3>Verify</h3>.*?data-dialog-open="wizardVerifyDialog"',
+            html,
+            re.S,
+        )
+        assert re.search(
+            r'<article class="wizard-card wizard-card-activate" data-wizard-step="5">.*?<div class="wizard-card-title-group">.*?<h3>Activate</h3>.*?data-dialog-open="wizardActivateDialog"',
+            html,
+            re.S,
+        )
+        assert re.search(
+            r'<article class="wizard-card" data-wizard-step="6">.*?<div class="wizard-card-title-group">.*?<h3>Operate</h3>.*?data-dialog-open="wizardOperateDialog"',
+            html,
+            re.S,
+        )
+        assert re.search(r'<h3>Import</h3>.*?data-dialog-open="wizardImportDialog"', html, re.S)
+        assert re.search(r'Build style</span>\s*<button id="btnWizardBuildPolicyInfo"', html, re.S)
+        assert "3 per page" in html
+        assert "6 per page" in html
+        assert "12 per page" not in html
+        assert "24 per page" not in html
+        assert "48 per page" not in html
         assert "id=\"whyPanel\"" in html
         assert "id=\"archiveViewer\"" in html
         assert "id=\"btnMemoryScopeEpisodes\"" in html
@@ -678,6 +780,33 @@ def test_runtime_http_server_exposes_phase6_chat_shell_cards_and_reason_catalog(
         assert "/api/wizard/review/compile" in js
         assert "/api/wizard/review/cards?" in js
         assert "/api/wizard/verify/run" in js
+        assert "/api/wizard/draft-curation/status" in js
+        assert "/api/wizard/draft-curation/mcp/status" in js
+        assert "/api/wizard/draft-curation/mcp/install" in js
+        assert "/api/wizard/draft-curation/mcp/export" in js
+        assert "/api/wizard/draft-curation/proposals?" in js
+        assert "/api/wizard/draft-curation/cards/" in js
+        assert "/api/wizard/draft-curation/session/release" in js
+        assert "wizardReviewEditorDialog" in js
+        assert "wizardDraftCurationProposalDialog" in js
+        assert "wizardDraftCurationMcpScope" in js
+        assert ("Connect assistant/agent to this draft" in js) or ("Connect Claude to this draft" in js)
+        assert "btnWizardReviewFacetToggle" in js
+        assert "filter_facets" in js
+        assert "await validateWizardImport();" in js
+        assert 'els.wizardArchiveFile.value = "";' in js
+        assert "wizardImportPending" in js
+        assert 'Creating Store...' in js
+        assert "if (state.wizardImportPending) {" in js
+        assert "wizardVisibleStage" in js
+        assert "wizardStageIsReachable" in js
+        assert "requestCloseWizardReviewEditor" in js
+        assert 'card.review_decision || "pending"' in js
+        assert "status=pending&page=1&page_size=${pageSize}" in js
+        assert "Start Fresh creates a new setup run." in js
+        assert "Restore Last Good Copy swaps the current published pointer" in js
+        assert "Verification is stale and must run again." in js
+        assert "Moving left, right, or closing the editor saves changes automatically." in js
         assert "/api/runtime/provider/config" in js
         assert "/api/memory/episodes" in js
         assert "/api/memory/atoms/" in js
@@ -693,11 +822,35 @@ def test_runtime_http_server_exposes_phase6_chat_shell_cards_and_reason_catalog(
         assert "/api/methodology/create" in js
         assert "/api/methodology/review" in js
         assert "/api/methodology/canary/start" in js
+        assert "await ensureTabData(\"setup\", { force: true });" in js
+        assert "const initialTab = activeTabId();" in js
+        assert "if (initialTab !== \"setup\") {" in js
+        assert "await Promise.all([refreshMemory(), refreshProposals(), refreshEpisodes()]);" not in js
         assert "/api/methodology/canary/evaluate" in js
         assert "/api/methodology/activate" in js
         assert "/api/methodology/rollback" in js
         assert "/api/methodology/corrections/record" in js
         assert "/api/methodology/maintenance/evaluate" in js
+        assert "async function refreshSetupTabData()" in js
+        assert "includeReview: false" in js
+        assert "includeInputOptions: false" in js
+        assert "includeActivation: false" in js
+        assert "includeRemap: false" in js
+        assert "function activeMemoryTabKey()" in js
+        assert "refreshVisibleWizardStageData" in js
+        assert 'if (visibleStage === "activate") {' in js
+        assert 'visibleStage === "activate" || visibleStage === "operate"' not in js
+        assert 'const cacheKey = normalized === "memory" ? activeMemoryTabKey() : normalized;' in js
+
+        bootstrap_start = js.index("async function bootstrap() {")
+        bootstrap_end = js.index("bootstrap().catch((error) => {")
+        bootstrap_chunk = js[bootstrap_start:bootstrap_end]
+        assert "await ensureTabData(\"setup\", { force: true });" in bootstrap_chunk
+        assert "await ensureTabData(initialTab, { force: true });" in bootstrap_chunk
+        assert "await Promise.all([refreshMemory(), refreshEpisodes(), refreshProposals()]);" not in bootstrap_chunk
+        assert "await refreshSessionAndState();" not in bootstrap_chunk
+        assert "await refreshWhyPanel();" not in bootstrap_chunk
+        assert "await refreshOpsDeck();" not in bootstrap_chunk
 
         css = _text_get(f"{base}/assets/styles.css")
         assert ".session-shell" in css
@@ -712,9 +865,31 @@ def test_runtime_http_server_exposes_phase6_chat_shell_cards_and_reason_catalog(
         assert ".ledger-shell" in css
         assert ".ui-mode-bar" in css
         assert "body.simple-mode .settings-panel" in css
+        assert ".wizard-activation-inline-actions" in css
+
+        boot_html = (Path(__file__).resolve().parents[2] / "app" / "desktop" / "boot.html").read_text(encoding="utf-8")
+        assert 'id="btnBootInlineRepair"' in boot_html
+        boot_css = (Path(__file__).resolve().parents[2] / "app" / "desktop" / "boot.css").read_text(encoding="utf-8")
+        assert "overflow-wrap: anywhere" in boot_css
         assert ".wizard-shell" in css
-        assert ".wizard-review-editor" in css
+        assert ".btn.wizard-primary-action" in css
+        assert ".wizard-stage-zone" in css
+        assert ".wizard-review-item:focus-visible" in css
+        assert ".wizard-review-filter-menu" in css
+        assert ".wizard-review-modal-shell" in css
+        assert ".wizard-review-picker-menu" in css
+        assert ".wizard-guidance-action" in css
+        assert ".wizard-review-filter-anchor > .wizard-review-filter-menu" in css
+        assert ".wizard-draft-curation" in css
+        assert ".wizard-draft-curation-connect" in css
+        assert ".wizard-draft-curation-mcp-targets" in css
+        assert ".wizard-draft-proposal-shell" in css
+        assert ".wizard-draft-context-grid" in css
         assert ".wizard-page-pill" in css
+        assert ".wizard-stage.tone-stale" in css
+        assert ".wizard-stage.tone-blocked" in css
+        assert ".wizard-stage.tone-unsafe" in css
+        assert ".btn.wizard-action-disabled" in css
         assert ".why-shell" in css
         assert ".archive-shell" in css
         assert ".memory-scope-tabs" in css

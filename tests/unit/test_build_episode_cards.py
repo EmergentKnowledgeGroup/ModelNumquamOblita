@@ -202,3 +202,86 @@ def test_build_cards_falls_back_to_cluster_timestamps_when_refs_missing() -> Non
     assert str(card.get("end_at") or "").strip()
     assert str(card.get("timestamp_start") or "").strip()
     assert str(card.get("timestamp_end") or "").strip()
+
+
+def test_build_cards_summary_does_not_repeat_title_prefix() -> None:
+    store = AtomStore()
+    store.add_candidate(
+        _candidate(
+            "c1",
+            "And what's the measured false-negative rate — how many queries that would have found a correct answer before?",
+            source_id="conv_eval",
+            message_id="m1",
+            topic="testing",
+            ts="2026-01-09T10:00:00+00:00",
+        )
+    )
+    store.add_candidate(
+        _candidate(
+            "c2",
+            "Before the fix, weak recall prompts would often miss a correct answer that earlier heuristics caught.",
+            source_id="conv_eval",
+            message_id="m2",
+            topic="testing",
+            ts="2026-01-09T10:03:00+00:00",
+        )
+    )
+
+    cards = build_episode_cards._build_cards(store.list_atoms())
+    assert cards
+    card = cards[0]
+    title = str(card.get("title") or "").strip()
+    summary = str(card.get("summary") or "").strip()
+    assert title
+    assert summary
+    assert not summary.lower().startswith(title.lower())
+
+
+def test_build_cards_summary_keeps_meaningful_single_atom_fallback() -> None:
+    store = AtomStore()
+    store.add_candidate(
+        _candidate(
+            "c1",
+            "We reviewed the quarterly plan and split it into milestones.",
+            source_id="conv_plan",
+            message_id="m1",
+            topic="planning",
+            ts="2026-01-10T10:00:00+00:00",
+        )
+    )
+
+    cards = build_episode_cards._build_cards(store.list_atoms())
+    assert cards
+    card = cards[0]
+    assert "quarterly plan" in str(card.get("title") or "").lower()
+    assert "quarterly plan" in str(card.get("summary") or "").lower()
+
+
+def test_build_cards_refines_general_topic_when_card_text_has_clear_local_anchor() -> None:
+    store = AtomStore()
+    store.add_candidate(
+        _candidate(
+            "c1",
+            "We were reviewing the continuity constitution and what it means for persistent identity.",
+            source_id="conv_identity",
+            message_id="m1",
+            topic="general",
+            ts="2026-01-11T10:00:00+00:00",
+        )
+    )
+    store.add_candidate(
+        _candidate(
+            "c2",
+            "That conversation kept circling back to continuity safeguards and identity drift.",
+            source_id="conv_identity",
+            message_id="m2",
+            topic="general",
+            ts="2026-01-11T10:03:00+00:00",
+        )
+    )
+
+    cards = build_episode_cards._build_cards(store.list_atoms())
+    assert cards
+    topics = [str(item).strip().lower() for item in list(cards[0].get("topic_tags") or []) if str(item).strip()]
+    assert "general" not in topics
+    assert any(topic in {"continuity", "identity"} for topic in topics)

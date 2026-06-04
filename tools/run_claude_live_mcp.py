@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import sys
@@ -17,6 +18,58 @@ from engine.memory import MutationReviewQueue, SqliteAtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
 from engine.runtime import RuntimeSession, load_inmemory_store_from_json, start_runtime_server, stop_runtime_server
 from tools.mcp_connector_common import build_mcp_servers_payload, build_posix_stdio_entry, default_memory_path, resolve_episode_cards_path
+
+DEFAULT_STDIO_TRACE_PATH = REPO_ROOT / "runtime" / "desktop_shell" / "claude_cli_stdio_trace.log"
+
+
+def _local_log_stamp() -> str:
+    from datetime import datetime
+
+    return datetime.now().strftime("%Y-%m-%d | %H:%M:%S.%f")[:-3]
+
+
+class _BinaryTeeBuffer:
+    def __init__(self, primary, trace_path: Path) -> None:
+        self._primary = primary
+        self._trace_path = trace_path
+
+    def write(self, data):
+        try:
+            self._trace_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = data if isinstance(data, (bytes, bytearray)) else str(data).encode("utf-8", errors="replace")
+            with self._trace_path.open("ab") as handle:
+                handle.write(payload)
+        except Exception:
+            pass
+        return self._primary.write(data)
+
+    def flush(self):
+        return self._primary.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._primary, name)
+
+
+class _TextTeeStream:
+    def __init__(self, primary, trace_path: Path) -> None:
+        self._primary = primary
+        self.buffer = _BinaryTeeBuffer(getattr(primary, "buffer"), trace_path) if getattr(primary, "buffer", None) else None
+        self._trace_path = trace_path
+
+    def write(self, text):
+        try:
+            self._trace_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._trace_path.open("a", encoding="utf-8") as handle:
+                handle.write(str(text))
+        except Exception:
+            pass
+        return self._primary.write(text)
+
+    def flush(self):
+        return self._primary.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._primary, name)
 
 
 def _load_manifest(path: Path) -> dict[str, object]:
@@ -128,11 +181,30 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print a Claude/Desktop-compatible mcpServers JSON snippet and exit.",
     )
+    parser.add_argument("--verbose", action="store_true", help="Emit non-error startup diagnostics to stderr.")
     return parser.parse_args()
 
 
 def main() -> int:
     args = _parse_args()
+    os.environ.setdefault("NO_MCP_STDIO_TRACE", str(DEFAULT_STDIO_TRACE_PATH))
+    trace_target = Path(os.environ.get("NO_MCP_STDIO_TRACE") or DEFAULT_STDIO_TRACE_PATH)
+
+    def _trace(event: str, **extra: object) -> None:
+        try:
+            trace_target.parent.mkdir(parents=True, exist_ok=True)
+            payload = {"ts": _local_log_stamp(), "event": event}
+            payload.update(extra)
+            with trace_target.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    atexit.register(_trace, "process_exit")
+    stderr_trace = trace_target.with_name("claude_cli_stderr.log")
+    stdout_trace = trace_target.with_name("claude_cli_stdout.log")
+    sys.stderr = _TextTeeStream(sys.stderr, stderr_trace)
+    sys.stdout = _TextTeeStream(sys.stdout, stdout_trace)
     try:
         memories_path = _resolve_memories_path(memories=args.memories, from_live_manifest=args.from_live_manifest)
     except ValueError as exc:
@@ -205,10 +277,11 @@ def main() -> int:
         )
         host, port = server.server_address
         runtime_url = f"http://{host}:{port}"
-        print(
-            f"runtime_url={runtime_url} memories_path={memories_path} backend={backend_name} atom_count={len(atoms)}",
-            file=sys.stderr,
-        )
+        if args.verbose:
+            print(
+                f"runtime_url={runtime_url} memories_path={memories_path} backend={backend_name} atom_count={len(atoms)}",
+                file=sys.stderr,
+            )
 
         auth = AuthConfig(
             default_role=str(args.default_role),

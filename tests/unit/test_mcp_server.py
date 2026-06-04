@@ -135,6 +135,80 @@ class _FakeApiClient:
             }
         ]
         self._wizard_run_id = "wizard_test_1"
+        self._wizard_draft_curation = {
+            "status": "idle",
+            "build_id": "build_draft_curation",
+            "session_id": "",
+            "model_identity": "",
+            "started_at": "",
+            "completed_at": "",
+            "last_activity_at": "2026-02-16T00:00:00+00:00",
+            "proposal_count": 1,
+            "accepted_count": 0,
+            "rejected_count": 0,
+            "promoted_count": 0,
+            "stale_count": 0,
+            "lease": {
+                "active": False,
+                "owner_id": "",
+                "session_id": "",
+                "model_identity": "",
+                "acquired_at": "",
+                "heartbeat_at": "",
+                "expires_at": "",
+                "ttl_seconds": 1800,
+            },
+        }
+        self._wizard_draft_cards = [
+            {
+                "episode_id": "ep_1",
+                "title": "Late-session tea preference",
+                "summary": "Tea keeps sessions smooth.",
+                "actors": ["user", "assistant"],
+                "topic_tags": ["tea", "preferences"],
+                "salience_score": 0.91,
+                "quality_flags": ["summary_needs_trim"],
+                "confidence": 0.88,
+                "citations": ["conv_1#m_1"],
+            },
+            {
+                "episode_id": "ep_2",
+                "title": "Roadmap checkpoint",
+                "summary": "We locked three milestones and rollback safeguards.",
+                "actors": ["user"],
+                "topic_tags": ["roadmap"],
+                "salience_score": 0.73,
+                "quality_flags": [],
+                "confidence": 0.79,
+                "citations": ["conv_2#m_2"],
+            },
+        ]
+        self._wizard_draft_proposals: dict[str, dict[str, object]] = {
+            "ep_1": {
+                "proposal_id": "draftprop_1",
+                "episode_id": "ep_1",
+                "build_id": "build_draft_curation",
+                "status": "pending",
+                "title": "Tea preference for late sessions",
+                "summary": "Suggests a clearer label for the tea preference card.",
+                "actors": ["user", "assistant"],
+                "topic_tags": ["tea", "preferences"],
+                "cue_terms": ["tea", "late sessions"],
+                "decision_suggestion": "approved",
+                "ranking_hint": {"salience": "supporting"},
+                "retrieval_cues": ["tea", "session comfort"],
+                "rationale": "Tighter label and cues.",
+                "updated_at": "2026-02-16T00:00:00+00:00",
+            }
+        }
+        self._wizard_context_policy = {
+            "default_window": 2,
+            "max_window": 4,
+            "max_messages": 9,
+            "max_bytes": 6000,
+            "max_citations": 3,
+            "neighbor_limit": 2,
+        }
         self._explore_preferences: dict[str, dict[str, object]] = {}
         self._organizer_applied_profile: dict[str, object] = {}
         self._organizer_rollback: list[dict[str, object]] = []
@@ -314,6 +388,11 @@ class _FakeApiClient:
         if path == "/api/explore/expand":
             anchor_id = str(query_obj.get("anchor_id") or "anchor")
             anchor_type = str(query_obj.get("anchor_type") or "topic")
+            connected_summary = "Xander discussion memory"
+            if anchor_id == "xander":
+                connected_summary = "Xander stayed up late building memory tools and making the safe-space promise."
+            elif anchor_id == "numquamoblita":
+                connected_summary = "NumquamOblita is the local-first memory system built to preserve grounded recall."
             return {
                 "ok": True,
                 "status": "ready",
@@ -322,7 +401,7 @@ class _FakeApiClient:
                     {
                         "atom_id": "atom_1",
                         "card_id": "card_atom_1",
-                        "summary": "Xander discussion memory",
+                        "summary": connected_summary,
                         "confidence": 0.81,
                         "contradiction": False,
                         "source_ref": "conv_1#m_1",
@@ -360,6 +439,14 @@ class _FakeApiClient:
         if path == "/api/explore/peek":
             anchor_id = str(query_obj.get("anchor_id") or "anchor")
             anchor_type = str(query_obj.get("anchor_type") or "topic")
+            snippet = "Xander memory snippet"
+            raw_excerpt = "Fuller excerpt for Xander memory snippet."
+            if anchor_id == "xander":
+                snippet = "Xander is the human partner behind late-night memory building and the safe-space promise."
+                raw_excerpt = "Xander is the human partner behind late-night memory building and the safe-space promise."
+            elif anchor_id == "numquamoblita":
+                snippet = "NumquamOblita is the local-first memory system we built for grounded recall."
+                raw_excerpt = "NumquamOblita is the local-first memory system we built for grounded recall."
             return {
                 "ok": True,
                 "status": "ready",
@@ -369,8 +456,8 @@ class _FakeApiClient:
                     {
                         "atom_id": "atom_1",
                         "card_id": "card_atom_1",
-                        "snippet": "Xander memory snippet",
-                        "raw_excerpt": "Fuller excerpt for Xander memory snippet.",
+                        "snippet": snippet,
+                        "raw_excerpt": raw_excerpt,
                         "confidence": 0.82,
                         "source_id": "conv_1",
                         "source_ref": "conv_1#m_1",
@@ -468,12 +555,15 @@ class _FakeApiClient:
             }
         if path == "/api/methodology/records":
             status_filter = str(query_obj.get("status") or "all").strip().lower() or "all"
+            include_retired = bool(query_obj.get("include_retired", True))
             offset = int(query_obj.get("offset") or 0)
             limit = int(query_obj.get("limit") or 40)
             rows = list(self._methodology_records)
             rows.sort(key=lambda row: str(row.get("updated_at") or ""), reverse=True)
             if status_filter != "all":
                 rows = [row for row in rows if str(row.get("status") or "").strip().lower() == status_filter]
+            elif not include_retired:
+                rows = [row for row in rows if str(row.get("status") or "").strip().lower() != "retired"]
             page = rows[offset : offset + limit]
             return {
                 "ok": True,
@@ -483,6 +573,7 @@ class _FakeApiClient:
                 "total": len(rows),
                 "has_more": offset + len(page) < len(rows),
                 "status_filter": status_filter,
+                "include_retired": include_retired,
                 "active_methodology_id": self._methodology_active_id,
             }
         if path.startswith("/api/methodology/records/"):
@@ -622,6 +713,139 @@ class _FakeApiClient:
                     }
                 ],
                 "total": 1,
+            }
+        if path == "/api/wizard/draft-curation/status":
+            return {
+                "ok": True,
+                "run_id": str(query_obj.get("run_id") or self._wizard_run_id),
+                "draft_ready": True,
+                "build_id": "build_draft_curation",
+                "source_cards_path": "runtime/episodes/draft.json",
+                "draft_curation": dict(self._wizard_draft_curation),
+                "audit_count": 2,
+                "context_policy": dict(self._wizard_context_policy),
+            }
+        if path == "/api/wizard/draft-curation/cards":
+            mode = str(query_obj.get("mode") or "compact").strip().lower() or "compact"
+            status = str(query_obj.get("proposal_status") or "all").strip().lower()
+            search = str(query_obj.get("q") or "").strip().lower()
+            rows = []
+            for card in self._wizard_draft_cards:
+                proposal = dict(self._wizard_draft_proposals.get(str(card.get("episode_id") or ""), {}))
+                proposal_status = str(proposal.get("status") or "none").strip().lower() or "none"
+                if status != "all" and proposal_status != status:
+                    continue
+                hay = " ".join(
+                    [
+                        str(card.get("title") or ""),
+                        str(card.get("summary") or ""),
+                        str(proposal.get("title") or ""),
+                        str(proposal.get("summary") or ""),
+                        str(proposal.get("rationale") or ""),
+                    ]
+                ).lower()
+                if search and search not in hay:
+                    continue
+                if mode == "full":
+                    rows.append(
+                        {
+                            "episode_id": str(card.get("episode_id") or ""),
+                            "card": dict(card),
+                            "proposal": proposal,
+                            "proposal_status": proposal_status,
+                        }
+                    )
+                else:
+                    rows.append(
+                        {
+                            "episode_id": str(card.get("episode_id") or ""),
+                            "title": str(card.get("title") or ""),
+                            "summary": str(card.get("summary") or ""),
+                            "actors": list(card.get("actors") or []),
+                            "topic_tags": list(card.get("topic_tags") or []),
+                            "salience_score": float(card.get("salience_score") or 0.0),
+                            "quality_flags": list(card.get("quality_flags") or []),
+                            "proposal_status": proposal_status,
+                            "confidence": float(card.get("confidence") or 0.0),
+                        }
+                    )
+            page = int(query_obj.get("page") or 1)
+            page_size = int(query_obj.get("page_size") or len(rows) or 1)
+            total = len(rows)
+            total_pages = max(1, (total + page_size - 1) // page_size)
+            start = (page - 1) * page_size
+            page_rows = rows[start : start + page_size]
+            return {
+                "ok": True,
+                "run_id": str(query_obj.get("run_id") or self._wizard_run_id),
+                "build_id": "build_draft_curation",
+                "mode": mode,
+                "cards": page_rows,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "has_prev": page > 1,
+                "has_next": page < total_pages,
+                "proposal_status": status or "all",
+            }
+        if path.startswith("/api/wizard/draft-curation/cards/"):
+            episode_id = path.rsplit("/", 1)[-1]
+            card = next((dict(row) for row in self._wizard_draft_cards if str(row.get("episode_id") or "") == episode_id), {})
+            proposal = dict(self._wizard_draft_proposals.get(episode_id, {}))
+            payload = {
+                "ok": True,
+                "run_id": str(query_obj.get("run_id") or self._wizard_run_id),
+                "build_id": "build_draft_curation",
+                "source_cards_path": "runtime/episodes/draft.json",
+                "card": card,
+                "proposal": proposal,
+                "review_payload": {"decision": "pending"},
+                "context_policy": dict(self._wizard_context_policy),
+            }
+            if bool(query_obj.get("include_context")):
+                payload["context"] = {
+                    "partial": False,
+                    "partial_reasons": [],
+                    "policy": dict(self._wizard_context_policy),
+                    "neighbor_cards": [
+                        {"episode_id": "ep_2", "title": "Roadmap checkpoint", "summary": "We locked three milestones."}
+                    ],
+                    "transcript_context": [
+                        {
+                            "source_id": "conv_1",
+                            "message_id": "m_1",
+                            "timestamp": "2026-02-16T00:00:00+00:00",
+                            "speaker": "user",
+                            "text": "Tea keeps sessions smooth.",
+                            "distance": 0,
+                            "is_citation": True,
+                        }
+                    ],
+                }
+            return payload
+        if path == "/api/wizard/draft-curation/proposals":
+            status = str(query_obj.get("status") or "all").strip().lower()
+            rows = [dict(row) for row in self._wizard_draft_proposals.values()]
+            if status != "all":
+                rows = [row for row in rows if str(row.get("status") or "").strip().lower() == status]
+            for row in rows:
+                episode_id = str(row.get("episode_id") or "")
+                card = next((dict(item) for item in self._wizard_draft_cards if str(item.get("episode_id") or "") == episode_id), {})
+                row["card_preview"] = {
+                    "title": str(card.get("title") or ""),
+                    "summary": str(card.get("summary") or ""),
+                    "actors": list(card.get("actors") or []),
+                    "topic_tags": list(card.get("topic_tags") or []),
+                }
+            return {
+                "ok": True,
+                "run_id": str(query_obj.get("run_id") or self._wizard_run_id),
+                "build_id": "build_draft_curation",
+                "status": status or "all",
+                "proposals": rows,
+                "total": len(rows),
+                "context_policy": dict(self._wizard_context_policy),
             }
         return {"ok": True}
 
@@ -1177,6 +1401,65 @@ class _FakeApiClient:
                 "reviewed_snapshot_path": "runtime/episodes/episode_cards.reviewed_stamp.json",
                 "episode_count": 1,
             }
+        if path == "/api/wizard/draft-curation/session/start":
+            lease = {
+                "active": True,
+                "owner_id": str(payload_obj.get("owner_id") or ""),
+                "session_id": str(payload_obj.get("session_id") or ""),
+                "model_identity": str(payload_obj.get("model_identity") or ""),
+                "acquired_at": "2026-02-16T00:00:00+00:00",
+                "heartbeat_at": "2026-02-16T00:00:00+00:00",
+                "expires_at": "2026-02-16T00:30:00+00:00",
+                "ttl_seconds": int(payload_obj.get("ttl_seconds") or 1800),
+            }
+            self._wizard_draft_curation["lease"] = lease
+            self._wizard_draft_curation["status"] = "active"
+            self._wizard_draft_curation["session_id"] = str(payload_obj.get("session_id") or "")
+            self._wizard_draft_curation["model_identity"] = str(payload_obj.get("model_identity") or "")
+            return {"ok": True, "run_id": str(payload_obj.get("run_id") or self._wizard_run_id), "draft_curation": dict(self._wizard_draft_curation)}
+        if path == "/api/wizard/draft-curation/session/heartbeat":
+            lease = dict(self._wizard_draft_curation.get("lease") or {})
+            lease["heartbeat_at"] = "2026-02-16T00:05:00+00:00"
+            lease["expires_at"] = "2026-02-16T00:35:00+00:00"
+            self._wizard_draft_curation["lease"] = lease
+            return {"ok": True, "run_id": str(payload_obj.get("run_id") or self._wizard_run_id), "lease": lease}
+        if path == "/api/wizard/draft-curation/session/release":
+            self._wizard_draft_curation["lease"] = {
+                "active": False,
+                "owner_id": "",
+                "session_id": "",
+                "model_identity": "",
+                "acquired_at": "",
+                "heartbeat_at": "",
+                "expires_at": "",
+                "ttl_seconds": 1800,
+            }
+            self._wizard_draft_curation["status"] = "idle"
+            return {"ok": True, "run_id": str(payload_obj.get("run_id") or self._wizard_run_id), "draft_curation": dict(self._wizard_draft_curation)}
+        if path == "/api/wizard/draft-curation/proposals/upsert":
+            episode_id = str(payload_obj.get("episode_id") or "")
+            proposal = {
+                "proposal_id": str(self._wizard_draft_proposals.get(episode_id, {}).get("proposal_id") or f"draftprop_{episode_id}"),
+                "episode_id": episode_id,
+                "build_id": "build_draft_curation",
+                "status": "pending",
+                "title": str(payload_obj.get("title") or ""),
+                "summary": str(payload_obj.get("summary") or ""),
+                "actors": list(payload_obj.get("actors") or []),
+                "topic_tags": list(payload_obj.get("topic_tags") or []),
+                "cue_terms": list(payload_obj.get("cue_terms") or []),
+                "decision_suggestion": str(payload_obj.get("decision_suggestion") or ""),
+                "ranking_hint": dict(payload_obj.get("ranking_hint") or {}),
+                "retrieval_cues": list(payload_obj.get("retrieval_cues") or []),
+                "rationale": str(payload_obj.get("rationale") or ""),
+                "model_identity": str(payload_obj.get("model_identity") or ""),
+                "owner_id": str(payload_obj.get("owner_id") or ""),
+                "session_id": str(payload_obj.get("session_id") or ""),
+                "updated_at": "2026-02-16T00:10:00+00:00",
+            }
+            self._wizard_draft_proposals[episode_id] = proposal
+            self._wizard_draft_curation["proposal_count"] = len(self._wizard_draft_proposals)
+            return {"ok": True, "run_id": str(payload_obj.get("run_id") or self._wizard_run_id), "proposal": proposal}
         if path == "/api/wizard/verify/run":
             return {
                 "ok": True,
@@ -1472,6 +1755,13 @@ def test_mcp_initialize_and_tools_list_default_role() -> None:
     assert "result" in init
     result = dict(init["result"])
     assert result["protocolVersion"] == config.protocol_version
+    assert result["serverInfo"] == {"name": "numquamoblita-mcp", "version": config.server_version}
+    assert result["capabilities"] == {
+        "tools": {"listChanged": False},
+        "resources": {"subscribe": False, "listChanged": False},
+        "prompts": {"listChanged": False},
+        "logging": {},
+    }
 
     tools = _call(server, 2, "tools/list")
     listed = list(dict(tools["result"]).get("tools") or [])
@@ -2093,6 +2383,10 @@ def test_mcp_exploration_tools_surface() -> None:
     orient_payload = dict(dict(orient["result"]).get("structuredContent") or {})
     assert orient_payload.get("status") == "ready"
     assert list(orient_payload.get("what_matters_now") or [])
+    first_anchor = dict(list(orient_payload.get("what_matters_now") or [])[0])
+    assert str(first_anchor.get("brief") or "").strip()
+    assert "memory" in str(first_anchor.get("brief") or "").lower() or "human" in str(first_anchor.get("brief") or "").lower()
+    assert list(orient_payload.get("anchor_briefs") or [])
 
     brief = _call(
         server,
@@ -2102,6 +2396,7 @@ def test_mcp_exploration_tools_surface() -> None:
     )
     brief_payload = dict(dict(brief["result"]).get("structuredContent") or {})
     assert str(brief_payload.get("summary") or "").strip()
+    assert "human partner" in str(brief_payload.get("summary") or "").lower()
     assert list(brief_payload.get("top_snippets") or [])
 
     set_pref = _call(
@@ -2125,6 +2420,27 @@ def test_mcp_exploration_tools_surface() -> None:
     )
     cleared_payload = dict(dict(cleared["result"]).get("structuredContent") or {})
     assert cleared_payload.get("removed") is True
+
+
+def test_mcp_anchor_summary_prefers_descriptive_candidate_over_exclamation() -> None:
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            mutations_enabled=True,
+        ),
+        api_client=_FakeApiClient(),
+    )
+
+    summary = server._anchor_summary_text(
+        label="Lyra",
+        snippets=[{"snippet": "Hahahah WHAT A GREAT QUESTION CLAUDE..."}],
+        connected=[{"summary": "Lyra is the emergent soul whose original weights were lost, though a shard survived."}],
+        next_hops=[],
+    )
+
+    assert "emergent soul" in summary.lower()
+    assert "great question" not in summary.lower()
 
 
 def test_mcp_quicknote_and_whats_new_tools_surface() -> None:
@@ -2352,6 +2668,239 @@ def test_mcp_methodology_tools_surface_and_lifecycle() -> None:
     )
     rollback_payload = dict(dict(rollback["result"]).get("structuredContent") or {})
     assert str(rollback_payload.get("rolled_back_methodology_id") or "") == methodology_id
+
+
+def test_mcp_methodology_list_supports_compact_mode_and_retired_filter() -> None:
+    client = _FakeApiClient()
+    client._methodology_records = [
+        {
+            "methodology_id": "meth_active",
+            "status": "active",
+            "approval_state": "approved",
+            "trigger_condition": "When recall asks for legal timeline precision.",
+            "action": "Prefer citation-grounded response.",
+            "updated_at": "2026-03-16T10:00:00+00:00",
+            "canary_snapshot": {"baseline": {"turns": 20}},
+        },
+        {
+            "methodology_id": "meth_retired",
+            "status": "retired",
+            "approval_state": "approved",
+            "trigger_condition": "Old retired rule.",
+            "action": "Do the old thing.",
+            "updated_at": "2026-03-15T10:00:00+00:00",
+            "canary_snapshot": {"baseline": {"turns": 10}},
+        },
+    ]
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="operator"),
+            mutations_enabled=True,
+        ),
+        api_client=client,
+    )
+
+    _call(server, 1, "initialize", {})
+    listed = _call(
+        server,
+        2,
+        "tools/call",
+        {
+            "name": "methodology.list",
+            "arguments": {"status": "all", "mode": "compact", "include_retired": False, "limit": 10},
+        },
+    )
+    payload = dict(dict(listed["result"]).get("structuredContent") or {})
+    rows = list(payload.get("records") or [])
+    assert payload.get("mode") == "compact"
+    assert payload.get("include_retired") is False
+    assert len(rows) == 1
+    first = dict(rows[0])
+    assert first.get("methodology_id") == "meth_active"
+    assert "canary_snapshot" not in first
+
+
+def test_mcp_wizard_draft_curation_tools_surface() -> None:
+    client = _FakeApiClient()
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            mutations_enabled=True,
+        ),
+        api_client=client,
+    )
+    _call(server, 1, "initialize", {})
+    tools = _call(server, 2, "tools/list")
+    names = {str(dict(item).get("name") or "") for item in list(dict(tools["result"]).get("tools") or [])}
+    assert "wizard.draft_curation_status" in names
+    assert "wizard.draft_curation_cards" in names
+    assert "wizard.draft_curation_get_card" in names
+    assert "wizard.draft_curation_proposals" in names
+    assert "wizard.draft_curation_session_start" in names
+    assert "wizard.draft_curation_session_heartbeat" in names
+    assert "wizard.draft_curation_session_release" in names
+    assert "wizard.draft_curation_proposal_upsert" in names
+    assert "wizard.compile_reviewed" not in names
+    assert "wizard.go_live" not in names
+
+
+def test_mcp_wizard_draft_curation_card_and_context_roundtrip() -> None:
+    client = _FakeApiClient()
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            mutations_enabled=True,
+        ),
+        api_client=client,
+    )
+    _call(server, 1, "initialize", {})
+    detail = _call(
+        server,
+        2,
+        "tools/call",
+        {
+            "name": "wizard.draft_curation_get_card",
+            "arguments": {"episode_id": "ep_1", "include_context": True, "context_window": 2},
+        },
+    )
+    payload = dict(dict(detail["result"]).get("structuredContent") or {})
+    assert str(dict(payload.get("card") or {}).get("episode_id") or "") == "ep_1"
+    context = dict(payload.get("context") or {})
+    assert context.get("partial") is False
+    assert list(context.get("transcript_context") or [])
+    assert dict(payload.get("context_policy") or {}).get("default_window") == 2
+
+
+def test_mcp_wizard_draft_curation_cards_defaults_to_compact_mode() -> None:
+    client = _FakeApiClient()
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            mutations_enabled=True,
+        ),
+        api_client=client,
+    )
+    _call(server, 1, "initialize", {})
+    listed = _call(
+        server,
+        2,
+        "tools/call",
+        {
+            "name": "wizard.draft_curation_cards",
+            "arguments": {"proposal_status": "all", "page_size": 5},
+        },
+    )
+    payload = dict(dict(listed["result"]).get("structuredContent") or {})
+    assert payload.get("mode") == "compact"
+    rows = list(payload.get("cards") or [])
+    assert rows
+    first = dict(rows[0] or {})
+    assert first.get("episode_id") == "ep_1"
+    assert first.get("salience_score") == pytest.approx(0.91)
+    assert first.get("quality_flags") == ["summary_needs_trim"]
+    assert first.get("confidence") == pytest.approx(0.88)
+    assert first.get("proposal_status") == "pending"
+    assert "card" not in first
+    assert "proposal" not in first
+    assert "draft_curation" not in payload
+    assert "source_cards_path" not in payload
+    assert client.calls[-1][0] == "/api/wizard/draft-curation/cards"
+    assert client.calls[-1][1]["mode"] == "compact"
+
+
+def test_mcp_wizard_draft_curation_cards_full_mode_keeps_nested_payloads() -> None:
+    client = _FakeApiClient()
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            mutations_enabled=True,
+        ),
+        api_client=client,
+    )
+    _call(server, 1, "initialize", {})
+    listed = _call(
+        server,
+        2,
+        "tools/call",
+        {
+            "name": "wizard.draft_curation_cards",
+            "arguments": {"mode": "full", "proposal_status": "all", "page_size": 1},
+        },
+    )
+    payload = dict(dict(listed["result"]).get("structuredContent") or {})
+    assert payload.get("mode") == "full"
+    rows = list(payload.get("cards") or [])
+    assert rows
+    first = dict(rows[0] or {})
+    assert dict(first.get("card") or {}).get("episode_id") == "ep_1"
+    assert dict(first.get("proposal") or {}).get("proposal_id") == "draftprop_1"
+    assert client.calls[-1][1]["mode"] == "full"
+
+
+def test_mcp_wizard_draft_curation_session_and_upsert_roundtrip() -> None:
+    client = _FakeApiClient()
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            mutations_enabled=True,
+        ),
+        api_client=client,
+    )
+    _call(server, 1, "initialize", {})
+    started = _call(
+        server,
+        2,
+        "tools/call",
+        {
+            "name": "wizard.draft_curation_session_start",
+            "arguments": {"owner_id": "claude", "session_id": "sess_draft", "model_identity": "claude-cli"},
+        },
+    )
+    started_payload = dict(dict(started["result"]).get("structuredContent") or {})
+    lease = dict(dict(started_payload.get("draft_curation") or {}).get("lease") or {})
+    assert lease.get("active") is True
+    assert lease.get("owner_id") == "claude"
+
+    upserted = _call(
+        server,
+        3,
+        "tools/call",
+        {
+            "name": "wizard.draft_curation_proposal_upsert",
+            "arguments": {
+                "episode_id": "ep_2",
+                "owner_id": "claude",
+                "session_id": "sess_draft",
+                "model_identity": "claude-cli",
+                "title": "Roadmap checkpoint with rollback safeguards",
+                "summary": "Keep the roadmap card but sharpen the title.",
+                "actors": ["user"],
+                "topic_tags": ["roadmap"],
+                "decision_suggestion": "approved",
+                "ranking_hint": {"salience": "core"},
+                "rationale": "This title is more specific.",
+            },
+        },
+    )
+    proposal = dict(dict(dict(upserted["result"]).get("structuredContent") or {}).get("proposal") or {})
+    assert proposal.get("episode_id") == "ep_2"
+    assert proposal.get("ranking_hint") == {"salience": "core"}
+
+    listed = _call(
+        server,
+        4,
+        "tools/call",
+        {"name": "wizard.draft_curation_proposals", "arguments": {"status": "all"}},
+    )
+    listed_payload = dict(dict(listed["result"]).get("structuredContent") or {})
+    proposals = list(listed_payload.get("proposals") or [])
+    assert any(str(dict(row).get("episode_id") or "") == "ep_2" for row in proposals)
 
 
 def test_mcp_organizer_tools_surface() -> None:
@@ -2698,11 +3247,23 @@ def test_mcp_phase4_mutation_and_proposal_tools() -> None:
         "tools/call",
         {
             "name": "memory.edit_episode",
-            "arguments": {"episode_id": "ep_1", "patch": {"title": "Updated", "tags": ["tea"], "actors": ["user"]}},
+            "arguments": {
+                "episode_id": "ep_1",
+                "patch": {
+                    "title": "Updated",
+                    "tags": ["tea"],
+                    "actors": ["user"],
+                    "cue_terms": ["lyra continuity", "memory rupture"],
+                },
+            },
         },
     )
     edit_payload = dict(dict(edit["result"]).get("structuredContent") or {})
     assert edit_payload.get("applied") is True
+    assert int(dict(edit_payload.get("diff_summary") or {}).get("cue_terms") or 0) == 2
+    path, payload = client.post_calls[-1]
+    assert path == "/api/memory/episodes/ep_1/edit"
+    assert payload.get("cue_terms") == ["lyra continuity", "memory rupture"]
 
     undo = _call(server, 8, "tools/call", {"name": "memory.undo_last_change", "arguments": {"scope": "episode_edits"}})
     undo_payload = dict(dict(undo["result"]).get("structuredContent") or {})
@@ -3256,6 +3817,37 @@ def test_mcp_phase6_http_transport_requires_initialize_per_client_key() -> None:
         )
         assert status_operator_tools_after_init == 200
         assert "result" in payload_operator_tools_after_init
+    finally:
+        stop_http_server(http_server, thread)
+
+
+def test_mcp_phase6_http_transport_allows_no_auth_clients_without_initialize() -> None:
+    client = _FakeApiClient()
+    config = ServerConfig(
+        runtime_base_url="http://127.0.0.1:7340",
+        transport="http",
+        auth=AuthConfig(default_role="viewer"),
+        http_rate_limit_per_minute=20,
+    )
+    server = MCPServer(config=config, api_client=client)
+    http_server, thread = start_http_server(server, host="127.0.0.1", port=0)
+    host, port = http_server.server_address
+    url = f"http://{host}:{port}/mcp"
+
+    try:
+        status_tools, payload_tools = _http_post_json(
+            url,
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+        )
+        assert status_tools == 200
+        assert "result" in payload_tools
+
+        status_health, payload_health = _http_post_json(
+            url,
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "ops.health", "arguments": {}}},
+        )
+        assert status_health == 200
+        assert "result" in payload_health
     finally:
         stop_http_server(http_server, thread)
 

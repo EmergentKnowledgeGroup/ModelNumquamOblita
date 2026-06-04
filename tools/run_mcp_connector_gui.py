@@ -17,8 +17,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.mcp_connector_common import (
+    DEFAULT_HTTP_MCP_URL,
     DEFAULT_SERVER_NAME,
     SUPPORTED_MEMORY_SUFFIXES,
+    build_http_entry,
     build_launcher_cli_args,
     build_claude_code_add_json_cmd,
     build_mcp_servers_payload,
@@ -26,6 +28,7 @@ from tools.mcp_connector_common import (
     build_windows_wsl_stdio_entry,
     default_episode_cards_path,
     default_memory_path,
+    default_claude_code_scope,
     detect_wsl_distro,
     discover_memory_candidates,
     ensure_valid_server_name,
@@ -40,9 +43,15 @@ from tools.mcp_connector_common import (
     remove_claude_code_server,
     remove_mcp_server_entry,
     resolve_episode_cards_path,
+    run_subprocess_hidden_on_windows,
     windows_wsl_command,
     write_json_with_backup,
     wsl_path_from_windows,
+)
+from tools.integration_bundle_common import (
+    build_integration_bundle,
+    default_target,
+    integration_target_catalog,
 )
 
 EXPORT_BUNDLE_SIGNATURE = "numquamoblita_mcp_connector_bundle_v1"
@@ -53,7 +62,7 @@ HELP_TEXT = {
     "claude_code_scope": "Local = this checkout only. User = your whole machine profile. Project = the current Claude Code project config.",
     "compat_mode": "Strict uses the current MCP contract and is the default. Lenient v1 only exists for older clients that need the legacy shape.",
     "mutations_enabled": "Off keeps the memory server read-only. Turn this on only if you explicitly want memory-changing tools available.",
-    "wsl_distro": "Used for Claude Desktop and any WSL-based Claude Code fallback on Windows. If Claude Code is installed natively on Windows, this setting does not affect it.",
+    "wsl_distro": "Used for Claude Desktop and Claude Code on Windows. MNO launches the local MCP bridge through WSL even when the Claude CLI itself is installed natively on Windows.",
     "server_name": "The MCP server key shown inside the client config. Most people should leave this alone.",
 }
 MEMORY_FILETYPES = [
@@ -133,6 +142,7 @@ class ResolvedPayload:
         episodes_path_wsl: str | None,
         windows_desktop_config: str,
         windows_claude_code_config: str,
+        mcp_http_url: str,
     ) -> None:
         self.server_name = server_name
         self.default_role = default_role
@@ -148,6 +158,7 @@ class ResolvedPayload:
         self.episodes_path_wsl = episodes_path_wsl
         self.windows_desktop_config = windows_desktop_config
         self.windows_claude_code_config = windows_claude_code_config
+        self.mcp_http_url = str(mcp_http_url or "").strip()
 
 
 class ConnectorControlPanel:
@@ -155,12 +166,13 @@ class ConnectorControlPanel:
         self,
         *,
         repo_root: Path = REPO_ROOT,
-        python_path: str = "python3",
-        runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+        python_path: str = "",
+        runner: Callable[..., subprocess.CompletedProcess[str]] = run_subprocess_hidden_on_windows,
         which: Callable[[str], str | None] = shutil.which,
     ) -> None:
         self.repo_root = Path(repo_root).resolve()
-        self.python_path = self._normalize_launcher_python_path(str(python_path).strip() or "python3")
+        resolved_python = str(python_path).strip() or str(sys.executable).strip() or "python3"
+        self.python_path = self._normalize_launcher_python_path(resolved_python)
         self.runner = runner
         self.which = which
 
@@ -184,12 +196,14 @@ class ConnectorControlPanel:
             "claude_code_available": install_context != "missing",
             "claude_code_install_context": install_context,
             "claude_code_display": self._claude_code_display_label(install_context),
-            "claude_code_scope": "local",
+            "claude_code_scope": default_claude_code_scope(install_context=install_context),
             "windows_claude_desktop_config": str(desktop_path) if desktop_path is not None else "",
             "windows_claude_code_config": str(windows_claude_code) if windows_claude_code is not None else "",
+            "mcp_http_url": DEFAULT_HTTP_MCP_URL,
             "wsl_distro": distro,
             "help_text": dict(HELP_TEXT),
             "supported_memory_suffixes": sorted(SUPPORTED_MEMORY_SUFFIXES),
+            "integration_targets": integration_target_catalog(),
         }
 
     def build_preview(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -216,11 +230,14 @@ class ConnectorControlPanel:
         )
         claude_code_entry = self._build_claude_code_entry(
             resolved=resolved,
+            payload=payload,
             install_context=claude_code_install_context,
             posix_entry=posix_entry,
+            windows_entry=windows_entry,
         )
         claude_code_bin = self._claude_code_preview_bin(install_context=claude_code_install_context)
         return {
+            "target": str(payload.get("target") or default_target()).strip().lower() or default_target(),
             "server_name": resolved.server_name,
             "claude_code_scope": resolved.claude_code_scope,
             "memories_path": str(resolved.memories_path),
@@ -244,6 +261,7 @@ class ConnectorControlPanel:
             ),
             "windows_claude_desktop_config": resolved.windows_desktop_config,
             "windows_claude_code_config": resolved.windows_claude_code_config,
+            "mcp_http_url": resolved.mcp_http_url,
         }
 
     def install_claude_code(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -351,26 +369,51 @@ class ConnectorControlPanel:
         preview = self.build_preview(payload)
         preview["windows_claude_desktop_config"] = str(find_windows_claude_desktop_config() or "")
         preview["windows_claude_code_config"] = str(find_windows_claude_code_config() or "")
-        return preview
+        target = str(payload.get("target") or default_target()).strip().lower() or default_target()
+        bundle_payload = build_integration_bundle(
+            target=target,
+            preview=preview,
+            repo_root=self.repo_root,
+        )
+        return {
+            **preview,
+            "target": target,
+            "target_display": str(bundle_payload.get("target_display") or target),
+            "target_mode": str(bundle_payload.get("target_mode") or ""),
+            "bundle_payload": bundle_payload,
+            "artifacts": dict(bundle_payload.get("artifacts") or {}),
+        }
 
     def save_export_bundle(self, payload: dict[str, Any], *, export_path: str | Path) -> dict[str, Any]:
         bundle = self.export_bundle(payload)
         target = Path(export_path).expanduser()
-        if not str(target).lower().endswith(".json"):
-            target = target.with_suffix(".json")
+        if target.suffix.lower() == ".json":
+            export_dir = target.parent
+            json_target = target
+        else:
+            export_dir = target
+            safe_target = str(bundle.get("target") or "bundle").strip().lower().replace("-", "_")
+            safe_server = str(bundle.get("server_name") or DEFAULT_SERVER_NAME).strip()
+            json_target = export_dir / f"numquamoblita_{safe_target}_{safe_server}.json"
+        export_dir.mkdir(parents=True, exist_ok=True)
         signature = {
             "generated_by": EXPORT_BUNDLE_SIGNATURE,
             "generated_at": self._timestamp(),
             "server_name": bundle["server_name"],
-            "bundle": {
-                "posix_payload": bundle["posix_payload"],
-                "windows_payload": bundle["windows_payload"],
-                "claude_code_add_cmd": bundle["claude_code_add_cmd"],
-            },
+            "target": bundle["target"],
+            "target_display": bundle["target_display"],
+            "bundle": dict(bundle.get("bundle_payload") or {}),
         }
-        backup_path = write_json_with_backup(target, signature)
+        backup_path = write_json_with_backup(json_target, signature)
+        artifact_paths: list[str] = []
+        for file_name, content in dict(bundle.get("artifacts") or {}).items():
+            artifact_path = export_dir / str(file_name)
+            artifact_path.write_text(str(content), encoding="utf-8")
+            artifact_paths.append(str(artifact_path))
         return {
-            "export_path": str(target),
+            "export_path": str(json_target),
+            "export_dir": str(export_dir),
+            "artifact_paths": artifact_paths,
             "backup_path": str(backup_path) if backup_path is not None else "",
             **bundle,
         }
@@ -390,17 +433,13 @@ class ConnectorControlPanel:
         compat_mode = str(payload.get("compat_mode") or "strict").strip() or "strict"
         if compat_mode not in {"strict", "lenient_v1"}:
             raise ValueError("compat mode must be strict or lenient_v1")
-        claude_code_scope = str(payload.get("claude_code_scope") or "local").strip() or "local"
-        if claude_code_scope not in {"local", "user", "project"}:
-            raise ValueError("Claude Code scope must be local, user, or project")
-
         memories_raw = str(payload.get("memories_path") or "").strip() or str(default_memory_path(repo_root=self.repo_root))
         memories_path = self._resolve_existing_path(memories_raw)
         if memories_path.suffix.lower() not in SUPPORTED_MEMORY_SUFFIXES:
             raise ValueError("memories path must be .sqlite3, .sqlite, .db, or .json")
         self._validate_memories_path(memories_path)
 
-        episodes_raw = str(payload.get("episodes_path") or "").strip()
+        episodes_raw = self._normalize_host_input_path(str(payload.get("episodes_path") or "").strip())
         episodes_path = resolve_episode_cards_path(episodes_raw, repo_root=self.repo_root)
         if episodes_path is not None and not episodes_path.exists():
             raise ValueError(f"episode cards path not found: {episodes_path}")
@@ -415,6 +454,11 @@ class ConnectorControlPanel:
 
         desktop_config = find_windows_claude_desktop_config()
         claude_code_config = find_windows_claude_code_config()
+        install_context = self._claude_code_install_context(distro_name=distro)
+        claude_code_scope = str(payload.get("claude_code_scope") or default_claude_code_scope(install_context=install_context)).strip() or default_claude_code_scope(install_context=install_context)
+        if claude_code_scope not in {"local", "user", "project"}:
+            raise ValueError("Claude Code scope must be local, user, or project")
+        mcp_http_url = str(payload.get("mcp_http_url") or DEFAULT_HTTP_MCP_URL).strip() or DEFAULT_HTTP_MCP_URL
         return ResolvedPayload(
             server_name=server_name,
             default_role=default_role,
@@ -430,19 +474,53 @@ class ConnectorControlPanel:
             episodes_path_wsl=episodes_path_wsl,
             windows_desktop_config=str(desktop_config) if desktop_config is not None else "",
             windows_claude_code_config=str(claude_code_config) if claude_code_config is not None else "",
+            mcp_http_url=mcp_http_url,
         )
 
     def _resolve_existing_path(self, raw: str) -> Path:
-        path = Path(raw).expanduser()
-        if not path.is_absolute() and not str(raw).startswith("\\\\"):
-            path = (self.repo_root / path).resolve()
-        else:
-            path = path.resolve()
-        if not path.exists():
-            raise ValueError(f"path not found: {path}")
-        if not path.is_file():
-            raise ValueError(f"path is not a file: {path}")
-        return path
+        raw_text = str(raw or "").strip()
+        candidates = [raw_text]
+        normalized = self._normalize_host_input_path(raw_text)
+        if normalized and normalized not in candidates:
+            candidates.append(normalized)
+
+        last_path: Path | None = None
+        for candidate_text in candidates:
+            path = Path(candidate_text).expanduser()
+            if not path.is_absolute() and not str(candidate_text).startswith("\\\\"):
+                path = (self.repo_root / path).resolve()
+            else:
+                path = path.resolve()
+            last_path = path
+            if not path.exists():
+                continue
+            if not path.is_file():
+                raise ValueError(f"path is not a file: {path}")
+            return path
+        raise ValueError(f"path not found: {last_path or raw_text}")
+
+    @staticmethod
+    def _normalize_host_input_path(raw: str) -> str:
+        text = str(raw or "").strip()
+        if not text:
+            return text
+        if is_windows_platform():
+            if text.startswith("/mnt/") and len(text) > 6 and text[5].isalpha():
+                drive = text[5].upper()
+                remainder = text[6:].lstrip("/").replace("/", "\\")
+                return f"{drive}:\\{remainder}" if remainder else f"{drive}:\\"
+            return text
+        if text.startswith("/") or text.startswith("\\\\wsl$\\"):
+            if text.startswith("\\\\wsl$\\"):
+                parts = [part for part in text.split("\\") if part]
+                if len(parts) >= 3:
+                    return "/" + "/".join(parts[2:])
+            return text
+        if len(text) >= 3 and text[1] == ":" and text[0].isalpha():
+            drive = text[0].lower()
+            remainder = text[2:].replace("\\", "/").lstrip("/")
+            return f"/mnt/{drive}/{remainder}" if remainder else f"/mnt/{drive}"
+        return text
 
     def _validate_memories_path(self, path: Path) -> None:
         if path.suffix.lower() != ".json":
@@ -471,22 +549,27 @@ class ConnectorControlPanel:
         self,
         *,
         resolved: ResolvedPayload,
+        payload: dict[str, Any],
         install_context: str,
         posix_entry: dict[str, Any],
+        windows_entry: dict[str, Any],
     ) -> dict[str, Any]:
+        if self._should_use_http_for_native_windows_claude(payload=payload, install_context=install_context):
+            return build_http_entry(url=resolved.mcp_http_url)
         if install_context == "native-windows-claude":
-            return {
-                "command": str(self.python_path).strip() or "python",
-                "args": build_launcher_cli_args(
-                    launcher_path=str((self.repo_root / "tools" / "run_claude_live_mcp.py").resolve()),
-                    memories_path=resolved.memories_path,
-                    episodes_path=resolved.episodes_path,
-                    default_role=resolved.default_role,
-                    compat_mode=resolved.compat_mode,
-                    mutations_enabled=resolved.mutations_enabled,
-                ),
-            }
+            return dict(windows_entry)
         return dict(posix_entry)
+
+    @staticmethod
+    def _should_use_http_for_native_windows_claude(*, payload: dict[str, Any], install_context: str) -> bool:
+        if install_context != "native-windows-claude":
+            return False
+        http_url = str(payload.get("mcp_http_url") or "").strip()
+        if not http_url:
+            return False
+        managed = bool(payload.get("mcp_http_managed"))
+        status = str(payload.get("mcp_http_status") or "").strip().lower()
+        return managed and status == "ready"
 
     def _claude_code_preview_bin(self, *, install_context: str) -> str:
         if install_context == "native-windows-claude":

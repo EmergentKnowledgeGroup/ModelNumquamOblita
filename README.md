@@ -1,285 +1,205 @@
 # ModelNumquamOblita
 
-`ModelNumquamOblita` ("never forgotten") is the standalone MNO personal memory runtime extracted from the broader `NumquamOblita` system.
+ModelNumquamOblita, or `MNO`, is a local-first memory runtime for agents that need:
+- evidence-backed memory
+- reviewed durable truth
+- bounded retrieval
+- honest abstention when evidence is weak
 
-This repo is intentionally focused on MNO only:
+Core rule:
 
-- `ImpressioAnimae` produces high-quality voice/style training artifacts.
-- `ModelNumquamOblita` provides long-horizon memory encoding, consolidation, retrieval, runtime continuity, and evidence-backed recall.
+`No memory claim without evidence.`
 
-This repo does **not** carry ANO document-research/runtime surfaces on the MNO mandatory path.
+## What MNO does
 
-## Design goal
+MNO can start from either:
+- raw source files or folders such as `conversations.json`, `.jsonl`, `.txt`, `.md`, or mixed folders
+- an existing MNO atom store plus optional reviewed episode set
 
-Build a memory system that:
+From there it can:
+- import evidence into `atoms.sqlite3`
+- preserve bounded original wording for quote and provenance lookups
+- build draft episode cards for review
+- optionally let an assistant or agent help curate the draft before human review
+- compile reviewed episode cards for runtime use
+- keep reviewed correction chains clear so current vs superseded truth stays visible
+- run a local runtime over HTTP, adapters, MCP, or the desktop shell
 
-1. Scales to thousands of memories.
-2. Prevents confident false recall.
-3. Preserves identity continuity with explicit evidence paths.
+## What MNO does not do
 
-## Core principle
+MNO does not promise:
+- silent truth mutation
+- unreviewed draft artifacts becoming published truth
+- one giant shared multi-agent runtime
+- unversioned internal routes as the main public integration contract
 
-No memory claim without evidence.
+## How you run it
 
-Every recalled memory must be backed by source-linked memory atoms with confidence and conflict state.
+MNO has 3 normal launch shapes:
+- desktop app: Electron shell with managed runtime and local operator UI
+- headless runtime: HTTP server over a memory store and optional reviewed episode set
+- MCP sidecar: stdio or HTTP MCP server pointed at a running runtime
 
-## Document map
+The normal public integration boundary is:
 
-- `docs/INDEX.md`: primary documentation navigator (canonical docs + generated artifact map).
-- `docs/public/README.md`: public overview (what it is, how it works).
-- `docs/public/ARCHITECTURE.md`: public architecture + diagrams (pipeline + runtime).
-- `docs/public/DEMO_SCRIPT.md`: 8–12 minute demo script (operator + stakeholder).
-- `docs/guides/PIPELINE_END_TO_END.md`: end-to-end pipeline guide (GUI + CLI).
-- `BIO_INSPIRED_MEMORY_SPEC.md`: biological mapping and system contract.
-- `ALGORITHM_PIPELINE.md`: end-to-end ingest/write/retrieve pipeline.
-- `DATA_MODEL_AND_STORAGE.md`: canonical schemas and indexes.
-- `MEMORY_WRITE_GATE.md`: add/update/ignore judgment logic.
-- `RETRIEVAL_AND_SCORING.md`: candidate fusion, scoring, abstention rules.
-- `EVALUATION_GUARDRAILS.md`: quality metrics, anti-hallucination policy, red-team tests.
-- `IMPLEMENTATION_BLUEPRINT.md`: concrete build plan with interfaces and milestones.
-- `V2_ARCHITECTURE_DECISIONS.md`: speed/cost optimizations with unchanged accuracy contract.
-- `V3_IDENTITY_CONTINUITY_UPGRADES.md`: relational/affective continuity layers for identity-level recall.
-- `V3_ACCEPTANCE_CRITERIA.md`: release gate thresholds and decision policy for V3 quality.
-- `V3_FAILURE_CASE_LIBRARY.md`: top-25 high-risk failure patterns with expected safe behavior and remediation owners.
-- `DECISION_LOCK_2026-02-08.md`: frozen policy decisions for mutation, forgetting, provenance, and truth behavior.
-- `CLAUDE_PERSPECTIVE.md`: experiential perspective that motivates V3 continuity structures.
-- `STM_LTM_POLICY_SPEC.md`: short-term vs long-term runtime retrieval policy and regression plan.
-- `docs/SYSTEM_MASTER_OVERVIEW.md`: compact end-to-end system map + feature timeline for fast handoff.
-- `docs/MNO_ANO_OWNERSHIP_INVENTORY.md`: authoritative owner map for the standalone MNO lane.
-- `docs/guides/MONOREPO_TO_STANDALONE_MIGRATION.md`: migration/cutover guide for existing MNO operators.
-- `docs/FORWARD_PATH_MEMORY_ORCHESTRATION.md`: forward path for memory-orchestration upgrades + OpenClaw comparison takeaways.
-- `docs/V5_EXECUTION_AND_FREEZE_PLAN.md`: finite five-block execution plan with post-V5 feature freeze criteria.
-- `docs/EVENT_MEMORY_EVENT_CUE_SPEC.md`: event/cue-first recall hardening plan (entity/event prompts, card quality gates, compact context packets).
-- `docs/EVIDENCE_MEMORY_EPISODE_GLOSSARY.md`: plain-language definitions (evidence vs atoms vs episodes).
-- `docs/PIPELINE_REFINEMENT_EXECUTION_PLAN.md`: implementation-ready execution spec (phases 0–7).
-- `docs/OPERATOR_SETUP_AND_DIAGNOSTICS.md`: one-command setup, preflight, launch, and diagnostics quickstart.
-- `docs/api/API_MATRIX.md`: runtime API matrix for memory operations and queue behavior.
-- `docs/evals/PHASE7_WORKFLOW.md`: truthset/load/drift/signoff execution and thresholds.
+`integration-v1`
 
-## Non-negotiable constraints
+Compatibility adapters also exist for:
+- `reference`
+- `openclaw`
+- `nanobot`
 
-- Provenance is required for all memory atoms.
-- Contradictions are versioned, never silently overwritten.
-- Retrieval must support abstention and clarification when confidence is low.
-- Summaries are accelerators; source atoms remain the authority.
+If you are building a new integration, prefer `integration-v1` first.
 
-## Active architecture note
+## Retrieval note
 
-V2 + V3 is the active baseline:
-- salience prefilter before extractor model calls,
-- two-stage write gate,
-- adaptive retrieval budgets,
-- claim-evidence verification before final response.
-- derived continuity layers (constellation, narrative arc, dynamics, shared-language keys, recognition signal).
-- curated shared-language registry with provenance-linked atom requirements.
-- runtime STM/LTM routing with `stm_primary`, `hybrid`, and `ltm_only` modes (token + n-gram short-term matching).
-- runtime LTM retrieval supports deterministic multi-pass query variants (base + compact informative query) before verifier gating.
+This clean repo ships with a bounded local ANN sidecar enabled by default.
 
-## Local development commands
+`ANN` means `approximate nearest neighbor`.
 
-- One-command local setup:
-  - Unix/macOS: `./setup_local.sh`
-  - PowerShell: `.\setup_local.ps1`
-  - Command Prompt: `setup_local.bat`
-  - plan-only dry run: `python3 tools/setup_local.py --plan-only`
-  - preflight-only: `python3 tools/setup_local.py --preflight-only`
-  - setup reports are written to `runtime/setup/`
+In MNO it is:
+- local only
+- bounded
+- additive candidate generation only
+- kill-switchable
 
-- Runtime/pilot preflight checks:
-  - runtime: `python3 tools/preflight.py --mode runtime --memories .runtime/imports/atoms.sqlite3`
-  - pilot: `python3 tools/preflight.py --mode pilot --memories .runtime/imports/atoms.sqlite3 --input <conversations.json>`
-  - add `--json` to emit machine-readable output.
+It is not:
+- a truth source
+- a verifier replacement
+- a shortcut around review, publish, or evidence rules
 
-- Run all tests:
-  - `python3 -m pytest -q`
-  - or `./tools/run_tests.sh`
-- Run fast unit-only checks:
-  - `python3 -m pytest -q tests/unit`
-- Foundation package layout:
-  - `engine/ingest`
-  - `engine/memory`
-  - `engine/write_gate`
-  - `engine/retrieval`
-  - `engine/continuity`
-  - `engine/runtime`
+MNO also keeps a bounded raw-context sidecar for explicit quote, original-wording, and provenance requests. That sidecar is read-only and only augments the evidence pack when the query asks for original context.
 
-- Run local runtime demo UI:
-  - `python3 tools/run_runtime_demo.py --host 127.0.0.1 --port 7340`
-  - default store backend is durable sqlite at `.runtime/demo/atoms.sqlite3`
-  - switch to ephemeral backend with `--store-backend inmemory`
-  - set custom sqlite file with `--sqlite-path <path>`
-  - native endpoint: `POST /api/chat`
-  - session chat endpoints:
-    - `POST /api/chat/session/start`
-    - `GET /api/chat/sessions`
-    - `POST /api/chat/session/<session_id>/turn`
-    - `GET /api/chat/session/<session_id>/history`
-    - `GET /api/chat/session/<session_id>/telemetry`
-  - runtime routing catalog: `GET /api/runtime/decision-reasons`
-- adapter endpoint: `POST /api/adapters/<adapter>/chat`
-- list adapters: `GET /api/adapters`
-- runtime diagnostics (`GET /api/state`) include recognition metrics (`recognition_events`, `recognition_rate`)
-- memory ops endpoints:
-  - `GET /api/memory/cards?kind=all&status=all&contradiction=all&q=&offset=0&limit=60`
-  - `GET /api/memory/cards/<card_id>`
-  - `GET /api/memory/episodes?status=all&q=&run_id=...`
-  - `GET /api/memory/atoms?status=all&q=&offset=0&limit=60`
-  - `GET /api/memory/atom/<atom_id>`
-  - `GET /api/memory/graph?atom_id=<atom_id>`
-  - `GET /api/memory/proposals` (returns `status: queue_unavailable` when no review queue is configured)
-  - `POST /api/memory/proposals/<proposal_id>/approve` (returns `404` when no review queue is configured)
-  - `GET /api/turns/<turn_id>/why?citations=true`
-  - `GET /api/runtime/health`
-  - `GET /api/wizard/state`
-  - `POST /api/memory/proposals/<proposal_id>/reject` (returns `404` when no review queue is configured)
-  - `POST /api/memory/decay/recompute`
-  - runtime UI now includes Memory Cards + Proposal Inbox panes for non-CLI curation
-  - runtime UI also supports session-first local chat (thread picker/start, per-turn route badges, and explainable route reasons)
-  - runtime UI local settings include `memory preference` (`auto`, `chat_first`, `memory_assist`) for per-turn routing control
-  - `openclaw` payload: `{"messages":[{"role":"user","content":"..."}],"risk_level":"low|high|critical","high_risk":true|false,"metadata":{...}}`
-  - `nanobot` payload: `{"query":"...","meta":{"conversation_id":"..."},"safety":{"high_risk":false}}`
+## Repo layout
 
-- Run gate harness:
-  - `python3 tools/run_gate_harness.py --records <records.json> --failure-results <cases.json> --dataset-counts <counts.json>`
+- `engine/`: runtime, retrieval, memory, MCP, adapters, UI
+- `app/desktop/`: Electron desktop shell
+- `tools/`: setup, import, build, runtime, and MCP launchers
+- `tests/`: focused validation for setup, runtime, MCP, adapters, packaging, and integration contract behavior
+- `runtime/`: empty local workspace skeleton for imports, episodes, runs, and state
 
-- Run truthset eval (plan-only safety check):
-  - `python3 tools/run_truthset_eval.py --memories .runtime/imports/atoms.sqlite3 --plan-only`
-  - default run fails closed if zero cases are available; add `--allow-empty` to bypass
-  - Windows one-click: `tools\\run_live_eval_plan.ps1` or `tools\\run_live_eval_plan.bat`
+## Fast start
 
-- Build a human-review truthset pack:
-  - `python3 tools/build_truthset_review_pack.py --memories .runtime/imports/atoms.sqlite3 --total-cases 120`
-  - emits: `truthset.candidates.jsonl`, `truthset.review.tsv`, `truthset.review.md`
-  - compile accepted rows back to JSONL:
-    - `python3 tools/build_truthset_review_pack.py --compile-reviewed <truthset.review.tsv>`
+1. Use the one-click setup workspace if you want the guided path.
+   - Unix/macOS: `./launch_setup_workspace.sh`
+   - PowerShell: `./launch_setup_workspace.ps1`
+   - Command Prompt: `launch_setup_workspace.bat`
+2. Or run local setup directly.
+   - Unix/macOS: `./setup_local.sh`
+   - PowerShell: `./setup_local.ps1`
+   - Command Prompt: `setup_local.bat`
+3. Start from raw source.
+   - GUI path: launch the setup workspace, click `Add Files` and/or `Add Folder`, build a mixed source list, then either create a new store or append into an existing one.
+   - CLI path: `python3 tools/import_memories.py --input /absolute/path/to/source-or-folder --store runtime/imports/atoms.sqlite3`
+4. Launch the runtime:
+   - `python3 tools/run_live_runtime.py --memories runtime/imports/atoms.sqlite3`
+5. Or launch the desktop shell:
+   - `npm run desktop:dev --prefix app/desktop`
+6. Or launch MCP against the runtime:
+   - `python3 tools/run_mcp_server.py --transport stdio --runtime-base-url http://127.0.0.1:7340`
 
-- Run truthset eval (bounded execution + artifacts):
-  - `python3 tools/run_truthset_eval.py --memories .runtime/imports/atoms.sqlite3 --requested-cases 6 --scan-budget 600000`
-  - episodic retrieval during eval: add `--episode-cards runtime/episodes/episode_cards_*.json`
-  - disable episodic route for baseline compare: `--disable-episodes`
-  - chunked mode (WSL-safe): `--batch-size 2 --batch-pause-ms 100 --write-partial-artifacts`
-  - auto-chunking now enables by default for large stores (`>=25k` atoms) when no batch size is provided
-  - override auto-chunk threshold for diagnostics: `NO_AUTO_CHUNK_ATOM_THRESHOLD=<atoms>`
-  - emits: `summary.json`, `summary.md`, `records.json`, and `truthset.generated.jsonl`
-  - optional partial outputs while running: `records.partial.json`, `progress.partial.json`
-  - Windows one-click: `tools\\run_live_eval_safe.ps1` or `tools\\run_live_eval_safe.bat`
+The setup workspace is the easiest launch path if you want to:
+- open the GUI setup flow
+- choose a managed client or export target
+- install or export the right integration bundle
+- finish with MNO ready for assistant/agent or sidecar use
 
-- One-click eval + human readout (optional import, then eval, then readable markdown):
-  - `python3 tools/run_oneclick_eval.py --skip-import --store .runtime/imports/atoms.sqlite3`
-  - with import from raw export: `python3 tools/run_oneclick_eval.py --input <conversations.json>`
-  - one-click now builds episode cards, runs eval with episodic retrieval, and validates prompt quality by default
-  - one-click also emits episode-card review artifacts:
-    - `episode_cards.readout.md` (human-readable episode list)
-    - `review_pack/episode_cards.review.tsv` (approve/reject/edit sheet)
-    - `review_pack/episode_cards.review.md` (review instructions)
-  - disable episodic route for baseline: `--disable-episodes`
-  - skip episode build and supply prebuilt cards: `--skip-episode-build --episode-cards <episode_cards.json>`
-  - emits run manifest: `runtime/evals/oneclick_*/oneclick_manifest.json`
-  - emits human report: `runtime/evals/oneclick_*/human_readout.md`
-  - emits question-quality gate outputs: `question_validation_summary.{json,md}` and `question_validation_cases.json`
-  - Windows one-click: `tools\\run_oneclick_eval.ps1` or `tools\\run_oneclick_eval.bat`
+Managed MCP targets currently include:
+- `Claude Code`
+- `Claude Desktop`
 
-- Compare episodic latency impact directly (same truthset, episodes off vs on):
-  - `python3 tools/run_episode_latency_compare.py --memories .runtime/imports/atoms.sqlite3 --build-episodes --requested-cases 120 --scan-budget 600000`
-  - emits: `episode_latency_compare.json`, `episode_latency_compare.md`, plus baseline/episodic eval artifacts
+## Raw-source import behavior
 
-- Build episode cards (event-style memory view for human QA + downstream retrieval):
-  - `python3 tools/build_episode_cards.py --memories .runtime/imports/atoms.sqlite3`
-  - optional output path: `--out runtime/episodes/episode_cards_manual.json`
-  - emits: `runtime/episodes/episode_cards_*.json`
+The desktop import flow is picker-first now:
+- `Add Files` opens a file picker
+- `Add Folder` opens a folder picker
+- you can mix folders and individual files in one source list
+- you can clear or remove entries before import
+- you can import into a new store or append into an existing store
 
-- Build episode human-review pack (approve/reject/edit workflow):
-  - `python3 tools/build_episode_review_pack.py --episodes runtime/episodes/episode_cards_*.json`
-  - emits: `episode_cards.review.tsv`, `episode_cards.review.md`, `episode_cards.review_meta.json`
-  - compile reviewed sheet into retrieval-ready cards:
-    - `python3 tools/build_episode_review_pack.py --compile-reviewed runtime/episodes/review_pack_*/episode_cards.review.tsv`
-    - emits: `episode_cards.reviewed.json`
+Advanced manual path entry still exists as a fallback, but it is no longer the primary path.
 
-- Run load harness (throughput + latency):
-  - `python3 tools/run_runtime_load.py --memories .runtime/imports/atoms.sqlite3 --requested-turns 40 --ci-safe`
-  - emits: `load_summary.json`, `load_summary.md`, `load_samples.json`
+Sanitization and normalization happen automatically before insert:
+- supported raw files are normalized into conversations and turns
+- whitespace is cleaned
+- roles and timestamps are normalized when possible
+- obvious junk directories are skipped in folder imports
+- tool payload noise and unsupported blocks are filtered before extraction
 
-- Run drift comparison between eval summaries:
-  - `python3 tools/run_eval_drift.py --baseline <old_summary.json> --candidate <new_summary.json> --fail-on-regression`
+## Pick the right integration path
 
-- Run Phase 7 signoff in one command:
-  - `python3 tools/run_phase7_signoff.py --memories .runtime/imports/atoms.sqlite3 --eval-cases 120 --load-turns 40 --profile safe --fail-on-gate`
-  - emits combined manifest at `runtime/evals/signoff_*/signoff_manifest.json`
-  - emits plain-language operator brief at `runtime/evals/signoff_*/signoff_brief.md` and `signoff_brief.txt`
-  - runs continuity harness by default and writes `runtime/evals/signoff_*/continuity/continuity_summary.json`
-  - skip continuity harness for quick checks: `--skip-continuity-harness`
-  - gate overrides: `--min-eval-cases`, `--min-supported-cases`, `--min-unsupported-cases`, `--min-load-turns`, `--max-failed-turn-rate`, `--min-episode-hit-rate`, `--max-episode-false-recall-rate`, `--max-routine-over-recall-rate`, `--min-continuity-recall-rate`, `--min-continuity-citation-rate`, `--max-eval-p95-latency-ms`, `--max-load-p95-latency-ms`
+- Use `integration-v1` for orchestrators, sidecars, and agent hot loops.
+- Use adapter routes when you already speak an existing compatibility envelope like OpenClaw or Nanobot.
+- Use MCP when you want tool-driven local agent integration or parity with the runtime contract.
 
-- Run pilot acceptance pack (plan + eval + load + signoff + support bundle):
-  - `python3 tools/run_pilot_acceptance.py --memories .runtime/imports/atoms.sqlite3 --requested-cases 12 --load-turns 12 --batch-size 2 --batch-pause-ms 100`
-  - optional reviewed truthset: `--truthset runtime/truthset/<pack>/truthset.reviewed.jsonl`
-  - enforce reviewed truthset presence: `--require-reviewed-truthset`
-  - reviewed truthset quality gate (defaults): `--truthset-min-cases 6 --truthset-min-supported 3 --truthset-min-unsupported 2`
-  - bypass quality gate when needed: `--skip-truthset-quality-gate`
-  - optional signoff latency overrides: `--max-eval-p95-latency-ms <ms> --max-load-p95-latency-ms <ms>`
-  - emits: `runtime/pilot/pilot_*/pilot_manifest.json`, `pilot_manifest.md`, `pilot_brief.txt`
-  - emits scorecard: `runtime/pilot/pilot_*/pilot_report.json`, `pilot_report.md`, `pilot_report.txt`
-  - emits zipped diagnostics: `runtime/pilot/pilot_*/support_bundle_*.zip`
-  - Windows one-click: `tools\\run_pilot_acceptance.ps1` or `tools\\run_pilot_acceptance.bat`
+## Docs
 
-- Run full export -> pilot -> release gate in one command (import + pilot acceptance + release trust gate):
-  - `python3 tools/run_full_export_pilot.py --input <conversations.json>`
-  - writes run artifacts under `runtime/live_runs/live_*/`
-  - outputs `live_manifest.json`, import reports, pilot reports, release gate reports, per-step logs, and runtime launch hints
-  - release gate report paths are surfaced in `live_manifest.json` under `release_gate`
-  - use existing store without re-import: `--skip-import --store .runtime/imports/atoms.sqlite3`
-  - optional signoff latency overrides are passed through to pilot/signoff: `--max-eval-p95-latency-ms <ms> --max-load-p95-latency-ms <ms>`
-  - Windows one-click: `tools\\run_full_export_pilot.ps1` or `tools\\run_full_export_pilot.bat`
+Start here:
+- [Quickstart](docs/QUICKSTART.md)
+- [Pipeline Guide](docs/PIPELINE_GUIDE.md)
+- [Agent Integration](docs/AGENT_INTEGRATION.md)
+- [MCP Integration](docs/MCP_INTEGRATION.md)
+- [API](docs/API.md)
+- [Configuration](docs/CONFIGURATION.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Security And Privacy](docs/SECURITY_AND_PRIVACY.md)
 
-- Launch live runtime against imported memories:
-  - `python3 tools/run_live_runtime.py --from-live-manifest runtime/live_runs/live_*/live_manifest.json`
-  - validate launch config only: `--plan-only`
-  - direct store path: `--memories .runtime/imports/atoms.sqlite3`
-  - optional episode-first retrieval index: `--episodes runtime/episodes/episode_cards_*.json`
-  - routine over-recall guardrail is on by default: casual/small-talk prompts skip retrieval unless the prompt explicitly asks to remember/recall.
-  - Windows one-click: `tools\\run_live_runtime.ps1` or `tools\\run_live_runtime.bat`
-  - Windows manifest example: `tools\\run_live_runtime.ps1 -FromLiveManifest runtime\\live_runs\\live_*\\live_manifest.json`
-  - Windows plan-only: `tools\\run_live_runtime.ps1 -FromLiveManifest runtime\\live_runs\\live_*\\live_manifest.json -PlanOnly`
+Public-facing summary docs:
+- [Public Overview](docs/public/README.md)
+- [Public Architecture](docs/public/ARCHITECTURE.md)
+- [One Pager](docs/public/ONE_PAGER.md)
+- [Teaser](docs/public/TEASER.md)
 
-- PR feedback gate (CodeRabbit):
-  - `python3 tools/pr_feedback_gate.py --repo ProfessahX/NumquamOblita --pr <number> --repo-root . --out runtime/reports --require-review`
-  - enforce human-like review discipline: add `--require-submitted-review` to block check-only signals.
-  - gate now blocks until CodeRabbit review is fresh for current PR head commit.
-  - review signal accepts either submitted CodeRabbit review or successful CodeRabbit check run on current head.
-  - check-only review signals are held in a settle window (`--check-signal-settle-sec`, default `180`) to avoid early merge before late inline comments land.
-  - actionable count is computed from unresolved CodeRabbit inline review threads (live thread state), so outdated threads do not block merges.
-  - gate uses a per-PR lock file (`runtime/reports/pr_feedback_gate_pr<PR>.lock.json`) to prevent duplicate pollers; concurrent runs exit with `status=busy`.
-  - if no fresh signal appears, gate auto-nudges once per head SHA using `@coderabbitai review` (configurable with `--auto-nudge-after-sec`, disable via `--disable-auto-nudge`).
-  - fallback path when CR does not emit a fresh signal: rerun gate with `--allow-no-review` only after unresolved actionable count is confirmed zero.
+Launch visuals:
+- [Clean Public Diagram Exports](docs/visuals/exports/clean/README.md)
+- [Architecture Diagram Exports](docs/visuals/exports/architecture/README.md)
+- [Rendered SVG/PNG Export Index](docs/visuals/exports/README.md)
+- [Launch Pipeline Visual Spec](docs/visuals/MNO_LAUNCH_PIPELINE_VISUAL_SPEC_2026-04-12.md)
+- [Launch Pipeline Draw.io](docs/visuals/MNO_LAUNCH_PIPELINE_2026-04-12.drawio)
+- [Launch Runtime And Integration Visual Spec](docs/visuals/MNO_LAUNCH_RUNTIME_AND_INTEGRATION_VISUAL_SPEC_2026-04-12.md)
+- [Launch Runtime And Integration Draw.io](docs/visuals/MNO_LAUNCH_RUNTIME_AND_INTEGRATION_2026-04-12.drawio)
 
-- Scripted PR workflow helper:
-  - `python3 tools/run_pr_workflow.py --repo ProfessahX/NumquamOblita --pr <number> --repo-root . --request-review-comment --merge`
-  - helper sequence: optional review comment -> gate polling -> optional merge.
-  - default behavior waits for submitted fresh CodeRabbit review first, then auto-falls back on timeout (single bounded `--allow-no-review --once` pass).
-  - defaults are tuned for normal CR latency: `--gate-timeout-sec 900` and `--auto-nudge-after-sec 600`.
-  - disable timeout fallback with `--no-fallback-on-timeout`.
-  - tune check-only settle behavior via `--check-signal-settle-sec`.
-  - every helper run writes a workflow report JSON under `runtime/reports/pr_workflow_pr<PR>_*.json`.
-  - merge method options: `--merge-method squash|merge|rebase`.
+Current-state visuals:
+- [Current Pipeline Visual Spec](docs/visuals/MNO_CURRENT_PIPELINE_VISUAL_SPEC_2026-04-12.md)
+- [Current Pipeline Draw.io](docs/visuals/MNO_CURRENT_PIPELINE_2026-04-12.drawio)
+- [Current Runtime Memory And Decision Visual Spec](docs/visuals/MNO_CURRENT_RUNTIME_MEMORY_AND_DECISION_VISUAL_SPEC_2026-04-12.md)
+- [Current Runtime Memory And Decision Draw.io](docs/visuals/MNO_CURRENT_RUNTIME_MEMORY_AND_DECISION_2026-04-12.drawio)
 
-- Checkpoint utility (long-running execution):
-  - write checkpoint: `python3 tools/context_checkpoint.py --repo-root . snapshot --step "<step>" --note "<note>" --next-cmd "<cmd>" --label "<label>"`
-  - resume latest: `python3 tools/context_checkpoint.py --repo-root . resume --live`
+Public article response:
+- [Response To "Why Long-Term Memory Remains Unsolved"](docs/public/MNO_RESPONSE_TO_WHY_LONG_TERM_MEMORY_REMAINS_UNSOLVED_2026-04-12.md)
 
-- Run deterministic memory import:
-  - `python3 tools/import_memories.py --input <conversations.json>`
-  - accepted input shapes: top-level array export or object wrapper with `conversations[]` (for example `ImpressioAnimae/data/db.json`)
-  - writes/updates sqlite store at `.runtime/imports/atoms.sqlite3`
-  - emits machine + human reports in `.runtime/imports/`
+Integration-specific docs:
+- [OpenClaw Integration](docs/integrations/OPENCLAW.md)
+- [Hermes Agent Integration](docs/integrations/HERMES_AGENT.md)
+- [Nanobot Integration](docs/integrations/NANOBOT.md)
+- [Generic Sidecar Integration](docs/integrations/GENERIC_SIDECAR.md)
 
-- Rebuild continuity layers/backfill:
-  - `python3 tools/rebuild_continuity.py --store-backend sqlite --sqlite-path .runtime/imports/atoms.sqlite3`
-  - use `--apply-promotions` to persist promoted semantic candidates
-  - emits machine + human reports in `runtime/continuity/`
+## Visual tour
 
-## Locked operating policy
+MNO ships generated flowcharts for both quick public explanation and engineering review.
 
-- Agency is implemented through curation (weight/link/reframe), not autonomous deletion.
-- Destructive memory changes require explicit user approval.
-- Default forgetting behavior is salience decay with a 180-day half-life.
-- Provenance is authoritative; unsupported claims must abstain with uncertainty + citations.
+Plain-language/caveman diagrams:
+- [Launch Pipeline](docs/visuals/exports/clean/mno-launch-pipeline-clean.svg)
+- [Runtime And Integration](docs/visuals/exports/clean/mno-runtime-integration-clean.svg)
+- [Current Pipeline](docs/visuals/exports/clean/mno-current-pipeline-clean.svg)
+- [Runtime Memory And Decision](docs/visuals/exports/clean/mno-runtime-memory-decision-clean.svg)
+
+Engineer diagrams:
+- [System Context](docs/visuals/exports/architecture/mno-architecture-system-context.svg)
+- [Build Pipeline](docs/visuals/exports/architecture/mno-architecture-build-pipeline.svg)
+- [Runtime Retrieval](docs/visuals/exports/architecture/mno-architecture-runtime-retrieval.svg)
+- [Memory Trust Boundaries](docs/visuals/exports/architecture/mno-architecture-memory-trust-boundaries.svg)
+- [Integration Contract](docs/visuals/exports/architecture/mno-architecture-integration-contract.svg)
+- [Data Lineage](docs/visuals/exports/architecture/mno-architecture-data-lineage.svg)
+- [Deployment And Process Model](docs/visuals/exports/architecture/mno-architecture-deployment-process.svg)
+
+![MNO clean launch pipeline](docs/visuals/exports/clean/mno-launch-pipeline-clean.svg)
+
+The canonical draw.io files and regeneration notes live in [Visuals Guide](docs/visuals/README.md).
+
+## Release metadata
+
+- [License](LICENSE)
+- [Security Policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
+- [Distribution Notes](DISTRIBUTION.md)

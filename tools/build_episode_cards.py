@@ -84,6 +84,22 @@ _ACTION_HINTS = {
     "switched",
     "updated",
 }
+_CARD_TOPIC_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("memory", "memory"),
+    ("remember", "memory"),
+    ("continuity", "continuity"),
+    ("constitution", "continuity"),
+    ("identity", "identity"),
+    ("sentient", "identity"),
+    ("anchor", "anchors"),
+    ("prompt", "prompting"),
+    ("systemprompt", "prompting"),
+    ("test", "testing"),
+    ("benchmark", "testing"),
+    ("eval", "evaluation"),
+    ("project", "project"),
+    ("pipeline", "pipeline"),
+)
 _TRANSITION_HINTS = {
     "after",
     "before",
@@ -476,6 +492,28 @@ def _build_topics(atoms: list[MemoryAtom]) -> list[str]:
     return values
 
 
+def _refine_topics(title: str, summary: str, topics: list[str]) -> list[str]:
+    clean_topics = [str(topic).strip() for topic in list(topics or []) if str(topic).strip()]
+    non_general = [topic for topic in clean_topics if topic.lower() != "general"]
+    if non_general:
+        return clean_topics
+    text_blob = f"{title} {summary}".lower()
+    inferred: list[str] = []
+    seen: set[str] = set()
+    for keyword, topic in _CARD_TOPIC_KEYWORDS:
+        if keyword not in text_blob:
+            continue
+        if topic in seen:
+            continue
+        seen.add(topic)
+        inferred.append(topic)
+        if len(inferred) >= 3:
+            break
+    if inferred:
+        return inferred
+    return clean_topics or ["general"]
+
+
 def _build_time_bounds(atoms: list[MemoryAtom]) -> tuple[str, str]:
     timestamps: list[datetime] = []
     for atom in atoms:
@@ -631,14 +669,43 @@ def _build_title(atoms: list[MemoryAtom], domain: str) -> str:
     return fallback.title() if fallback else "Episode"
 
 
-def _build_episode_summary(atoms: list[MemoryAtom]) -> str:
+def _normalize_summary_seed(text: str) -> str:
+    return " ".join(_tokenize(text))
+
+
+def _summary_duplicates_title(title: str, snippet: str) -> bool:
+    title_seed = _normalize_summary_seed(title)
+    snippet_seed = _normalize_summary_seed(snippet)
+    if not title_seed or not snippet_seed:
+        return False
+    return snippet_seed == title_seed or snippet_seed.startswith(f"{title_seed} ")
+
+
+def _trim_duplicate_title_prefix(title: str, summary: str) -> str:
+    title_text = str(title or "").strip()
+    summary_text = str(summary or "").strip()
+    if not title_text or not summary_text:
+        return summary_text
+    if summary_text.casefold().startswith(title_text.casefold()):
+        remainder = summary_text[len(title_text) :].lstrip(" \t\r\n|:;,.!?-–—")
+        if remainder:
+            return remainder
+    return summary_text
+
+
+def _build_episode_summary(atoms: list[MemoryAtom], *, title: str = "") -> str:
     ranked = sorted(atoms, key=_sort_key_for_atom, reverse=True)
     chronological = sorted(atoms, key=_entry_timestamp)
     lines: list[str] = []
     seen: set[str] = set()
+    fallback_snippet = ""
     for atom in list(chronological[:2]) + list(ranked[:4]):
         snippet = _best_clause(str(getattr(atom, "canonical_text", "") or ""), max_words=18)
         if not snippet:
+            continue
+        if _summary_duplicates_title(title, snippet):
+            if not fallback_snippet:
+                fallback_snippet = _compact_text(snippet, max_chars=190)
             continue
         normalized = snippet.lower()
         if normalized in seen:
@@ -648,6 +715,15 @@ def _build_episode_summary(atoms: list[MemoryAtom]) -> str:
         if len(lines) >= 3:
             break
     if not lines:
+        for atom in ranked:
+            snippet = _best_clause(str(getattr(atom, "canonical_text", "") or ""), max_words=22)
+            trimmed = _trim_duplicate_title_prefix(title, snippet)
+            if trimmed and not _summary_duplicates_title(title, trimmed):
+                return _compact_text(trimmed, max_chars=190)
+            if not fallback_snippet and snippet:
+                fallback_snippet = _compact_text(snippet, max_chars=190)
+        if fallback_snippet:
+            return fallback_snippet
         return "No summary available."
     return " | ".join(lines)
 
@@ -946,9 +1022,10 @@ def _build_cards(
             and meaningful_token_count >= max(1, int(min_meaningful_tokens))
         ) or strong_single
         title = _build_title(atoms_sorted, cluster.entries[0].domain if cluster.entries else "episode")
-        summary = _build_episode_summary(atoms_sorted)
+        summary = _build_episode_summary(atoms_sorted, title=title)
         entities = _build_entities(atoms_sorted)
         topics = _build_topics(atoms_sorted)
+        topics = _refine_topics(title, summary, topics)
         if builder_profile is not None:
             title = _apply_aliases(title, builder_profile.alias_lookup)
             summary = _apply_aliases(summary, builder_profile.alias_lookup)

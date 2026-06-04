@@ -5,7 +5,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from engine.contracts import AtomType, CandidateAtom, SourceRef
+from engine.contracts import AtomType, CandidateAtom, NormalizedTurn, SourceRef
 from engine.memory import AtomStatus, AtomStore, SqliteAtomStore
 
 
@@ -160,6 +160,34 @@ def test_sqlite_persists_atoms_and_conflicts_across_restart(tmp_path: Path) -> N
         assert len(reopened.ledger.all_events()) == event_count
     finally:
         reopened.close()
+
+
+def test_sqlite_write_batch_commits_multiple_candidate_writes_together(tmp_path: Path) -> None:
+    store = SqliteAtomStore(tmp_path / "batch.sqlite3")
+    try:
+        with store.write_batch():
+            first = store.add_candidate(_candidate(text="Batch memory one", source="b1", entities=["user"]))
+            second = store.add_candidate(_candidate(text="Batch memory two", source="b2", entities=["user"]))
+        assert store.get_atom(first.atom_id).canonical_text == "Batch memory one"
+        assert store.get_atom(second.atom_id).canonical_text == "Batch memory two"
+        assert len(store.ledger.all_events()) == 2
+    finally:
+        store.close()
+
+
+def test_sqlite_write_batch_rolls_back_on_error(tmp_path: Path) -> None:
+    store = SqliteAtomStore(tmp_path / "batch_rollback.sqlite3")
+    try:
+        try:
+            with store.write_batch():
+                store.add_candidate(_candidate(text="Should roll back", source="br1", entities=["user"]))
+                raise RuntimeError("force rollback")
+        except RuntimeError:
+            pass
+        assert store.list_atoms() == []
+        assert store.ledger.all_events() == []
+    finally:
+        store.close()
 
 
 def _create_v1_database(path: Path) -> None:
@@ -343,3 +371,46 @@ def test_sqlite_read_write_concurrency_does_not_corrupt(tmp_path: Path) -> None:
         assert len(store.list_atoms()) > 0
     finally:
         store.close()
+
+
+def test_sqlite_and_inmemory_raw_context_slice_have_parity(tmp_path: Path) -> None:
+    def _exercise_raw(store: AtomStore | SqliteAtomStore) -> tuple[list[tuple[str, str]], tuple[object, ...]]:
+        store.record_raw_turn(
+            NormalizedTurn(
+                source_id="conv_raw",
+                conversation_id="conv_raw",
+                message_id="m1",
+                role="user",
+                text="trimmed one",
+                quote_text="  raw one  ",
+                sequence_index=0,
+            )
+        )
+        store.record_raw_turn(
+            NormalizedTurn(
+                source_id="conv_raw",
+                conversation_id="conv_raw",
+                message_id="m2",
+                role="assistant",
+                text="trimmed two",
+                quote_text="raw two\nnext",
+                sequence_index=1,
+            )
+        )
+        rows = store.fetch_raw_context_slice("conv_raw", message_id="m2", before=1, after=0, max_turns=2, max_chars=200)
+        payload = [(row.message_id or "", row.quote_text) for row in rows]
+        return payload, store.cache_token()
+
+    mem_store = AtomStore()
+    sqlite_store = SqliteAtomStore(tmp_path / "raw.sqlite3")
+    try:
+        mem_payload, mem_token = _exercise_raw(mem_store)
+        sqlite_payload, sqlite_token = _exercise_raw(sqlite_store)
+    finally:
+        _close_if_supported(mem_store)
+        _close_if_supported(sqlite_store)
+
+    assert mem_payload == [("m1", "  raw one  "), ("m2", "raw two\nnext")]
+    assert sqlite_payload == mem_payload
+    assert len(mem_token) >= 8
+    assert len(sqlite_token) >= 8

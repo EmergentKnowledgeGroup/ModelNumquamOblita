@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
+import os
+import signal
 import sys
 import time
 import tomllib
@@ -18,6 +21,23 @@ from engine.continuity import ContinuityBuilder, ContinuityStore, SharedLanguage
 from engine.memory import MutationReviewQueue, SqliteAtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
 from engine.runtime import RuntimeSession, load_inmemory_store_from_json, start_runtime_server, stop_runtime_server
+from engine.runtime.server import _wizard_runtime_store_fingerprint, _wizard_write_runtime_lock
+
+
+RUNTIME_TRACE_PATH = (REPO_ROOT / "runtime" / "desktop_shell" / "runtime_child_trace.log").resolve()
+
+
+def _local_log_stamp() -> str:
+    return datetime.now().strftime("%Y-%m-%d | %H:%M:%S.%f")[:-3]
+
+
+def _trace_runtime(line: str) -> None:
+    try:
+        RUNTIME_TRACE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with RUNTIME_TRACE_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(f"{_local_log_stamp()} {line}\n")
+    except Exception:
+        pass
 
 
 def _default_memory_path() -> Path:
@@ -168,6 +188,9 @@ def main() -> int:
     if args.setup_mode:
         memories_path.parent.mkdir(parents=True, exist_ok=True)
 
+    runtime_pid = os.getpid()
+    atexit.register(lambda: _trace_runtime(f"atexit pid={runtime_pid}"))
+
     try:
         store, backend_name, close_store = _open_store(memories_path)
     except ValueError as exc:
@@ -212,6 +235,7 @@ def main() -> int:
         server.active_runtime_binding = {
             **dict(getattr(server, "active_runtime_binding", {}) or {}),
             "store_path": str(memories_path.resolve()),
+            "store_fingerprint": _wizard_runtime_store_fingerprint(runtime),
             "episodes_path": str(episode_cards_path.resolve()) if episode_cards_path is not None else "",
             "checked_at": datetime.now(timezone.utc).isoformat(),
             "backend": backend_name,
@@ -219,6 +243,9 @@ def main() -> int:
             "build_id": "",
         }
         host, port = server.server_address
+        if not args.setup_mode and episode_cards_path is not None:
+            lock_payload = _wizard_write_runtime_lock(server, binding=server.active_runtime_binding)
+            server.active_runtime_lock = dict(lock_payload)
         print(f"runtime_url=http://{host}:{port}")
         print(f"launch_mode={launch_mode}")
         print(f"memories_path={memories_path}")
@@ -227,19 +254,55 @@ def main() -> int:
         if episode_cards_path is not None:
             print(f"episode_cards_path={episode_cards_path}")
         print("Press Ctrl+C to stop.")
+        _trace_runtime(
+            f"startup pid={runtime_pid} launch_mode={launch_mode} "
+            f"memories={memories_path} episodes={episode_cards_path if episode_cards_path is not None else ''}"
+        )
 
         max_seconds = max(0.0, float(args.max_seconds))
         started = time.monotonic()
+        shutdown_reason = "unknown"
+        received_signals: list[str] = []
+
+        def _record_signal(signum: int, _frame: Any) -> None:
+            try:
+                name = signal.Signals(signum).name
+            except Exception:
+                name = str(signum)
+            received_signals.append(name)
+            print(f"runtime_signal={name}", file=sys.stderr, flush=True)
+            _trace_runtime(f"signal pid={server.active_runtime_lock.get('pid', 0) if hasattr(server, 'active_runtime_lock') else 0} name={name}")
+
+        for handled_signal in (getattr(signal, "SIGINT", None), getattr(signal, "SIGTERM", None), getattr(signal, "SIGBREAK", None)):
+            if handled_signal is None:
+                continue
+            try:
+                signal.signal(handled_signal, _record_signal)
+            except Exception:
+                pass
         try:
+            _trace_runtime(f"loop_enter pid={runtime_pid}")
             while True:
                 if bool(getattr(server, "desktop_shutdown_requested", False)):
+                    shutdown_reason = "desktop_shutdown_requested"
                     break
                 if max_seconds > 0.0 and (time.monotonic() - started) >= max_seconds:
+                    shutdown_reason = f"max_seconds:{max_seconds}"
                     break
                 time.sleep(0.5)
         except KeyboardInterrupt:
-            pass
+            shutdown_reason = "keyboard_interrupt"
+        except BaseException as exc:  # noqa: BLE001
+            shutdown_reason = f"exception:{type(exc).__name__}"
+            print(f"runtime_unhandled_exception={type(exc).__name__}:{exc}", file=sys.stderr, flush=True)
+            _trace_runtime(f"exception pid={runtime_pid} type={type(exc).__name__} detail={exc}")
+            raise
         finally:
+            if shutdown_reason == "unknown" and received_signals:
+                shutdown_reason = f"signal:{','.join(received_signals)}"
+            print(f"runtime_shutdown_reason={shutdown_reason}", file=sys.stderr, flush=True)
+            print(f"runtime_shutdown_reason={shutdown_reason}", flush=True)
+            _trace_runtime(f"shutdown pid={server.active_runtime_lock.get('pid', 0) if hasattr(server, 'active_runtime_lock') else 0} reason={shutdown_reason}")
             stop_runtime_server(server, thread, runtime=runtime)
         return 0
     finally:

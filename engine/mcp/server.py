@@ -10,6 +10,7 @@ import json
 import os
 import posixpath
 from pathlib import Path
+import re
 import threading
 import time
 from typing import Any, Callable, Mapping
@@ -57,6 +58,19 @@ class MCPRequestError(RuntimeError):
 
 def _utc_iso() -> str:
     return datetime.now(tz=UTC).isoformat()
+
+
+def _stdio_trace_log(payload: dict[str, Any]) -> None:
+    target = str(os.environ.get("NO_MCP_STDIO_TRACE") or "").strip()
+    if not target:
+        return
+    try:
+        path = Path(target).expanduser().resolve()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 def _sha256_short(value: str) -> str:
@@ -124,8 +138,9 @@ class ServerConfig:
     http_nonce_replay_window_seconds: int = 600
     timeout_s: float = 20.0
     audit_max_events: int = 300
-    protocol_version: str = "2024-11-05"
+    protocol_version: str = "2025-03-26"
     toolset_version: str = "phase8.v1"
+    server_version: str = "0.1.0"
     compat_mode: str = "strict"
     diagnostics_dir: str = "runtime/reports/mcp_diagnostics"
     audit_log_path: str = ""
@@ -944,6 +959,8 @@ class MCPServer:
                     "type": "object",
                     "properties": {
                         "status": {"type": "string", "enum": ["all", "draft", "canary", "active", "retired"]},
+                        "mode": {"type": "string", "enum": ["compact", "full"]},
+                        "include_retired": {"type": "boolean"},
                         "limit": {"type": "integer"},
                         "offset": {"type": "integer"},
                     },
@@ -1313,6 +1330,7 @@ class MCPServer:
                                 "summary": {"type": "string"},
                                 "tags": {"type": "array"},
                                 "actors": {"type": "array"},
+                                "cue_terms": {"type": "array"},
                             },
                             "required": [],
                             "additionalProperties": False,
@@ -1481,6 +1499,151 @@ class MCPServer:
                 },
                 permission="operator",
                 handler=self._tool_wizard_build_episodes,
+            ),
+            ToolSpec(
+                name="wizard.draft_curation_status",
+                description="Read draft-curation status, lease state, and context policy for the current build.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "run_id": {"type": "string"},
+                    },
+                    "required": [],
+                    "additionalProperties": False,
+                },
+                permission="viewer",
+                handler=self._tool_wizard_draft_curation_status,
+            ),
+            ToolSpec(
+                name="wizard.draft_curation_cards",
+                description="List draft cards with Claude suggestion state for the current build. Compact mode is the default for model triage; use full mode for nested card/proposal payloads.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "run_id": {"type": "string"},
+                        "mode": {"type": "string", "enum": ["compact", "full"]},
+                        "proposal_status": {"type": "string", "enum": ["all", "pending", "accepted", "rejected", "promoted", "stale", "none"]},
+                        "q": {"type": "string"},
+                        "page": {"type": "integer"},
+                        "page_size": {"type": "integer"},
+                    },
+                    "required": [],
+                    "additionalProperties": False,
+                },
+                permission="viewer",
+                handler=self._tool_wizard_draft_curation_cards,
+            ),
+            ToolSpec(
+                name="wizard.draft_curation_get_card",
+                description="Read one draft card, its current suggestion, and bounded local context for curation.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "run_id": {"type": "string"},
+                        "episode_id": {"type": "string"},
+                        "include_context": {"type": "boolean"},
+                        "context_window": {"type": "integer"},
+                    },
+                    "required": ["episode_id"],
+                    "additionalProperties": False,
+                },
+                permission="viewer",
+                handler=self._tool_wizard_draft_curation_get_card,
+            ),
+            ToolSpec(
+                name="wizard.draft_curation_proposals",
+                description="List existing Claude draft-curation proposals for the current build.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "run_id": {"type": "string"},
+                        "status": {"type": "string", "enum": ["all", "pending", "accepted", "rejected", "promoted", "stale"]},
+                    },
+                    "required": [],
+                    "additionalProperties": False,
+                },
+                permission="viewer",
+                handler=self._tool_wizard_draft_curation_proposals,
+            ),
+            ToolSpec(
+                name="wizard.draft_curation_session_start",
+                description="Acquire or resume a single active draft-curation lease for the current build.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "run_id": {"type": "string"},
+                        "owner_id": {"type": "string"},
+                        "session_id": {"type": "string"},
+                        "model_identity": {"type": "string"},
+                        "ttl_seconds": {"type": "integer"},
+                        "force_release": {"type": "boolean"},
+                    },
+                    "required": ["owner_id", "session_id"],
+                    "additionalProperties": False,
+                },
+                permission="viewer",
+                handler=self._tool_wizard_draft_curation_session_start,
+            ),
+            ToolSpec(
+                name="wizard.draft_curation_session_heartbeat",
+                description="Refresh the active draft-curation lease while Claude is still working.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "run_id": {"type": "string"},
+                        "owner_id": {"type": "string"},
+                        "session_id": {"type": "string"},
+                    },
+                    "required": ["owner_id", "session_id"],
+                    "additionalProperties": False,
+                },
+                permission="viewer",
+                handler=self._tool_wizard_draft_curation_session_heartbeat,
+            ),
+            ToolSpec(
+                name="wizard.draft_curation_session_release",
+                description="Release a draft-curation lease without promoting any suggestions.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "run_id": {"type": "string"},
+                        "owner_id": {"type": "string"},
+                        "session_id": {"type": "string"},
+                        "force_release": {"type": "boolean"},
+                        "note": {"type": "string"},
+                    },
+                    "required": ["owner_id", "session_id"],
+                    "additionalProperties": False,
+                },
+                permission="viewer",
+                handler=self._tool_wizard_draft_curation_session_release,
+            ),
+            ToolSpec(
+                name="wizard.draft_curation_proposal_upsert",
+                description="Save or update one draft-only Claude suggestion for a single episode card.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "run_id": {"type": "string"},
+                        "episode_id": {"type": "string"},
+                        "owner_id": {"type": "string"},
+                        "session_id": {"type": "string"},
+                        "model_identity": {"type": "string"},
+                        "title": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "actors": {"type": "array", "items": {"type": "string"}},
+                        "topic_tags": {"type": "array", "items": {"type": "string"}},
+                        "cue_terms": {"type": "array", "items": {"type": "string"}},
+                        "decision_suggestion": {"type": "string", "enum": ["", "approved", "edited", "rejected", "pending"]},
+                        "ranking_hint": {"type": "object"},
+                        "retrieval_cues": {"type": "array", "items": {"type": "string"}},
+                        "rationale": {"type": "string"},
+                    },
+                    "required": ["episode_id", "owner_id", "session_id"],
+                    "additionalProperties": False,
+                },
+                permission="viewer",
+                handler=self._tool_wizard_draft_curation_proposal_upsert,
             ),
             ToolSpec(
                 name="wizard.review_list",
@@ -2412,6 +2575,170 @@ class MCPServer:
         )
         return deduped[:limit]
 
+    def _anchor_evidence_sentence(self, value: Any, *, max_chars: int = 220) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        cleaned = re.sub(r"\s+", " ", text).strip()
+        cleaned = re.sub(r"^#+\s*", "", cleaned)
+        cleaned = re.sub(r"^(memory|event|relationship)\s+summary:\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = cleaned.strip("`*|-: ")
+        if not cleaned:
+            return ""
+        words = cleaned.split()
+        if len(words) > 24:
+            cleaned = " ".join(words[:24])
+        cleaned = self._clip_text(cleaned, max_chars=max_chars)
+        if cleaned and cleaned[-1] not in ".!?":
+            cleaned = f"{cleaned}."
+        return cleaned
+
+    def _anchor_summary_candidate_score(self, text: str, *, label: str, source_kind: str) -> tuple[float, int, int]:
+        cleaned = str(text or "").strip()
+        if not cleaned:
+            return (-1.0, 0, 0)
+        tokens = [
+            token
+            for token in re.findall(r"[A-Za-z0-9']+", cleaned.lower())
+            if token
+            not in {
+                "a",
+                "an",
+                "and",
+                "are",
+                "as",
+                "at",
+                "for",
+                "from",
+                "i",
+                "in",
+                "is",
+                "it",
+                "its",
+                "of",
+                "on",
+                "or",
+                "that",
+                "the",
+                "this",
+                "to",
+                "was",
+                "we",
+                "were",
+                "with",
+                "you",
+            }
+        ]
+        informative_count = len(tokens)
+        label_tokens = {token for token in re.findall(r"[A-Za-z0-9']+", str(label or "").lower()) if len(token) >= 3}
+        label_hits = len(label_tokens.intersection(tokens))
+        copula_bonus = 0.12 if re.search(r"\b(is|was|are|were|became|becomes|remains|means)\b", cleaned, flags=re.IGNORECASE) else 0.0
+        connected_bonus = 0.08 if source_kind == "connected" else 0.0
+        exclaim_penalty = min(0.20, 0.05 * cleaned.count("!"))
+        laughter_penalty = 0.22 if re.search(r"\b(?:ha){2,}|lol|lmao\b", cleaned, flags=re.IGNORECASE) else 0.0
+        uppercase_penalty = 0.16 if len(cleaned) >= 12 and cleaned.upper() == cleaned else 0.0
+        score = min(0.30, 0.02 * informative_count) + min(0.18, 0.09 * label_hits) + copula_bonus + connected_bonus
+        score -= exclaim_penalty + laughter_penalty + uppercase_penalty
+        return score, informative_count, -len(cleaned)
+
+    def _anchor_summary_text(
+        self,
+        *,
+        label: str,
+        snippets: list[Mapping[str, Any]],
+        connected: list[Mapping[str, Any]],
+        next_hops: list[Mapping[str, Any]],
+    ) -> str:
+        candidates: list[tuple[str, str]] = []
+        for row in snippets:
+            sentence = self._anchor_evidence_sentence(row.get("snippet"), max_chars=220)
+            if sentence:
+                candidates.append((sentence, "snippet"))
+        for row in connected:
+            sentence = self._anchor_evidence_sentence(row.get("summary"), max_chars=220)
+            if sentence:
+                candidates.append((sentence, "connected"))
+
+        lead = ""
+        if candidates:
+            lead = max(
+                candidates,
+                key=lambda item: self._anchor_summary_candidate_score(item[0], label=label, source_kind=item[1]),
+            )[0]
+        if not lead and candidates:
+            lead = candidates[0][0]
+        if not lead:
+            lead = "Insufficient support for a grounded brief."
+
+        labels: list[str] = []
+        seen_labels: set[str] = set()
+        for row in next_hops[:3]:
+            hop_label = self._clip_text(row.get("label"), max_chars=60)
+            if not hop_label:
+                continue
+            normalized = hop_label.lower()
+            if normalized == str(label or "").strip().lower() or normalized in seen_labels:
+                continue
+            seen_labels.add(normalized)
+            labels.append(hop_label)
+        if labels:
+            if len(labels) == 1:
+                lead = f"{lead} Linked to {labels[0]}."
+            elif len(labels) == 2:
+                lead = f"{lead} Linked to {labels[0]} and {labels[1]}."
+            else:
+                lead = f"{lead} Linked to {labels[0]}, {labels[1]}, and {labels[2]}."
+        return self._clip_text(f"{label}: {lead}".strip(), max_chars=320)
+
+    def _build_anchor_brief_payload(self, *, anchor_id: str, anchor_type: str, limit: int) -> dict[str, Any]:
+        expanded = self._tool_explore_expand_anchor(
+            {
+                "anchor_id": anchor_id,
+                "anchor_type": anchor_type,
+                "limit": max(4, limit),
+                "hop_depth": 1,
+                "mode": "compact",
+                "include_next_hops": True,
+            }
+        )
+        peek = self._tool_explore_peek(
+            {
+                "anchor_id": anchor_id,
+                "anchor_type": anchor_type,
+                "limit": max(4, limit),
+                "mode": "compact",
+            }
+        )
+        anchor = dict(expanded.get("anchor") or peek.get("anchor") or {})
+        snippets = [row for row in list(peek.get("snippets") or []) if isinstance(row, Mapping)]
+        connected = [row for row in list(expanded.get("connected_atoms") or []) if isinstance(row, Mapping)]
+        next_hops = [row for row in list(expanded.get("next_hops") or []) if isinstance(row, Mapping)]
+        evidence_confidence: list[float] = []
+        citation_refs: list[str] = []
+        for row in snippets[:limit]:
+            evidence_confidence.append(float(row.get("confidence") or 0.0))
+            source_ref = str(row.get("source_ref") or "").strip()
+            if source_ref and source_ref not in citation_refs:
+                citation_refs.append(source_ref)
+        mean_confidence = sum(evidence_confidence) / len(evidence_confidence) if evidence_confidence else 0.0
+        lead_label = self._clip_text(anchor.get("label") or anchor_id, max_chars=120)
+        summary = self._anchor_summary_text(
+            label=lead_label,
+            snippets=snippets,
+            connected=connected,
+            next_hops=next_hops,
+        )
+        return {
+            "status": str(expanded.get("status") or peek.get("status") or "insufficient_support").strip().lower(),
+            "anchor": anchor,
+            "summary": summary,
+            "confidence": round(float(mean_confidence), 4),
+            "top_snippets": snippets[:limit],
+            "next_hops": next_hops[:limit],
+            "citation_refs": citation_refs[:limit],
+            "guardrails": dict(expanded.get("guardrails") or peek.get("guardrails") or {}),
+        }
+
     def _shared_language_keys_compact(self, value: Any) -> list[dict[str, Any]]:
         rows = list(value) if isinstance(value, list) else []
         out: list[dict[str, Any]] = []
@@ -3079,6 +3406,45 @@ class MCPServer:
             reverse=True,
         )
         what_matters = combined[:limit]
+        brief_cap = min(3, len(what_matters))
+        anchor_briefs: list[dict[str, Any]] = []
+        brief_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in what_matters[:brief_cap]:
+            anchor_id = str(row.get("anchor_id") or "").strip()
+            anchor_type = str(row.get("anchor_type") or "unknown").strip().lower() or "unknown"
+            if not anchor_id:
+                continue
+            brief_payload = self._build_anchor_brief_payload(anchor_id=anchor_id, anchor_type=anchor_type, limit=2)
+            brief_summary = str(brief_payload.get("summary") or "").strip()
+            brief_row = {
+                "anchor_id": anchor_id,
+                "anchor_type": anchor_type,
+                "label": self._clip_text(row.get("label"), max_chars=120),
+                "brief": brief_summary,
+                "confidence": float(brief_payload.get("confidence") or 0.0),
+                "citation_refs": list(brief_payload.get("citation_refs") or []),
+            }
+            anchor_briefs.append(brief_row)
+            brief_by_key[(anchor_type, anchor_id)] = brief_row
+
+        def _attach_briefs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            out: list[dict[str, Any]] = []
+            for row in rows:
+                updated = dict(row)
+                key = (
+                    str(updated.get("anchor_type") or "unknown").strip().lower() or "unknown",
+                    str(updated.get("anchor_id") or "").strip(),
+                )
+                brief_row = brief_by_key.get(key)
+                if brief_row is not None:
+                    updated["brief"] = str(brief_row.get("brief") or "").strip()
+                out.append(updated)
+            return out
+
+        people = _attach_briefs(people)
+        projects = _attach_briefs(projects)
+        topics = _attach_briefs(topics)
+        what_matters = _attach_briefs(what_matters)
         session_focus: dict[str, Any] = {}
         try:
             sessions_payload = self.api_client.get_json("/api/chat/sessions")
@@ -3094,7 +3460,16 @@ class MCPServer:
         except Exception:
             session_focus = {}
         summary_parts: list[str] = []
-        if what_matters:
+        if anchor_briefs:
+            summary_parts.append(
+                "Anchor briefs: "
+                + " ".join(
+                    self._clip_text(str(row.get("brief") or "").strip(), max_chars=180)
+                    for row in anchor_briefs[:2]
+                    if str(row.get("brief") or "").strip()
+                )
+            )
+        elif what_matters:
             labels = ", ".join(str(row.get("label") or "") for row in what_matters[:3] if str(row.get("label") or "").strip())
             if labels:
                 summary_parts.append(f"Top anchors: {labels}.")
@@ -3113,6 +3488,7 @@ class MCPServer:
             "projects": projects,
             "topics": topics,
             "unresolved": unresolved,
+            "anchor_briefs": anchor_briefs,
             "recent_focus": session_focus,
             "stats": dict(payload.get("stats") or {}),
             "guardrails": dict(payload.get("guardrails") or {}),
@@ -3236,56 +3612,7 @@ class MCPServer:
         if anchor_type not in {"person", "project", "topic", "event", "unknown"}:
             anchor_type = "topic"
         limit = _coerce_int(args.get("limit"), default=3, minimum=1, maximum=6)
-        expanded = self._tool_explore_expand_anchor(
-            {
-                "anchor_id": anchor_id,
-                "anchor_type": anchor_type,
-                "limit": max(4, limit),
-                "hop_depth": 1,
-                "mode": "compact",
-                "include_next_hops": True,
-            }
-        )
-        peek = self._tool_explore_peek(
-            {
-                "anchor_id": anchor_id,
-                "anchor_type": anchor_type,
-                "limit": max(4, limit),
-                "mode": "compact",
-            }
-        )
-        anchor = dict(expanded.get("anchor") or peek.get("anchor") or {})
-        snippets = [row for row in list(peek.get("snippets") or []) if isinstance(row, Mapping)]
-        connected = [row for row in list(expanded.get("connected_atoms") or []) if isinstance(row, Mapping)]
-        next_hops = [row for row in list(expanded.get("next_hops") or []) if isinstance(row, Mapping)]
-        evidence_confidence: list[float] = []
-        citation_refs: list[str] = []
-        for row in snippets[:limit]:
-            evidence_confidence.append(float(row.get("confidence") or 0.0))
-            source_ref = str(row.get("source_ref") or "").strip()
-            if source_ref and source_ref not in citation_refs:
-                citation_refs.append(source_ref)
-        mean_confidence = sum(evidence_confidence) / len(evidence_confidence) if evidence_confidence else 0.0
-        lead_label = self._clip_text(anchor.get("label") or anchor_id, max_chars=120)
-        lead_snippet = ""
-        if snippets:
-            lead_snippet = str(snippets[0].get("snippet") or "").strip()
-        elif connected:
-            lead_snippet = str(connected[0].get("summary") or "").strip()
-        if lead_snippet:
-            summary = f"{lead_label}: {lead_snippet}"
-        else:
-            summary = f"{lead_label}: insufficient support for a grounded brief."
-        return {
-            "status": str(expanded.get("status") or peek.get("status") or "insufficient_support").strip().lower(),
-            "anchor": anchor,
-            "summary": self._clip_text(summary, max_chars=320),
-            "confidence": round(float(mean_confidence), 4),
-            "top_snippets": snippets[:limit],
-            "next_hops": next_hops[:limit],
-            "citation_refs": citation_refs[:limit],
-            "guardrails": dict(expanded.get("guardrails") or peek.get("guardrails") or {}),
-        }
+        return self._build_anchor_brief_payload(anchor_id=anchor_id, anchor_type=anchor_type, limit=limit)
 
     def _tool_explore_get_preferences(self, args: dict[str, Any]) -> dict[str, Any]:
         _ = args
@@ -3341,25 +3668,46 @@ class MCPServer:
 
     def _tool_methodology_list(self, args: dict[str, Any]) -> dict[str, Any]:
         status = str(args.get("status") or "all").strip().lower() or "all"
+        mode = _coerce_mode(args.get("mode"), default="full")
+        include_retired = _coerce_bool(args.get("include_retired"), default=True)
         limit = _coerce_int(args.get("limit"), default=40, minimum=1, maximum=self.config.max_list_limit)
         offset = _coerce_int(args.get("offset"), default=0, minimum=0, maximum=1_000_000)
         payload = self.api_client.get_json(
             "/api/methodology/records",
             query={
                 "status": status,
+                "include_retired": include_retired,
                 "limit": limit,
                 "offset": offset,
             },
         )
         rows = [row for row in list(payload.get("records") or []) if isinstance(row, Mapping)]
+        rows_payload = (
+            [self._methodology_record_compact(row) for row in rows]
+            if mode == "compact"
+            else [dict(row) for row in rows]
+        )
         return {
+            "mode": mode,
             "status_filter": str(payload.get("status_filter") or status),
-            "records": [dict(row) for row in rows],
+            "include_retired": bool(payload.get("include_retired") if payload.get("include_retired") is not None else include_retired),
+            "records": rows_payload,
             "offset": int(payload.get("offset") or offset),
             "limit": int(payload.get("limit") or limit),
             "total": int(payload.get("total") or len(rows)),
             "has_more": bool(payload.get("has_more")),
             "active_methodology_id": str(payload.get("active_methodology_id") or ""),
+        }
+
+    @staticmethod
+    def _methodology_record_compact(row: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "methodology_id": str(row.get("methodology_id") or ""),
+            "status": str(row.get("status") or ""),
+            "approval_state": str(row.get("approval_state") or ""),
+            "trigger_condition": str(row.get("trigger_condition") or ""),
+            "action": str(row.get("action") or ""),
+            "updated_at": str(row.get("updated_at") or ""),
         }
 
     def _tool_methodology_get(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -3964,11 +4312,13 @@ class MCPServer:
         summary = str(patch.get("summary") or "").strip()
         tags = _normalize_string_list(patch.get("tags"), max_items=24, max_chars=80)
         actors = _normalize_string_list(patch.get("actors"), max_items=24, max_chars=80)
+        cue_terms = _normalize_string_list(patch.get("cue_terms"), max_items=48, max_chars=72)
         diff_summary = {
             "title": bool(title),
             "summary": bool(summary),
             "tags": len(tags),
             "actors": len(actors),
+            "cue_terms": len(cue_terms),
         }
         dry_run = bool(args.get("dry_run"))
         if dry_run:
@@ -3982,6 +4332,8 @@ class MCPServer:
             payload["topic_tags"] = tags
         if actors:
             payload["actors"] = actors
+        if cue_terms:
+            payload["cue_terms"] = cue_terms
         if not payload:
             raise MCPRequestError(-32602, "patch did not contain any non-empty editable values")
         self.api_client.post_json(
@@ -4251,6 +4603,187 @@ class MCPServer:
                 "rejects_path": str(response.get("rejects_path") or "").strip(),
                 "readout_path": str(response.get("readout_path") or "").strip(),
             },
+        }
+
+    def _tool_wizard_draft_curation_status(self, args: dict[str, Any]) -> dict[str, Any]:
+        query: dict[str, Any] = {}
+        run_id = str(args.get("run_id") or "").strip()
+        if run_id:
+            query["run_id"] = run_id
+        response = self.api_client.get_json("/api/wizard/draft-curation/status", query=query)
+        return {
+            "ok": bool(response.get("ok", True)),
+            "run_id": str(response.get("run_id") or run_id).strip(),
+            "draft_ready": bool(response.get("draft_ready")),
+            "build_id": str(response.get("build_id") or "").strip(),
+            "source_cards_path": str(response.get("source_cards_path") or "").strip(),
+            "draft_curation": dict(response.get("draft_curation") or {}),
+            "audit_count": int(response.get("audit_count") or 0),
+            "context_policy": dict(response.get("context_policy") or {}),
+        }
+
+    def _tool_wizard_draft_curation_cards(self, args: dict[str, Any]) -> dict[str, Any]:
+        query: dict[str, Any] = {}
+        run_id = str(args.get("run_id") or "").strip()
+        if run_id:
+            query["run_id"] = run_id
+        mode = str(args.get("mode") or "compact").strip().lower() or "compact"
+        if mode not in {"compact", "full"}:
+            mode = "compact"
+        query["mode"] = mode
+        q = str(args.get("q") or "").strip()
+        if q:
+            query["q"] = q
+        proposal_status = str(args.get("proposal_status") or "all").strip().lower() or "all"
+        query["proposal_status"] = proposal_status
+        query["page"] = _coerce_int(args.get("page"), default=1, minimum=1, maximum=10_000)
+        query["page_size"] = _coerce_int(args.get("page_size"), default=24, minimum=1, maximum=self.config.max_list_limit)
+        response = self.api_client.get_json("/api/wizard/draft-curation/cards", query=query)
+        return {
+            "ok": bool(response.get("ok", True)),
+            "run_id": str(response.get("run_id") or run_id).strip(),
+            "build_id": str(response.get("build_id") or "").strip(),
+            "mode": str(response.get("mode") or mode).strip().lower() or mode,
+            "cards": [dict(row) for row in list(response.get("cards") or []) if isinstance(row, Mapping)],
+            "total": int(response.get("total") or 0),
+            "page": int(response.get("page") or 1),
+            "page_size": int(response.get("page_size") or query["page_size"]),
+            "total_pages": int(response.get("total_pages") or 1),
+            "has_prev": bool(response.get("has_prev")),
+            "has_next": bool(response.get("has_next")),
+            "proposal_status": str(response.get("proposal_status") or proposal_status),
+        }
+
+    def _tool_wizard_draft_curation_get_card(self, args: dict[str, Any]) -> dict[str, Any]:
+        episode_id = str(args.get("episode_id") or "").strip()
+        if not episode_id:
+            raise MCPRequestError(-32602, "episode_id is required")
+        query: dict[str, Any] = {}
+        run_id = str(args.get("run_id") or "").strip()
+        if run_id:
+            query["run_id"] = run_id
+        include_context = bool(args.get("include_context", True))
+        query["include_context"] = include_context
+        if args.get("context_window") is not None:
+            query["context_window"] = _coerce_int(args.get("context_window"), default=2, minimum=0, maximum=8)
+        response = self.api_client.get_json(f"/api/wizard/draft-curation/cards/{quote(episode_id)}", query=query)
+        return {
+            "ok": bool(response.get("ok", True)),
+            "run_id": str(response.get("run_id") or run_id).strip(),
+            "build_id": str(response.get("build_id") or "").strip(),
+            "source_cards_path": str(response.get("source_cards_path") or "").strip(),
+            "card": dict(response.get("card") or {}),
+            "proposal": dict(response.get("proposal") or {}),
+            "review_payload": dict(response.get("review_payload") or {}),
+            "context_policy": dict(response.get("context_policy") or {}),
+            "context": dict(response.get("context") or {}),
+        }
+
+    def _tool_wizard_draft_curation_proposals(self, args: dict[str, Any]) -> dict[str, Any]:
+        query: dict[str, Any] = {}
+        run_id = str(args.get("run_id") or "").strip()
+        if run_id:
+            query["run_id"] = run_id
+        status = str(args.get("status") or "all").strip().lower() or "all"
+        query["status"] = status
+        response = self.api_client.get_json("/api/wizard/draft-curation/proposals", query=query)
+        return {
+            "ok": bool(response.get("ok", True)),
+            "run_id": str(response.get("run_id") or run_id).strip(),
+            "build_id": str(response.get("build_id") or "").strip(),
+            "status": str(response.get("status") or status),
+            "proposals": [dict(row) for row in list(response.get("proposals") or []) if isinstance(row, Mapping)],
+            "total": int(response.get("total") or 0),
+            "context_policy": dict(response.get("context_policy") or {}),
+        }
+
+    def _tool_wizard_draft_curation_session_start(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._require_mutations_enabled()
+        payload = {
+            "owner_id": str(args.get("owner_id") or "").strip(),
+            "session_id": str(args.get("session_id") or "").strip(),
+            "model_identity": str(args.get("model_identity") or "").strip(),
+            "force_release": bool(args.get("force_release")),
+        }
+        if not payload["owner_id"] or not payload["session_id"]:
+            raise MCPRequestError(-32602, "owner_id and session_id are required")
+        run_id = str(args.get("run_id") or "").strip()
+        if run_id:
+            payload["run_id"] = run_id
+        if args.get("ttl_seconds") is not None:
+            payload["ttl_seconds"] = _coerce_int(args.get("ttl_seconds"), default=1800, minimum=60, maximum=86_400)
+        response = self.api_client.post_json("/api/wizard/draft-curation/session/start", payload)
+        return {
+            "ok": bool(response.get("ok", True)),
+            "run_id": str(response.get("run_id") or run_id).strip(),
+            "draft_curation": dict(response.get("draft_curation") or {}),
+        }
+
+    def _tool_wizard_draft_curation_session_heartbeat(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._require_mutations_enabled()
+        payload = {
+            "owner_id": str(args.get("owner_id") or "").strip(),
+            "session_id": str(args.get("session_id") or "").strip(),
+        }
+        if not payload["owner_id"] or not payload["session_id"]:
+            raise MCPRequestError(-32602, "owner_id and session_id are required")
+        run_id = str(args.get("run_id") or "").strip()
+        if run_id:
+            payload["run_id"] = run_id
+        response = self.api_client.post_json("/api/wizard/draft-curation/session/heartbeat", payload)
+        return {
+            "ok": bool(response.get("ok", True)),
+            "run_id": str(response.get("run_id") or run_id).strip(),
+            "lease": dict(response.get("lease") or {}),
+        }
+
+    def _tool_wizard_draft_curation_session_release(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._require_mutations_enabled()
+        payload = {
+            "owner_id": str(args.get("owner_id") or "").strip(),
+            "session_id": str(args.get("session_id") or "").strip(),
+            "force_release": bool(args.get("force_release")),
+            "note": str(args.get("note") or "").strip(),
+        }
+        if not payload["owner_id"] or not payload["session_id"]:
+            raise MCPRequestError(-32602, "owner_id and session_id are required")
+        run_id = str(args.get("run_id") or "").strip()
+        if run_id:
+            payload["run_id"] = run_id
+        response = self.api_client.post_json("/api/wizard/draft-curation/session/release", payload)
+        return {
+            "ok": bool(response.get("ok", True)),
+            "run_id": str(response.get("run_id") or run_id).strip(),
+            "draft_curation": dict(response.get("draft_curation") or {}),
+        }
+
+    def _tool_wizard_draft_curation_proposal_upsert(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._require_mutations_enabled()
+        payload: dict[str, Any] = {
+            "episode_id": str(args.get("episode_id") or "").strip(),
+            "owner_id": str(args.get("owner_id") or "").strip(),
+            "session_id": str(args.get("session_id") or "").strip(),
+            "model_identity": str(args.get("model_identity") or "").strip(),
+            "title": str(args.get("title") or "").strip(),
+            "summary": str(args.get("summary") or "").strip(),
+            "actors": _normalize_string_list(args.get("actors") or [], max_items=32, max_chars=64),
+            "topic_tags": _normalize_string_list(args.get("topic_tags") or [], max_items=32, max_chars=64),
+            "cue_terms": _normalize_string_list(args.get("cue_terms") or [], max_items=48, max_chars=72),
+            "decision_suggestion": str(args.get("decision_suggestion") or "").strip().lower(),
+            "ranking_hint": dict(args.get("ranking_hint") or {}),
+            "retrieval_cues": _normalize_string_list(args.get("retrieval_cues") or [], max_items=48, max_chars=72),
+            "rationale": str(args.get("rationale") or "").strip(),
+        }
+        if not payload["episode_id"] or not payload["owner_id"] or not payload["session_id"]:
+            raise MCPRequestError(-32602, "episode_id, owner_id, and session_id are required")
+        run_id = str(args.get("run_id") or "").strip()
+        if run_id:
+            payload["run_id"] = run_id
+        response = self.api_client.post_json("/api/wizard/draft-curation/proposals/upsert", payload)
+        return {
+            "ok": bool(response.get("ok", True)),
+            "run_id": str(response.get("run_id") or run_id).strip(),
+            "proposal": dict(response.get("proposal") or {}),
         }
 
     def _tool_wizard_review_list(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -4602,16 +5135,24 @@ class MCPServer:
             self._initialized = True
         return {
             "protocolVersion": self.config.protocol_version,
-            "serverInfo": {"name": "numquamoblita-mcp", "version": self.config.toolset_version},
+            "serverInfo": {"name": "numquamoblita-mcp", "version": self.config.server_version},
             "capabilities": {
-                "tools": {},
-                "resources": {},
-                "prompts": {},
+                "tools": {"listChanged": False},
+                "resources": {"subscribe": False, "listChanged": False},
+                "prompts": {"listChanged": False},
+                "logging": {},
             },
         }
 
     def _ensure_initialized(self, *, client_key: str | None = None) -> None:
         if client_key:
+            if self.config.transport == "http" and not self.config.auth.require_auth:
+                # Native Claude HTTP clients can treat loopback MCP servers as stateless
+                # and skip an explicit initialize round-trip after reconnects. In no-auth
+                # mode there is no role or token state to negotiate, so the local managed
+                # HTTP sidecar can safely auto-initialize per client key.
+                self._initialized_clients.add(client_key)
+                return
             if client_key not in self._initialized_clients:
                 raise MCPRequestError(-32002, "server is not initialized")
             return
@@ -4880,15 +5421,40 @@ def run_stdio_server(server: MCPServer, *, stdin_buffer: Any, stdout_buffer: Any
         try:
             request_payload = _read_message(stdin_buffer)
         except RuntimeError:
+            _stdio_trace_log({"ts": _utc_iso(), "event": "parse_error"})
             _write_message(
                 stdout_buffer,
                 MCPServer._error_response(None, -32700, "Parse error"),
             )
             continue
         if request_payload is None:
+            _stdio_trace_log({"ts": _utc_iso(), "event": "stdin_closed"})
             return 0
+        method = str(request_payload.get("method") or "")
+        params = dict(request_payload.get("params") or {}) if isinstance(request_payload.get("params"), Mapping) else {}
+        _stdio_trace_log(
+            {
+                "ts": _utc_iso(),
+                "event": "request",
+                "id": request_payload.get("id"),
+                "method": method,
+                "params_keys": sorted(list(params.keys())),
+                "params": params if method == "initialize" else None,
+            }
+        )
         response_payload = server.handle_request(request_payload)
         if response_payload is not None:
+            _stdio_trace_log(
+                {
+                    "ts": _utc_iso(),
+                    "event": "response",
+                    "id": response_payload.get("id"),
+                    "has_error": "error" in response_payload,
+                    "result_keys": sorted(list(dict(response_payload.get("result") or {}).keys())) if isinstance(response_payload.get("result"), Mapping) else [],
+                    "result": dict(response_payload.get("result") or {}) if method == "initialize" and isinstance(response_payload.get("result"), Mapping) else None,
+                    "error": dict(response_payload.get("error") or {}) if isinstance(response_payload.get("error"), Mapping) else None,
+                }
+            )
             _write_message(stdout_buffer, response_payload)
 
 

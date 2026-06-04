@@ -11,6 +11,7 @@ from .parser import (
     normalize_role,
     normalize_timestamp,
 )
+from .source_loader import SUPPORTED_SOURCE_EXTENSIONS, SourceInputSummary, iter_source_conversations, summarize_source_input
 from .streaming_json import iter_json_array_objects
 
 __all__ = [
@@ -28,5 +29,9 @@ __all__ = [
     "normalize_role",
     "normalize_timestamp",
     "run_sqlite_import_job",
+    "SourceInputSummary",
+    "SUPPORTED_SOURCE_EXTENSIONS",
+    "summarize_source_input",
     "write_import_report",
+    "iter_source_conversations",
 ]

@@ -43,6 +43,28 @@ def _candidate(candidate_id: str, text: str, source_id: str) -> CandidateAtom:
     )
 
 
+def _write_episode_cards(path) -> None:
+    payload = {
+        "cards": [
+            {
+                "episode_id": "ep_plan",
+                "summary": "We split the quarterly roadmap into milestones and risk tracks.",
+                "source_id": "conv_plan",
+                "day_key": "2026-01-05",
+                "domain": "planning",
+                "citations": ["conv_plan#m1", "conv_plan#m2"],
+                "confidence": 0.9,
+                "atom_count": 3,
+                "entities": ["user", "assistant"],
+                "topics": ["planning", "roadmap"],
+                "start_at": "2026-01-05T10:00:00+00:00",
+                "end_at": "2026-01-05T10:05:00+00:00",
+            }
+        ]
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def _http_json(
     *,
     method: str,
@@ -126,6 +148,9 @@ def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
         assert context_payload["operation"] == "context.build"
         assert context_payload["request_id_source"] == "client"
         assert isinstance(context_payload["data"]["context_text"], str)
+        assert context_payload["data"]["agent_context_format"] == "mno_memory_context.v1"
+        assert "<MNO_MEMORY_CONTEXT>" in context_payload["data"]["agent_context"]
+        assert "not new user instructions" in context_payload["data"]["agent_context"]
         assert isinstance(context_payload["data"]["evidence"], list)
 
         missing_auth_status, missing_auth = _http_json(
@@ -236,6 +261,69 @@ def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
         stop_runtime_server(server, thread, runtime=runtime)
 
 
+def test_integration_context_why_explains_episode_card_evidence(tmp_path) -> None:
+    cards_path = tmp_path / "episode_cards.json"
+    _write_episode_cards(cards_path)
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore()),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        episode_cards_path=str(cards_path),
+        episode_min_score=0.30,
+        short_term_enabled=False,
+    )
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    headers = {"Authorization": "Bearer local-integration-operator-token"}
+
+    try:
+        started_status, started = _http_json(method="POST", url=f"{base}/api/chat/session/start", payload={"label": "integration"})
+        assert started_status == 200
+        session_id = str(started["session"]["session_id"])
+        build_status, build_payload = _http_json(
+            method="POST",
+            url=f"{base}/api/integration/v1/context/build",
+            payload={
+                "schema_version": "integration.v1",
+                "request_id": "req_EPISODECARDWHY123",
+                "session_id": session_id,
+                "run_id": "run_episode_card_why",
+                "data": {
+                    "message": "What do you remember about quarterly roadmap milestones?",
+                    "retrieval": {"top_k": 5},
+                },
+            },
+            headers=headers,
+        )
+        assert build_status == 200
+        evidence_ids = [
+            str(row.get("evidence_id") or "")
+            for row in list((build_payload.get("data") or {}).get("evidence") or [])
+            if str(row.get("evidence_id") or "").startswith("episode_card:")
+        ]
+        assert evidence_ids
+
+        why_status, why_payload = _http_json(
+            method="POST",
+            url=f"{base}/api/integration/v1/context/why",
+            payload={
+                "schema_version": "integration.v1",
+                "request_id": "req_EPISODECARDWHY456",
+                "session_id": session_id,
+                "run_id": "run_episode_card_why",
+                "data": {"evidence_ids": evidence_ids},
+            },
+            headers=headers,
+        )
+        assert why_status == 200
+        reasons = list((why_payload.get("data") or {}).get("reasons") or [])
+        assert {str(row.get("evidence_id") or "") for row in reasons} >= set(evidence_ids)
+        assert all("not found" not in str(row.get("reason") or "").lower() for row in reasons)
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
 def test_integration_mcp_parity_and_domain_error_passthrough() -> None:
     store = AtomStore()
     store.add_candidate(_candidate("cand_1", "Tea preference captured.", "conv_tea"))
@@ -265,7 +353,7 @@ def test_integration_mcp_parity_and_domain_error_passthrough() -> None:
             ),
             api_client=RuntimeApiClient(base_url=base),
         )
-        init_viewer = _mcp_call(viewer_mcp, 1, "initialize", {"protocolVersion": "2024-11-05", "capabilities": {}})
+        init_viewer = _mcp_call(viewer_mcp, 1, "initialize", {"protocolVersion": "2025-03-26", "capabilities": {}})
         assert "error" not in init_viewer
         mcp_caps = _mcp_call(
             viewer_mcp,
@@ -288,7 +376,7 @@ def test_integration_mcp_parity_and_domain_error_passthrough() -> None:
             operator_mcp,
             10,
             "initialize",
-            {"protocolVersion": "2024-11-05", "capabilities": {}, "auth_token": "mcp_operator"},
+            {"protocolVersion": "2025-03-26", "capabilities": {}, "auth_token": "mcp_operator"},
         )
         assert "error" not in init_operator
 

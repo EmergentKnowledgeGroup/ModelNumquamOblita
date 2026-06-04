@@ -8,9 +8,13 @@
   "scripts": {
     "desktop:dev": "electron .",
     "desktop:test": "node --test *.test.cjs",
-    "desktop:bundle-runtime": "python3 build_managed_runtime.py",
-    "desktop:pack:dir": "npm run desktop:bundle-runtime && electron-builder --dir --publish never",
-    "desktop:pack:linux": "npm run desktop:bundle-runtime && electron-builder --linux AppImage --publish never"
+    "desktop:build-assets": "bash build/generate_macos_icon.sh",
+    "desktop:bundle-runtime": "node run-python.cjs build_managed_runtime.py",
+    "desktop:clean-pack-output": "node clean-pack-output.cjs",
+    "desktop:pack:dir": "npm run desktop:clean-pack-output && npm run desktop:build-assets && npm run desktop:bundle-runtime && node run-electron-builder.cjs --dir --publish never --unsigned-mac-local",
+    "desktop:pack:dir:signed": "npm run desktop:clean-pack-output && npm run desktop:build-assets && npm run desktop:bundle-runtime && node run-electron-builder.cjs --dir --publish never",
+    "desktop:pack:mac": "npm run desktop:clean-pack-output && npm run desktop:build-assets && npm run desktop:bundle-runtime && node run-electron-builder.cjs --mac dmg zip --publish never",
+    "desktop:pack:linux": "npm run desktop:clean-pack-output && npm run desktop:bundle-runtime && node run-electron-builder.cjs --linux AppImage --publish never"
   },
   "engines": {
     "node": ">=22"
@@ -18,6 +22,7 @@
   "build": {
     "appId": "com.professahx.modelnumquamoblita.desktop",
     "productName": "ModelNumquamOblita",
+    "afterPack": "./after-pack.cjs",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -57,11 +62,16 @@
       }
     ],
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         "dmg",
         "zip"
       ],
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist"
     },
     "win": {
       "target": [
@@ -82,7 +92,7 @@
     }
   },
   "devDependencies": {
-    "electron": "41.0.0",
+    "electron": "41.7.1",
     "electron-builder": "26.8.1"
   }
 }

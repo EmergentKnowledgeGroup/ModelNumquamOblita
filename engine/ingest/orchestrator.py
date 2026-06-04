@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from ..config import NumquamOblitaConfig, default_config
 from ..memory import MutationReviewQueue, SqliteAtomStore
 from ..write_gate import (
     DeterministicJudgmentAdapter,
@@ -86,11 +87,13 @@ class ImportOrchestrator:
         extractor: DeterministicCandidateExtractor | None = None,
         stage_a: StageAWriteGate | None = None,
         stage_b: StageBWriteGate | None = None,
+        config: NumquamOblitaConfig | None = None,
     ) -> None:
         self.ingestor = ingestor or ConversationIngestor()
         self.extractor = extractor or DeterministicCandidateExtractor()
         self.stage_a = stage_a or StageAWriteGate()
         self.stage_b = stage_b or StageBWriteGate(adapter=DeterministicJudgmentAdapter())
+        self.config = config or default_config()
 
     def run(self, *, input_path: str | Path, store: SqliteAtomStore, review_queue: MutationReviewQueue) -> ImportReport:
         started = datetime.now(timezone.utc)
@@ -98,63 +101,67 @@ class ImportOrchestrator:
         refs_index, atom_index = self._seed_indexes(store)
 
         try:
-            for conversation in self.ingestor.iter_export_conversations(input_path):
-                counters.conversations_seen += 1
-                for maybe_turn, maybe_reason in self.ingestor.iter_turns_from_conversation(conversation):
-                    counters.messages_seen += 1
-                    if maybe_turn is None:
-                        self._inc(counters.skipped_reasons, maybe_reason or "unknown")
-                        continue
-                    counters.turns_emitted += 1
+            with store.write_batch():
+                for conversation in self.ingestor.iter_export_conversations(input_path):
+                    counters.conversations_seen += 1
+                    for maybe_turn, maybe_reason in self.ingestor.iter_turns_from_conversation(conversation):
+                        counters.messages_seen += 1
+                        if maybe_turn is None:
+                            self._inc(counters.skipped_reasons, maybe_reason or "unknown")
+                            continue
+                        counters.turns_emitted += 1
 
-                    candidates = self.extractor.extract_turn(maybe_turn)
-                    if not candidates:
-                        for reason, value in self.extractor.stats.skip_reasons.items():
-                            if value:
-                                self._inc(counters.skipped_reasons, reason)
-                        self.extractor.stats.skip_reasons.clear()
-                        continue
+                        if bool(self.config.retrieval.raw_context_sidecar.write_enabled):
+                            store.record_raw_turn(maybe_turn)
 
-                    for candidate in candidates:
-                        counters.candidates_extracted += 1
-                        signature = candidate_signature(candidate)
-                        decision_a = self.stage_a.evaluate(candidate, known_signature_index=refs_index)
-                        self._inc(counters.stage_a_reasons, decision_a.reason_code)
-                        if decision_a.action is WriteAction.IGNORE:
-                            self._inc(counters.rejected_reasons, decision_a.reason_code)
+                        candidates = self.extractor.extract_turn(maybe_turn)
+                        if not candidates:
+                            for reason, value in self.extractor.stats.skip_reasons.items():
+                                if value:
+                                    self._inc(counters.skipped_reasons, reason)
+                            self.extractor.stats.skip_reasons.clear()
                             continue
 
-                        stage_b_context = self._stage_b_context(candidate, signature, atom_index)
-                        decision_b = self.stage_b.evaluate(candidate, context=stage_b_context)
-                        self._inc(counters.stage_b_reasons, decision_b.reason_code)
+                        for candidate in candidates:
+                            counters.candidates_extracted += 1
+                            signature = candidate_signature(candidate)
+                            decision_a = self.stage_a.evaluate(candidate, known_signature_index=refs_index)
+                            self._inc(counters.stage_a_reasons, decision_a.reason_code)
+                            if decision_a.action is WriteAction.IGNORE:
+                                self._inc(counters.rejected_reasons, decision_a.reason_code)
+                                continue
 
-                        if decision_b.action in {WriteAction.ADD, WriteAction.UPDATE}:
-                            atom = store.add_candidate(candidate, reason=f"import:{decision_b.reason_code}")
-                            counters.persisted_add_or_update += 1
-                            refs_index.setdefault(signature, set()).update(
-                                {source_ref_signature(ref) for ref in candidate.source_refs}
-                            )
-                            atom_index[signature] = atom.atom_id
-                            continue
+                            stage_b_context = self._stage_b_context(candidate, signature, atom_index)
+                            decision_b = self.stage_b.evaluate(candidate, context=stage_b_context)
+                            self._inc(counters.stage_b_reasons, decision_b.reason_code)
 
-                        if decision_b.action is WriteAction.PROPOSE_EDIT and stage_b_context.existing_atom_id:
-                            review_queue.propose_edit(
-                                target_atom_id=stage_b_context.existing_atom_id,
-                                replacement_candidate=candidate,
-                                reason_code=decision_b.reason_code,
-                            )
-                            counters.proposals_created += 1
-                            continue
+                            if decision_b.action in {WriteAction.ADD, WriteAction.UPDATE}:
+                                atom = store.add_candidate(candidate, reason=f"import:{decision_b.reason_code}")
+                                counters.persisted_add_or_update += 1
+                                refs_index.setdefault(signature, set()).update(
+                                    {source_ref_signature(ref) for ref in candidate.source_refs}
+                                )
+                                atom_index[signature] = atom.atom_id
+                                continue
 
-                        if decision_b.action is WriteAction.PROPOSE_DELETE and stage_b_context.existing_atom_id:
-                            review_queue.propose_delete(
-                                target_atom_id=stage_b_context.existing_atom_id,
-                                reason_code=decision_b.reason_code,
-                            )
-                            counters.proposals_created += 1
-                            continue
+                            if decision_b.action is WriteAction.PROPOSE_EDIT and stage_b_context.existing_atom_id:
+                                review_queue.propose_edit(
+                                    target_atom_id=stage_b_context.existing_atom_id,
+                                    replacement_candidate=candidate,
+                                    reason_code=decision_b.reason_code,
+                                )
+                                counters.proposals_created += 1
+                                continue
 
-                        self._inc(counters.rejected_reasons, decision_b.reason_code)
+                            if decision_b.action is WriteAction.PROPOSE_DELETE and stage_b_context.existing_atom_id:
+                                review_queue.propose_delete(
+                                    target_atom_id=stage_b_context.existing_atom_id,
+                                    reason_code=decision_b.reason_code,
+                                )
+                                counters.proposals_created += 1
+                                continue
+
+                            self._inc(counters.rejected_reasons, decision_b.reason_code)
 
             return ImportReport(
                 input_path=str(input_path),
@@ -211,6 +218,7 @@ def run_sqlite_import_job(
     sqlite_path: str | Path,
     orchestrator: ImportOrchestrator | None = None,
     retention_days: int = 30,
+    config: NumquamOblitaConfig | None = None,
 ) -> ImportReport:
     """Run import against a shadow sqlite store then atomically swap on success."""
 
@@ -222,7 +230,7 @@ def run_sqlite_import_job(
 
     store = SqliteAtomStore(shadow)
     queue = MutationReviewQueue(store, default_retention_days=retention_days)
-    runner = orchestrator or ImportOrchestrator()
+    runner = orchestrator or ImportOrchestrator(config=config)
 
     try:
         report = runner.run(input_path=input_path, store=store, review_queue=queue)

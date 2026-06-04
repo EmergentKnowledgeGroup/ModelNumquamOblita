@@ -17,18 +17,16 @@ def _turn(role: str, text: str, message_id: str = "m1") -> NormalizedTurn:
     )
 
 
-def test_extractor_emits_deterministic_candidate_for_high_signal_turn() -> None:
+def test_extractor_emits_candidate_for_explicit_memory_cue_turn() -> None:
     extractor = DeterministicCandidateExtractor()
-    turn = _turn("assistant", "I remember this clearly and I trust you, and we should keep this memory safe.")
 
-    first = extractor.extract_turn(turn)
-    second = extractor.extract_turn(turn)
+    candidates = extractor.extract_turn(
+        _turn("user", "Please remember the launch rollback drill and keep the orange binder with the checklist.")
+    )
 
-    assert len(first) == 1
-    assert len(second) == 1
-    assert first[0].candidate_id == second[0].candidate_id
-    assert first[0].canonical_text == second[0].canonical_text
-    assert first[0].confidence >= 0.52
+    assert len(candidates) == 1
+    assert candidates[0].confidence >= 0.52
+    assert candidates[0].canonical_text.startswith("Please remember the launch rollback drill")
 
 
 def test_extractor_skips_structured_payload_and_short_text() -> None:

@@ -3,12 +3,26 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import os
 import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+DEFAULT_PYTHON_CANDIDATES = (
+    "python3.15",
+    "python3.14",
+    "python3.13",
+    "python3.12",
+    "python3",
+    "python",
+)
+PYTHON_BOOTSTRAP_PROBE = (
+    "import ensurepip, sys, venv, xml.parsers.expat; "
+    "print(f'{sys.version_info[0]}.{sys.version_info[1]}')"
+)
 
 
 @dataclass(frozen=True)
@@ -50,23 +64,102 @@ def _status_line(check: CheckResult) -> str:
     return line
 
 
-def _python_check(min_python: str) -> CheckResult:
-    major, minor = sys.version_info[:2]
+def _parse_min_python(min_python: str) -> tuple[int, int]:
     try:
-        min_major, min_minor = [int(piece) for piece in min_python.split(".", 1)]
+        return tuple(int(piece) for piece in min_python.split(".", 1))  # type: ignore[return-value]
     except ValueError:
-        min_major, min_minor = (3, 12)
+        return (3, 12)
+
+
+def _clean_probe_detail(raw: str) -> str:
+    return " ".join(str(raw or "").strip().split())
+
+
+def _discover_python_version(python_cmd: str) -> tuple[tuple[int, int] | None, str]:
+    candidate = str(python_cmd or "").strip()
+    if not candidate:
+        return None, "empty candidate"
+    resolved = shutil.which(candidate)
+    if not resolved and not Path(candidate).expanduser().exists():
+        return None, "not found"
+    try:
+        proc = subprocess.run(
+            [candidate, "-c", PYTHON_BOOTSTRAP_PROBE],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, _clean_probe_detail(str(exc))
+    if proc.returncode != 0:
+        detail = _clean_probe_detail(str(proc.stderr or proc.stdout or f"probe exited with {proc.returncode}"))
+        return None, detail or f"probe exited with {proc.returncode}"
+    raw = str(proc.stdout or "").strip()
+    try:
+        major_str, minor_str = raw.split(".", 1)
+        return (int(major_str), int(minor_str)), ""
+    except ValueError:
+        return None, f"unexpected probe output: {raw or 'empty output'}"
+
+
+def find_supported_python_command(
+    *,
+    candidates: tuple[str, ...] = DEFAULT_PYTHON_CANDIDATES,
+    min_python: str = "3.12",
+) -> str | None:
+    min_major, min_minor = _parse_min_python(min_python)
+    best_command: str | None = None
+    best_score: tuple[int, int, int] | None = None
+    seen: set[str] = set()
+    for index, raw_candidate in enumerate(candidates):
+        candidate = str(raw_candidate or "").strip()
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        version, _detail = _discover_python_version(candidate)
+        if version is None:
+            continue
+        major, minor = version
+        if (major, minor) < (min_major, min_minor):
+            continue
+        score = (major, minor, -index)
+        if best_score is None or score > best_score:
+            best_score = score
+            best_command = candidate
+    return best_command
+
+
+def _python_check(min_python: str, *, python_cmd: str = "") -> CheckResult:
+    min_major, min_minor = _parse_min_python(min_python)
+    candidate = str(python_cmd or "").strip() or sys.executable
+    version, probe_detail = _discover_python_version(candidate)
+    if version is None:
+        detail = f"unable to validate bootstrap readiness for {candidate}"
+        if probe_detail:
+            detail += f": {probe_detail}"
+        return CheckResult(
+            name="python_version",
+            status="fail",
+            detail=detail,
+            remediation=(
+                f"Install Python {min_major}.{min_minor}+ and point setup at a healthy interpreter "
+                "with --python-cmd or MNO_PYTHON."
+            ),
+        )
+    detail_prefix = "detected " if not str(python_cmd or "").strip() else f"detected via {python_cmd} "
+    major, minor = version
     if (major, minor) < (min_major, min_minor):
         return CheckResult(
             name="python_version",
             status="fail",
-            detail=f"detected {major}.{minor}, required >= {min_major}.{min_minor}",
+            detail=f"{detail_prefix}{major}.{minor}, required >= {min_major}.{min_minor}",
             remediation=f"Install Python {min_major}.{min_minor}+ and rerun setup.",
         )
     return CheckResult(
         name="python_version",
         status="pass",
-        detail=f"detected {major}.{minor}",
+        detail=f"{detail_prefix}{major}.{minor}",
     )
 
 
@@ -182,12 +275,13 @@ def run_preflight(
     repo_root: Path,
     mode: str,
     min_python: str,
+    python_cmd: str = "",
     memories: Path | None = None,
     input_path: Path | None = None,
     require_gh: bool = False,
 ) -> dict[str, Any]:
     checks: list[CheckResult] = []
-    checks.append(_python_check(min_python))
+    checks.append(_python_check(min_python, python_cmd=python_cmd))
     checks.append(_repo_writable_check(repo_root))
     checks.append(_tool_check("git", required=False))
     checks.append(_tool_check("gh", required=require_gh))
@@ -229,6 +323,7 @@ def main() -> int:
     parser.add_argument("--memories", default="", help="Memories artifact path for runtime/pilot mode.")
     parser.add_argument("--input", default="", help="Input export path for pilot mode.")
     parser.add_argument("--min-python", default="3.12")
+    parser.add_argument("--python-cmd", default="", help="Optional Python command to validate instead of the current interpreter.")
     parser.add_argument("--require-gh", action="store_true", help="Fail when gh CLI is not available.")
     parser.add_argument("--json", action="store_true", help="Emit JSON payload.")
     parser.add_argument("--out", default="", help="Optional path to write JSON report.")
@@ -241,6 +336,7 @@ def main() -> int:
         repo_root=repo_root,
         mode=str(args.mode),
         min_python=str(args.min_python),
+        python_cmd=str(args.python_cmd or "").strip(),
         memories=memories,
         input_path=input_path,
         require_gh=bool(args.require_gh),

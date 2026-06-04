@@ -37,16 +37,16 @@ class MutationProposal:
     reviewed_at: Optional[datetime] = None
 
     def __post_init__(self) -> None:
-        if self.action not in {WriteAction.PROPOSE_EDIT, WriteAction.PROPOSE_DELETE}:
-            raise ValueError("proposal action must be PROPOSE_EDIT or PROPOSE_DELETE")
-        if not self.target_atom_id.strip():
+        if self.action not in {WriteAction.PROPOSE_CREATE, WriteAction.PROPOSE_EDIT, WriteAction.PROPOSE_DELETE}:
+            raise ValueError("proposal action must be PROPOSE_CREATE, PROPOSE_EDIT, or PROPOSE_DELETE")
+        if self.action is not WriteAction.PROPOSE_CREATE and not self.target_atom_id.strip():
             raise ValueError("target_atom_id is required")
         if not self.reason_code.strip():
             raise ValueError("reason_code is required")
         if self.retention_days < 0:
             raise ValueError("retention_days must be >= 0")
-        if self.action is WriteAction.PROPOSE_EDIT and self.replacement_candidate is None:
-            raise ValueError("replacement_candidate is required for PROPOSE_EDIT")
+        if self.action in {WriteAction.PROPOSE_CREATE, WriteAction.PROPOSE_EDIT} and self.replacement_candidate is None:
+            raise ValueError("replacement_candidate is required for PROPOSE_CREATE/PROPOSE_EDIT")
 
 
 class MutationReviewQueue:
@@ -89,6 +89,28 @@ class MutationReviewQueue:
             reason_code=reason_code,
             created_at=datetime.now(timezone.utc),
             replacement_candidate=replacement_candidate,
+            metadata=dict(metadata or {}),
+        )
+        with self._lock:
+            self._proposals[proposal.proposal_id] = proposal
+        return proposal
+
+    def propose_create(
+        self,
+        *,
+        candidate: CandidateAtom,
+        reason_code: str,
+        metadata: Optional[dict[str, str]] = None,
+    ) -> MutationProposal:
+        """Queue a create proposal that adds a new canonical atom after approval."""
+
+        proposal = MutationProposal(
+            proposal_id=f"mpr_{uuid4().hex}",
+            action=WriteAction.PROPOSE_CREATE,
+            target_atom_id="",
+            reason_code=reason_code,
+            created_at=datetime.now(timezone.utc),
+            replacement_candidate=candidate,
             metadata=dict(metadata or {}),
         )
         with self._lock:
@@ -151,7 +173,13 @@ class MutationReviewQueue:
             if proposal.status is not ProposalStatus.APPROVED:
                 raise PermissionError("proposal must be approved before apply")
 
-            if proposal.action is WriteAction.PROPOSE_EDIT:
+            if proposal.action is WriteAction.PROPOSE_CREATE:
+                assert proposal.replacement_candidate is not None
+                self.store.add_candidate(
+                    proposal.replacement_candidate,
+                    reason=f"proposal:{proposal.proposal_id}",
+                )
+            elif proposal.action is WriteAction.PROPOSE_EDIT:
                 assert proposal.replacement_candidate is not None
                 self.store.supersede_atom(
                     proposal.target_atom_id,

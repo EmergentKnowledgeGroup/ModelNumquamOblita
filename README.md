@@ -239,6 +239,8 @@ The short technical shape is:
 
 The runtime includes bounded retrieval, reviewed memory, optional local ANN candidate generation, raw-context lookup for exact wording, and verification/abstention behavior. The ANN and raw-context sidecars are helpers only. They are not truth sources and do not bypass review.
 
+For a compact lane-by-lane explanation of the retrieval stack, see the [retrieval signal map](docs/public/ARCHITECTURE.md#retrieval-signal-map).
+
 Engineer-facing diagrams:
 
 - [System Context](docs/visuals/exports/architecture/mno-architecture-system-context.svg)

@@ -1,68 +1,51 @@
 # ModelNumquamOblita
 
-ModelNumquamOblita, or `MNO`, is my local-first memory project for agents.
+<p align="center">
+  <b>Local-first memory for agents that treats evidence as the contract.</b>
+</p>
 
-The simple version: it helps an assistant remember from real evidence instead of guessing from vibes.
+<p align="center">
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2f7d4f?style=for-the-badge"></a>
+  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
+  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge"></a>
+  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=ask"></a>
+</p>
 
-MNO is built around a small rule that matters a lot:
+<p align="center">
+  <a href="#-start-here">Start Here</a> |
+  <a href="#-retrieval-stack">Retrieval Stack</a> |
+  <a href="#-benchmark-snapshot">Benchmarks</a> |
+  <a href="#-quick-start">Quick Start</a> |
+  <a href="docs/AGENT_INTEGRATION.md">Agent Integration</a> |
+  <a href="docs/MCP_INTEGRATION.md">MCP</a> |
+  <a href="docs/API.md">API</a>
+</p>
 
-`No memory claim without evidence.`
+ModelNumquamOblita, or `MNO`, helps an assistant remember from real evidence instead of guessing from vibes.
 
-That means memories are not just loose notes floating around in a prompt. They come from source material, get shaped into reviewable memory, and stay tied to the evidence they came from. If MNO cannot find enough support for something, it should be able to say so.
+The core rule is simple:
 
-## Why This Exists
+> **No memory claim without evidence.**
 
-Long-term memory for agents can get weird fast.
-
-Sometimes systems remember things that were never said. Sometimes drafts turn into "truth" without anyone noticing. Sometimes a model sounds confident because confidence is cheap, not because the evidence is there.
-
-MNO is my attempt at a more grounded path:
-
-- keep the source evidence close
-- separate drafts from reviewed memory
-- let a human stay in charge of what becomes durable truth
-- give agents a local memory runtime they can query without taking over the whole system
-- make it possible to inspect why something was recalled
-
-It is not trying to be a giant hosted memory platform. It is a local, inspectable memory runtime for people building agents who care about provenance, correction, and honesty.
-
-## The Picture Version
-
-These are the plain-language diagrams. They are intentionally simple because the main idea should not require a PhD in repo archaeology.
-
-### Launch Pipeline
-
-How raw source material becomes usable, reviewed memory.
+Memories are not loose notes floating around in a prompt. MNO imports source material, preserves provenance, builds reviewable memory, and keeps runtime answers tied to the evidence they came from. If the support is weak, the runtime should be able to abstain.
 
 ![MNO launch pipeline](docs/visuals/exports/clean/mno-launch-pipeline-clean.svg)
 
-### Runtime And Integration
+## ✨ Start Here
 
-How an assistant, MCP sidecar, or integration talks to the local runtime.
+MNO is for people building agents who need memory to be inspectable, correctable, and local.
 
-![MNO runtime and integration](docs/visuals/exports/clean/mno-runtime-integration-clean.svg)
+| You want... | MNO gives you... |
+| --- | --- |
+| A memory layer for an assistant, sidecar, or MCP tool | A local runtime with HTTP, MCP, desktop, and integration routes |
+| Recall that can be checked | Evidence packs, provenance, quote/context lookup, and review boundaries |
+| Durable memory without silent truth mutation | Draft cards, human review, reviewed episode cards, and gated writeback |
+| Better retrieval without "more signals = more truth" | Layered helper signals that remain subordinate to the evidence model |
+| A repo you can inspect and run locally | Import tools, setup flows, runtime commands, tests, docs, and diagrams |
 
-### Current Pipeline
+MNO is not trying to be a giant hosted memory platform. It is a local, inspectable memory runtime for agent builders who care about provenance, correction, and honesty.
 
-The practical shape of the current system.
-
-![MNO current pipeline](docs/visuals/exports/clean/mno-current-pipeline-clean.svg)
-
-### Runtime Memory And Decision
-
-How a runtime answer moves through memory, evidence, and the decision to answer or abstain.
-
-![MNO runtime memory decision](docs/visuals/exports/clean/mno-runtime-memory-decision-clean.svg)
-
-More diagrams live in:
-
-- [Plain-language diagram exports](docs/visuals/exports/clean/README.md)
-- [Engineer architecture diagrams](docs/visuals/exports/architecture/README.md)
-- [Visuals guide](docs/visuals/README.md)
-
-## What You Can Use It For
-
-MNO can help you build a local memory layer for:
+Good fits:
 
 - personal assistant experiments
 - agent sidecars
@@ -70,26 +53,87 @@ MNO can help you build a local memory layer for:
 - local research or writing companions
 - systems where memory needs to be reviewable instead of magical
 
-It can start from raw files and folders, or from an existing MNO store. The setup flow can import source material, build draft memory, let you review what should become durable, and then run a local memory runtime over that reviewed set.
+It can start from raw files and folders, or from an existing MNO store.
 
-## Benchmark Snapshot
+## 🧠 Why It Works
+
+- **Evidence first:** source atoms stay close to every memory claim.
+- **Human review stays authoritative:** drafts, proposals, helper memory, and reviewed truth do not collapse into one bucket.
+- **Layered retrieval has jobs:** each signal catches a different failure mode, then the evidence model decides what can be trusted.
+- **Provenance is inspectable:** bounded raw-context lookup supports quote and original wording checks.
+- **Abstention is allowed:** weak support should produce restraint, not confident fiction.
+- **Local integrations are practical:** use the desktop shell, HTTP runtime, MCP server, or `integration-v1` contract.
+
+## 🔎 Retrieval Stack
+
+The important design line:
+
+> **Signals are subordinate to the evidence model, not voting on truth.**
+
+MNO uses multiple retrieval lanes because memory questions fail in different ways. The lanes help find source-linked evidence. They do not become truth sources by themselves.
+
+| Retrieval lane | What it catches | Default / scope |
+| --- | --- | --- |
+| Lexical + BM25 | Exact names, project terms, rare words, and specific phrases | Core retrieval signals |
+| Semantic + sequence + excerpt | Same idea with different wording, phrase-order matches, and useful sentences inside larger records | Core retrieval signals |
+| Quote + raw-context sidecar | Exact wording, "what did I say?" prompts, and provenance inspection | Quote/provenance path; raw context is bounded |
+| Temporal | "What happened when?", stale-vs-current evidence, and relative-time questions | Core ranking signal |
+| Graph / context | Nearby support, conflict context, and one-sided evidence packs | Core bounded support |
+| ANN + source/observation projections | Wider local candidate discovery and better-shaped long-dialog retrieval views | Optional helpers; default off |
+| Cross-encoder + update-family resolver | Reordering a bounded shortlist and preferring current reviewed corrections | Optional helpers; default off |
+
+Full lane-by-lane notes live in the [retrieval signal map](docs/public/ARCHITECTURE.md#retrieval-signal-map).
+
+## 🧭 How It Flows
+
+```text
+raw source
+  -> import / normalize
+  -> atoms.sqlite3
+  -> draft episode cards
+  -> human review
+  -> reviewed episode cards
+  -> local runtime
+  -> evidence pack
+  -> answer or abstain
+```
+
+Runtime helpers can assist recall, but they do not outrank reviewed truth. Draft proposals stay separate from `review_decisions` until explicit promotion.
+
+## 🖼️ Picture Version
+
+| Launch Pipeline | Runtime And Integration |
+| --- | --- |
+| ![MNO launch pipeline](docs/visuals/exports/clean/mno-launch-pipeline-clean.svg) | ![MNO runtime and integration](docs/visuals/exports/clean/mno-runtime-integration-clean.svg) |
+
+| Current Pipeline | Runtime Memory And Decision |
+| --- | --- |
+| ![MNO current pipeline](docs/visuals/exports/clean/mno-current-pipeline-clean.svg) | ![MNO runtime memory decision](docs/visuals/exports/clean/mno-runtime-memory-decision-clean.svg) |
+
+More diagrams:
+
+- [Plain-language diagram exports](docs/visuals/exports/clean/README.md)
+- [Engineer architecture diagrams](docs/visuals/exports/architecture/README.md)
+- [Visuals guide](docs/visuals/README.md)
+
+## 📊 Benchmark Snapshot
 
 MNO's benchmark story is about evidence, not bragging rights.
 
-The useful question is: when the system remembers something, can it find the source material that supports that memory?
+The useful question is: when the system remembers something, can it recover the source material that supports that memory?
 
-Current public aggregate runs:
+| Dataset | Public aggregate |
+| --- | --- |
+| LongMemEval-S retrieval/source support | R@5 `0.9660`, R@10 `0.9760`, gold source in store `1.0000` |
+| LoCoMo retrieval/source support | Eligible R@1 `0.6075`, R@5 `0.8491`, R@10 `0.9258`, MRR `0.7157` |
 
-- LongMemEval-S retrieval/source support: R@5 `0.9660`, R@10 `0.9760`, gold source in store `1.0000`
-- LoCoMo retrieval/source support: eligible R@1 `0.6075`, R@5 `0.8491`, R@10 `0.9258`, MRR `0.7157`
-
-These are retrieval and source-support scores, not final answer F1. They show that MNO can usually recover the right evidence before an assistant speaks. That is the part this project cares about most: less "trust me", more "here is what I found."
+These are retrieval and source-support scores, not final answer F1. They show that MNO can usually recover the right evidence before an assistant speaks. Less "trust me", more "here is what I found."
 
 Read the benchmark notes and public-safe aggregate summaries here:
 
 - [Benchmarks](docs/BENCHMARKS.md)
 
-## What It Does
+## 🧩 What It Does
 
 MNO can:
 
@@ -106,7 +150,7 @@ The main public integration boundary is `integration-v1`.
 
 MCP is available when you want tool-style local agent integration. Compatibility adapters also exist for `reference`, `openclaw`, and `nanobot`.
 
-## What It Does Not Promise
+## 🚫 What It Does Not Promise
 
 MNO does not promise:
 
@@ -116,9 +160,9 @@ MNO does not promise:
 - a hosted multi-user memory service
 - that every old internal route is a stable public contract
 
-The bias here is deliberate: better to be a little slower and more inspectable than fast and quietly wrong.
+The bias is deliberate: better to be a little slower and more inspectable than fast and quietly wrong.
 
-## Quick Start
+## ⚡ Quick Start
 
 Use the setup workspace if you want the guided path:
 
@@ -164,7 +208,7 @@ The setup workspace is the easiest way to:
 - export or install an integration bundle
 - prepare MNO for an assistant, MCP client, or sidecar
 
-## Manual Runtime Commands
+## 🛠️ Manual Runtime Commands
 
 Import raw source:
 
@@ -190,18 +234,7 @@ Run MCP against the runtime:
 python3 tools/run_mcp_server.py --transport stdio --runtime-base-url http://127.0.0.1:7340
 ```
 
-## How The Repo Is Organized
-
-- `engine/`: runtime, retrieval, memory, MCP, adapters, and local UI
-- `app/desktop/`: Electron desktop shell
-- `tools/`: setup, import, build, runtime, and MCP launchers
-- `tests/`: validation for setup, runtime, MCP, adapters, packaging, and contracts
-- `runtime/`: empty local workspace skeleton for generated data
-- `docs/`: guides, API notes, security/privacy docs, and diagrams
-
-Generated runtime data is intentionally not committed. Your imported stores, setup reports, diagnostics, desktop logs, and local state should stay local.
-
-## Start Reading Here
+## 📚 Start Reading Here
 
 If you are new to the project:
 
@@ -231,15 +264,26 @@ Longer public writeup:
 
 - [Response To "Why Long-Term Memory Remains Unsolved"](docs/public/MNO_RESPONSE_TO_WHY_LONG_TERM_MEMORY_REMAINS_UNSOLVED_2026-04-12.md)
 
-## For Engineers
+## 🗂️ Repo Map
+
+- `engine/`: runtime, retrieval, memory, MCP, adapters, and local UI
+- `app/desktop/`: Electron desktop shell
+- `tools/`: setup, import, build, runtime, and MCP launchers
+- `tests/`: validation for setup, runtime, MCP, adapters, packaging, and contracts
+- `runtime/`: empty local workspace skeleton for generated data
+- `docs/`: guides, API notes, security/privacy docs, and diagrams
+
+Generated runtime data is intentionally not committed. Imported stores, setup reports, diagnostics, desktop logs, and local state should stay local.
+
+## 🧑‍💻 For Engineers
 
 The short technical shape is:
 
-`raw source -> import/normalize -> atoms.sqlite3 -> draft episode cards -> human review -> reviewed episode cards -> runtime`
+```text
+raw source -> import/normalize -> atoms.sqlite3 -> draft episode cards -> human review -> reviewed episode cards -> runtime
+```
 
-The runtime includes bounded retrieval, reviewed memory, optional local ANN candidate generation, raw-context lookup for exact wording, and verification/abstention behavior. The ANN and raw-context sidecars are helpers only. They are not truth sources and do not bypass review.
-
-For a compact lane-by-lane explanation of the retrieval stack, see the [retrieval signal map](docs/public/ARCHITECTURE.md#retrieval-signal-map).
+The runtime includes bounded retrieval, reviewed memory, optional local ANN candidate generation, raw-context lookup for exact wording, and verification/abstention behavior. ANN and raw-context sidecars are helpers only. They are not truth sources and do not bypass review.
 
 Engineer-facing diagrams:
 
@@ -251,7 +295,7 @@ Engineer-facing diagrams:
 - [Data Lineage](docs/visuals/exports/architecture/mno-architecture-data-lineage.svg)
 - [Deployment And Process Model](docs/visuals/exports/architecture/mno-architecture-deployment-process.svg)
 
-## Release Metadata
+## 📦 Release Metadata
 
 - [License](LICENSE)
 - [Security Policy](SECURITY.md)

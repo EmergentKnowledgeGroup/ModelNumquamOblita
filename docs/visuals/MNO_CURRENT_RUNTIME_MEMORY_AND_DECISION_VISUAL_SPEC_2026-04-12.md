@@ -47,7 +47,7 @@ This page should make the layer stack obvious.
 - proposal-only store
 - continuity surfaces
 - raw-context sidecar
-- work-session scratchpad, built-in `scratchpad_ephemeral` package helper state
+- work-session scratchpad, built-in context-package `scratchpad_ephemeral` helper state
 
 ### Durable Reviewed / Canonical
 - canonical atom store

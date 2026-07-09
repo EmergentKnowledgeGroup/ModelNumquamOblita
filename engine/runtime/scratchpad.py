@@ -397,6 +397,7 @@ class WorkSessionScratchpadStore:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
         try:
             yield conn
             conn.commit()
@@ -497,7 +498,7 @@ class WorkSessionScratchpadStore:
         status = "degraded" if degraded else "active"
         now = utc_now_iso()
         expires = (datetime.now(timezone.utc) + timedelta(days=int(self.policy.retention_days))).isoformat()
-        token_estimate = max(1, len(compact_summary.split()))
+        token_estimate = max(1, estimate_context_tokens(compact_summary))
         self.upsert_scope(scope)
         self.initialize()
         with self._connect() as conn:
@@ -575,6 +576,22 @@ class WorkSessionScratchpadStore:
         rel = target.relative_to(self.project_root).as_posix()
         return rel, digest
 
+    @staticmethod
+    def _row_to_entry(row: sqlite3.Row) -> ScratchpadEntry:
+        return ScratchpadEntry(
+            entry_id=str(row["entry_id"]),
+            scope_id=str(row["scope_id"]),
+            kind=str(row["kind"]),
+            summary=str(row["summary"]),
+            raw_ref=str(row["raw_ref"] or ""),
+            raw_ref_sha256=str(row["raw_ref_sha256"] or ""),
+            replaceability_score=float(row["replaceability_score"] or 0.0),
+            token_estimate=int(row["token_estimate"] or 0),
+            status=str(row["status"]),
+            degraded=bool(row["degraded"]),
+            metadata=json.loads(str(row["metadata_json"] or "{}")),
+        )
+
     def list_entries_for_injection(self, scope: WorkSessionScope) -> list[ScratchpadEntry]:
         if not scope.can_inject:
             return []
@@ -591,24 +608,7 @@ class WorkSessionScratchpadStore:
                 """,
                 (scope.scope_id, min_score, limit),
             ).fetchall()
-        out: list[ScratchpadEntry] = []
-        for row in rows:
-            out.append(
-                ScratchpadEntry(
-                    entry_id=str(row["entry_id"]),
-                    scope_id=str(row["scope_id"]),
-                    kind=str(row["kind"]),
-                    summary=str(row["summary"]),
-                    raw_ref=str(row["raw_ref"] or ""),
-                    raw_ref_sha256=str(row["raw_ref_sha256"] or ""),
-                    replaceability_score=float(row["replaceability_score"] or 0.0),
-                    token_estimate=int(row["token_estimate"] or 0),
-                    status=str(row["status"]),
-                    degraded=bool(row["degraded"]),
-                    metadata=json.loads(str(row["metadata_json"] or "{}")),
-                )
-            )
-        return out
+        return [self._row_to_entry(row) for row in rows]
 
     def list_entries_for_resume_injection(self, scope: WorkSessionScope) -> list[ScratchpadEntry]:
         if not scope.can_inject:
@@ -641,24 +641,7 @@ class WorkSessionScratchpadStore:
                     limit,
                 ),
             ).fetchall()
-        out: list[ScratchpadEntry] = []
-        for row in rows:
-            out.append(
-                ScratchpadEntry(
-                    entry_id=str(row["entry_id"]),
-                    scope_id=str(row["scope_id"]),
-                    kind=str(row["kind"]),
-                    summary=str(row["summary"]),
-                    raw_ref=str(row["raw_ref"] or ""),
-                    raw_ref_sha256=str(row["raw_ref_sha256"] or ""),
-                    replaceability_score=float(row["replaceability_score"] or 0.0),
-                    token_estimate=int(row["token_estimate"] or 0),
-                    status=str(row["status"]),
-                    degraded=bool(row["degraded"]),
-                    metadata=json.loads(str(row["metadata_json"] or "{}")),
-                )
-            )
-        return out
+        return [self._row_to_entry(row) for row in rows]
 
     def list_entries_for_diagnostics(self, scope: WorkSessionScope) -> list[ScratchpadEntry]:
         if not scope.scope_id:
@@ -675,24 +658,7 @@ class WorkSessionScratchpadStore:
                 """,
                 (scope.scope_id, limit),
             ).fetchall()
-        out: list[ScratchpadEntry] = []
-        for row in rows:
-            out.append(
-                ScratchpadEntry(
-                    entry_id=str(row["entry_id"]),
-                    scope_id=str(row["scope_id"]),
-                    kind=str(row["kind"]),
-                    summary=str(row["summary"]),
-                    raw_ref=str(row["raw_ref"] or ""),
-                    raw_ref_sha256=str(row["raw_ref_sha256"] or ""),
-                    replaceability_score=float(row["replaceability_score"] or 0.0),
-                    token_estimate=int(row["token_estimate"] or 0),
-                    status=str(row["status"]),
-                    degraded=bool(row["degraded"]),
-                    metadata=json.loads(str(row["metadata_json"] or "{}")),
-                )
-            )
-        return out
+        return [self._row_to_entry(row) for row in rows]
 
     def build_diagnostic_task_map(self, scope: WorkSessionScope) -> dict[str, Any]:
         return build_diagnostic_task_map(scope, self.list_entries_for_diagnostics(scope))

@@ -292,13 +292,35 @@ def test_runtime_session_work_session_explicit_resume_and_fingerprint_are_stable
             explicit_resume=True,
             work_session_scope=scope,
         )
+        cfg.work_session_scratchpad.resume_injection_enabled = False
+        other_session_resume_disabled = runtime.build_context_package(
+            "What is next?",
+            session_id="sess_resume_b",
+            package_version="v2",
+            include_work_session_context=True,
+            work_session_scope=scope,
+        )
+        other_session_explicit_with_auto_resume_disabled = runtime.build_context_package(
+            "What is next?",
+            session_id="sess_resume_b",
+            package_version="v2",
+            include_work_session_context=True,
+            explicit_resume=True,
+            work_session_scope=scope,
+        )
 
         assert "work_session_context" in same_session
         assert "work_session_context" in other_session_default
         assert "work_session_context" not in other_session_wrong_workstream
         assert "work_session_context" in other_session_explicit
+        assert "work_session_context" not in other_session_resume_disabled
+        assert "work_session_context" in other_session_explicit_with_auto_resume_disabled
         assert "resume from explicit scratchpad state" in other_session_default["work_session_context"]["summary"]
         assert "resume from explicit scratchpad state" in other_session_explicit["work_session_context"]["summary"]
+        assert (
+            "resume from explicit scratchpad state"
+            in other_session_explicit_with_auto_resume_disabled["work_session_context"]["summary"]
+        )
     finally:
         runtime.close()
         shutil.rmtree(runtime_root, ignore_errors=True)
@@ -311,6 +333,7 @@ def test_runtime_session_work_session_context_metrics_fixed_fixture_and_diagnost
     cfg.work_session_scratchpad.enabled = True
     cfg.work_session_scratchpad.inject_enabled = True
     cfg.work_session_scratchpad.diagnostics_enabled = True
+    cfg.work_session_scratchpad.max_injected_items = 2
     cfg.work_session_scratchpad.max_injected_chars = 4000
     runtime_root = _repo_runtime_tmp("runtime_wsp_fixture")
     runtime = RuntimeSession(
@@ -334,6 +357,17 @@ def test_runtime_session_work_session_context_metrics_fixed_fixture_and_diagnost
     }
     try:
         runtime._ensure_session("sess_wsp_fixture")
+        runtime.capture_work_session_entry(
+            session_id="sess_wsp_fixture",
+            work_session_scope=scope,
+            kind="operator_note",
+            summary="Keep MemoryPack, evidence, verifier, integration-v1, desktop UI, and prompt history untouched.",
+            raw_content="scope fence\n" * 120,
+            replaceability_score=0.93,
+            metadata={
+                "hypothetical_prompt_tokens_replaced": 999,
+            },
+        )
         first = runtime.capture_work_session_entry(
             session_id="sess_wsp_fixture",
             work_session_scope=scope,
@@ -362,14 +396,6 @@ def test_runtime_session_work_session_context_metrics_fixed_fixture_and_diagnost
                 "depends_on_entry_ids": [first["entry_id"]],
                 "hypothetical_prompt_tokens_replaced": 520,
             },
-        )
-        runtime.capture_work_session_entry(
-            session_id="sess_wsp_fixture",
-            work_session_scope=scope,
-            kind="operator_note",
-            summary="Keep MemoryPack, evidence, verifier, integration-v1, desktop UI, and prompt history untouched.",
-            raw_content="scope fence\n" * 120,
-            replaceability_score=0.93,
         )
 
         latencies: list[float] = []

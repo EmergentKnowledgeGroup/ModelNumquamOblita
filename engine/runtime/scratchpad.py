@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
 import sqlite3
 from collections.abc import Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import quantiles
-from typing import Any
+from typing import Any, Iterator
 
 from ..config import WorkSessionScratchpadPolicy
 
@@ -23,6 +25,7 @@ DISABLED_SCOPE_MODE = "disabled"
 
 _SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 _TOKEN_RE = re.compile(r"[A-Za-z0-9']+")
+LOGGER = logging.getLogger(__name__)
 
 
 def utc_now_iso() -> str:
@@ -306,7 +309,7 @@ def can_resume_scope(
     explicit_resume: bool,
     policy: WorkSessionScratchpadPolicy,
 ) -> bool:
-    if not bool(explicit_resume) or not bool(policy.resume_injection_enabled):
+    if not (bool(explicit_resume) or bool(policy.resume_injection_enabled)):
         return False
     if previous.scope_mode != STRICT_SCOPE_MODE or current.scope_mode != STRICT_SCOPE_MODE:
         return False
@@ -319,6 +322,8 @@ def can_resume_scope(
 
 
 class WorkSessionScratchpadStore:
+    _SCHEMA_TABLES = frozenset({"scratchpad_scopes", "scratchpad_entries"})
+
     def __init__(
         self,
         *,
@@ -386,12 +391,20 @@ class WorkSessionScratchpadStore:
                 """
             )
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         self.root.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def upsert_scope(self, scope: WorkSessionScope, *, metadata: dict[str, Any] | None = None) -> None:
         if not scope.scope_id:
@@ -475,7 +488,8 @@ class WorkSessionScratchpadStore:
                 try:
                     raw_ref, raw_sha = self._write_raw_ref(scope, entry_id, raw_bytes)
                     verified_raw = 1
-                except Exception:
+                except Exception as exc:
+                    LOGGER.warning("work-session scratchpad raw-ref write failed for entry %s: %s", entry_id, exc)
                     degraded = True
                     raw_ref = ""
                     raw_sha = ""
@@ -693,8 +707,10 @@ class WorkSessionScratchpadStore:
             ).fetchall()
             entry_ids = [str(row["entry_id"]) for row in rows]
             raw_refs = [str(row["raw_ref"] or "") for row in rows if str(row["raw_ref"] or "").strip()]
-            for entry_id in entry_ids:
-                conn.execute("DELETE FROM scratchpad_entries WHERE entry_id = ?", (entry_id,))
+            conn.execute(
+                "DELETE FROM scratchpad_entries WHERE expires_at IS NOT NULL AND expires_at < ?",
+                (cutoff,),
+            )
             scope_rows = conn.execute(
                 """
                 SELECT scope_id FROM scratchpad_scopes
@@ -704,8 +720,14 @@ class WorkSessionScratchpadStore:
                 (cutoff,),
             ).fetchall()
             scope_ids = [str(row["scope_id"]) for row in scope_rows]
-            for scope_id in scope_ids:
-                conn.execute("DELETE FROM scratchpad_scopes WHERE scope_id = ?", (scope_id,))
+            conn.execute(
+                """
+                DELETE FROM scratchpad_scopes
+                WHERE expires_at IS NOT NULL AND expires_at < ?
+                  AND scope_id NOT IN (SELECT DISTINCT scope_id FROM scratchpad_entries)
+                """,
+                (cutoff,),
+            )
         removed_refs = 0
         for raw_ref in raw_refs:
             try:
@@ -713,18 +735,22 @@ class WorkSessionScratchpadStore:
                 if _is_relative_to(target, self.refs_root.resolve()) and target.exists():
                     target.unlink()
                     removed_refs += 1
-            except Exception:
+            except Exception as exc:
+                LOGGER.warning("work-session scratchpad raw-ref cleanup failed for %s: %s", raw_ref, exc)
                 continue
         for child in list(self.refs_root.glob("*")) if self.refs_root.exists() else []:
             if child.is_dir():
                 try:
                     if not any(child.iterdir()):
                         shutil.rmtree(child)
-                except Exception:
+                except Exception as exc:
+                    LOGGER.warning("work-session scratchpad ref directory cleanup failed for %s: %s", child, exc)
                     continue
         return {"entries": len(entry_ids), "scopes": len(scope_ids), "refs": removed_refs}
 
     def schema_columns(self, table: str) -> list[str]:
+        if table not in self._SCHEMA_TABLES:
+            raise ValueError(f"unknown scratchpad table: {table}")
         self.initialize()
         with self._connect() as conn:
             rows = conn.execute(f"PRAGMA table_info({table})").fetchall()

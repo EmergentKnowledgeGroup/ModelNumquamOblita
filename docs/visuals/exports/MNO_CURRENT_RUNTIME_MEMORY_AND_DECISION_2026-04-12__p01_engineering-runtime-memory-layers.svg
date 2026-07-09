@@ -21,7 +21,7 @@
 <rect x="86.0" y="249.8" width="342.0" height="83.8" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="257.0" y="289.1"><tspan x="257.0" dy="0.0">STM / session state</tspan><tspan x="257.0" dy="16.5">recent turns, rolling summary, soft-close hints</tspan></text>
 <rect x="592.0" y="124.0" width="342.0" height="102.6" rx="12" fill="#f7fff3" stroke="#6a9b58" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="763.0" y="164.5"><tspan x="763.0" dy="0.0">Runtime helper memory</tspan><tspan x="763.0" dy="16.5">provisional + strict-scope scratchpad_ephemeral</tspan><tspan x="763.0" dy="16.5">WSS</tspan></text>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="763.0" y="164.5"><tspan x="763.0" dy="0.0">Runtime helper memory</tspan><tspan x="763.0" dy="16.5">provisional + strict active-scope</tspan><tspan x="763.0" dy="16.5">scratchpad_ephemeral WSS</tspan></text>
 <rect x="592.0" y="268.6" width="342.0" height="102.6" rx="12" fill="#f7fff3" stroke="#6a9b58" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="763.0" y="309.2"><tspan x="763.0" dy="0.0">Proposal-only store</tspan><tspan x="763.0" dy="16.5">high-risk captures that must not auto-enter</tspan><tspan x="763.0" dy="16.5">retrievable truth</tspan></text>
 <rect x="592.0" y="413.3" width="342.0" height="83.8" rx="12" fill="#f7fff3" stroke="#6a9b58" stroke-width="2"/>

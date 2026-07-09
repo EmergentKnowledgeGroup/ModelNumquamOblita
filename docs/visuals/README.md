@@ -9,7 +9,7 @@ The canonical flowchart set in this repo is the `2026-04-12` pair:
 
 Older dated files are historical snapshots and should not replace the `2026-04-12` files unless a newer dated set is created. They are not current user-facing WSS/live-runtime diagrams.
 
-Canonical WSS behavior is documented in `docs/WORK_SESSION_SCRATCHPAD.md`. Diagrams should show it as strict-scope `scratchpad_ephemeral` work-continuity context, not reviewed truth or evidence.
+Canonical WSS behavior is documented in `docs/WORK_SESSION_SCRATCHPAD.md`. Diagrams should show it as strict active-scope `scratchpad_ephemeral` work-continuity context, not reviewed truth or evidence.
 
 Rendered SVG/PNG exports live in `docs/visuals/exports/`.
 

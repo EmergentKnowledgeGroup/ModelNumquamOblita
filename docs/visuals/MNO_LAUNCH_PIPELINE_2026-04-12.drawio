@@ -52,7 +52,7 @@
         <mxCell id="l13" value="Launch runtime&amp;#10;desktop / headless / integration-v1 / MCP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="745" y="195" width="260" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="l14" value="Runtime memory sources&amp;#10;reviewed cards + atoms + quote lane; WSS = strict-scope scratchpad_ephemeral" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+        <mxCell id="l14" value="Runtime memory sources&amp;#10;reviewed cards + atoms + quote lane; WSS = strict active-scope scratchpad_ephemeral" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="745" y="300" width="260" height="85" as="geometry" />
         </mxCell>
         <mxCell id="l15" value="Key launch rule&amp;#10;reviewed cards become trusted runtime memory; WSS helps work continuity, not proof" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">

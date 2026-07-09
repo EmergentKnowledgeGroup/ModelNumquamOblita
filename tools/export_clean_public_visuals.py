@@ -306,7 +306,7 @@ def launch_pipeline() -> Diagram:
         Node("review", "Human review\napprove, edit, reject, annotate lineage", 605, 330, 340, 100, "review"),
         Node("reviewed", "Reviewed cards\ntrusted event memory + correction lineage", 605, 490, 340, 100, "review"),
         Node("launch", "Launch runtime\ndesktop, headless, integration-v1, MCP", 1115, 210, 340, 100, "runtime"),
-        Node("use", "Runtime memory sources\nreviewed cards + atoms + quote lane; WSS is strict-scope helper state", 1115, 430, 340, 120, "runtime"),
+        Node("use", "Runtime memory sources\nreviewed cards + atoms + quote lane; WSS is strict active-scope helper state", 1115, 430, 340, 120, "runtime"),
     ]
     edges = [
         Edge("sources", "import", "#d6b656", source_side="bottom", target_side="top"),
@@ -333,7 +333,7 @@ def runtime_integration() -> Diagram:
         Node("entry", "Desktop / integration-v1 / MCP / adapters", 95, 210, 260, 100, "input"),
         Node("router", "Router + query shaping", 510, 150, 420, 90, "runtime"),
         Node("memory", "Memory candidate pool\nSTM + reviewed cards + atoms + ANN + raw-context receipt lane", 510, 300, 420, 130, "review"),
-        Node("evidence", "Context package + verifier\nbounded evidence; WSS scratchpad_ephemeral by strict scope", 510, 500, 420, 120, "runtime"),
+        Node("evidence", "Context package + verifier\nbounded evidence; WSS scratchpad_ephemeral by strict active scope", 510, 500, 420, 120, "runtime"),
         Node("answer", "Answer / abstain / clarify\nwith evidence metadata", 1085, 180, 340, 110, "helper"),
         Node("why", "context.why\nexplain evidence IDs and citations", 1085, 360, 340, 100, "integration"),
         Node("writeback", "Writeback proposal\nhuman/operator resolve stays authoritative", 1085, 540, 340, 110, "govern"),
@@ -366,7 +366,7 @@ def current_pipeline() -> Diagram:
         Node("drafts", "Draft episode cards\nagent curation stays draft-only", 510, 180, 280, 110, "helper"),
         Node("reviewed", "Human-reviewed cards\ncurrent/superseded lineage", 510, 390, 280, 120, "review"),
         Node("retrieval", "Runtime retrieval\nreviewed cards + atoms + helper layers", 930, 210, 280, 120, "runtime"),
-        Node("verifier", "Context package + verifier\nstrict-scope WSS; answer, abstain, or clarify", 930, 450, 280, 120, "runtime"),
+        Node("verifier", "Context package + verifier\nstrict active-scope WSS; answer, abstain, or clarify", 930, 450, 280, 120, "runtime"),
         Node("api", "integration-v1 / MCP / desktop\nbounded package + writeback proposals", 1350, 300, 280, 150, "integration"),
     ]
     edges = [
@@ -392,7 +392,7 @@ def memory_decision() -> Diagram:
         Node("route", "Route + query shape", 350, 180, 250, 90, "runtime"),
         Node("retrieve", "Retrieve candidates\nSTM, reviewed cards, atoms, ANN helper, raw context if asked", 680, 150, 330, 130, "review"),
         Node("fusion", "Fusion + guarded shortlist\nrank, dedupe, support checks", 1090, 160, 320, 110, "runtime"),
-        Node("pack", "Context package\nbounded evidence; WSS scratchpad_ephemeral by strict scope", 1090, 380, 320, 100, "runtime"),
+        Node("pack", "Context package\nbounded evidence; WSS scratchpad_ephemeral by strict active scope", 1090, 380, 320, 100, "runtime"),
         Node("verify", "Verifier\nPASS / ABSTAIN / CLARIFY", 680, 390, 330, 100, "runtime"),
         Node("output", "Final output\nanswer text + evidence metadata", 350, 390, 250, 100, "helper"),
         Node("proposal", "Risky new memory\nproposal-only writeback", 680, 610, 330, 100, "govern"),

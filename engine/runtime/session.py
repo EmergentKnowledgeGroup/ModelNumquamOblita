@@ -805,6 +805,7 @@ class RuntimeSession:
                 )
             except Exception as exc:
                 self._scratchpad_init_error = str(exc)
+                _LOGGER.warning("work session scratchpad init failed: %s", exc)
         retrieval_policy = self.config.runtime.retrieval
         self.model_name = model_name
         self.input_cost_per_mtok = input_cost_per_mtok
@@ -3028,9 +3029,10 @@ class RuntimeSession:
         if not scope.can_inject:
             return None
         entries = store.list_entries_for_injection(scope)
-        if not entries and bool(policy.resume_injection_enabled):
+        if not entries and (bool(policy.resume_injection_enabled) or bool(explicit_resume)):
             entries = store.list_entries_for_resume_injection(scope)
         selected = []
+        selected_entries = []
         used_chars = 0
         max_chars = int(policy.max_injected_chars)
         for entry in entries[: int(policy.max_injected_items)]:
@@ -3054,6 +3056,7 @@ class RuntimeSession:
                     "raw_ref_sha256": entry.raw_ref_sha256,
                 }
             )
+            selected_entries.append(entry)
             used_chars = projected
         if not selected:
             return None
@@ -3083,7 +3086,10 @@ class RuntimeSession:
             "observed_package_tokens": estimate_context_tokens(package),
             "observed_injected_tokens": estimate_context_tokens(context),
             "hypothetical_prompt_tokens_replaced": int(
-                sum(int(dict(getattr(entry, "metadata", {}) or {}).get("hypothetical_prompt_tokens_replaced") or 0) for entry in entries)
+                sum(
+                    int(dict(getattr(entry, "metadata", {}) or {}).get("hypothetical_prompt_tokens_replaced") or 0)
+                    for entry in selected_entries
+                )
             ),
         }
         context["budget"]["observed_injected_tokens"] = context["metrics"]["observed_injected_tokens"]
@@ -3125,11 +3131,21 @@ class RuntimeSession:
     def _runtime_store_fingerprint(self) -> str:
         store = getattr(self.retriever, "store", None)
         parts = [type(store).__name__]
+        path_found = False
         for attr in ("db_path", "path", "store_path"):
             value = getattr(store, attr, None)
             if value:
                 parts.append(str(value))
+                path_found = True
                 break
+        if not path_found:
+            cache_scope = getattr(store, "cache_scope", None)
+            if callable(cache_scope):
+                parts.append(str(cache_scope()))
+            else:
+                scope_id = getattr(store, "_cache_scope_id", None)
+                if scope_id:
+                    parts.append(str(scope_id))
         token = "|".join(parts)
         return "store:" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
 

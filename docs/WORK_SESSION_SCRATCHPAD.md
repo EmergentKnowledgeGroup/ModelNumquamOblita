@@ -6,26 +6,26 @@ It exists for one job: help an agent resume work without rereading the same loca
 
 ## Runtime Shape
 
-WSS stores deterministic helper summaries in one project-local sidecar under the runtime state root. When a v2 context package has strict project, thread, and workstream scope identity, MNO can attach those summaries as:
+WSS stores deterministic helper summaries in one project-local sidecar under the runtime state root. When policy allows injection, the request has not explicitly disabled `include_work_session_context`, and a v2 context package has strict active project, thread, and workstream scope identity, MNO can attach those summaries as:
 
 ```text
 work_session_context.trust_tier = scratchpad_ephemeral
 ```
 
-No separate user-facing feature toggle is required for the normal live behavior. Strict scope identity is the safety gate:
+No separate user-facing feature toggle is required for the normal live behavior. Strict active scope identity is the safety gate:
 
 - project identity
 - thread identity
 - workstream identity
 - runtime-store fingerprint
 
-If that scope is missing or degraded, WSS fails closed and no `work_session_context` is attached.
+If that scope is missing, inactive, or degraded, WSS fails closed and no `work_session_context` is attached.
 
 ## What WSS Is
 
 - project-local helper state
 - deterministic summary state
-- strict-scope context-package continuity
+- strict active-scope context-package continuity
 - short-lived operational memory for the current work lane
 - a context-diet helper for agents that would otherwise reread repeated background
 
@@ -51,7 +51,7 @@ WSS cannot prove a memory.
 
 ## Where It Appears
 
-WSS can appear in runtime v2 context packages as `work_session_context` when strict `work_session_scope` is present.
+WSS can appear in runtime v2 context packages as `work_session_context` when WSS policy allows injection, the request has not explicitly disabled `include_work_session_context`, and strict active `work_session_scope` is present.
 
 Context-package and adapter callers can provide scope as:
 
@@ -83,7 +83,7 @@ If an answer needs a memory claim, it still needs evidence outside WSS.
 
 ## Configuration
 
-The live defaults are documented in [Configuration](CONFIGURATION.md#work-session-scratchpad). Operational config can disable WSS, but the product behavior is live-on for strict-scope context packages.
+The live defaults are documented in [Configuration](CONFIGURATION.md#work-session-scratchpad). Operational config can disable WSS, and callers can explicitly suppress WSS for a package, but the product behavior is live-on for strict active-scope context packages.
 
 ## Related Docs
 

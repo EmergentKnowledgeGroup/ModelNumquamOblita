@@ -15,7 +15,7 @@ This package should explain:
 - where optional draft curation sits
 - where human review and truth-lineage annotation happen
 - when reviewed cards become runtime-usable
-- where built-in WSS appears as strict project/thread/workstream scoped `scratchpad_ephemeral` runtime helper state
+- where built-in WSS appears as strict active project/thread/workstream scoped `scratchpad_ephemeral` runtime helper state
 
 ## Authority
 
@@ -56,7 +56,7 @@ Show the launch flow in three areas:
 ### Runtime Launch And Operate
 - launch_setup_workspace entrypoint
 - runtime launch surfaces
-- runtime memory sources summary, including strict-scope WSS
+- runtime memory sources summary, including strict active-scope WSS
 - launch rule that reviewed cards become trusted runtime memory while WSS stays work continuity, not proof
 
 ## Page 2: Caveman Pipeline

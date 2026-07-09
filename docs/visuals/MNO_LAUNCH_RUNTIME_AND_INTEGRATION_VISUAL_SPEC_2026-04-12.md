@@ -12,7 +12,7 @@ This package should explain:
 - what memory layers exist at runtime
 - where the ANN helper sits
 - where the raw-context quote/provenance lane sits
-- where built-in WSS attaches to context packages only under strict project/thread/workstream scope
+- where built-in WSS attaches to context packages only under strict active project/thread/workstream scope
 - how reviewed truth-lineage affects runtime use of reviewed cards
 - where response, abstain, clarify, and proposal-only writeback happen
 - how integrators should think about integration-v1, MCP, and adapters
@@ -58,7 +58,7 @@ Show four areas:
 ### Retrieval And Decision
 - router and query shaping
 - fusion and guarded shortlist
-- context package, including WSS `scratchpad_ephemeral` when strict scope is present
+- context package, including WSS `scratchpad_ephemeral` when strict active scope is present
 - quote/provenance expansion
 - responder and verifier
 

@@ -113,13 +113,13 @@ Truth-family lineage for reviewed cards does not require a separate toggle. It i
 
 ## Work-session scratchpad
 
-The work-session scratchpad is a built-in runtime helper for agent continuity. It stores one project-local sqlite sidecar under the runtime state root and attaches deterministic summaries to strict project/thread/workstream scoped v2 context-package requests as `scratchpad_ephemeral` helper state.
+The work-session scratchpad is a built-in runtime helper for agent continuity. It stores one project-local sqlite sidecar under the runtime state root and can attach deterministic summaries to strict active project/thread/workstream scoped v2 context-package requests as `scratchpad_ephemeral` helper state when policy allows injection and the request has not explicitly disabled `include_work_session_context`.
 
 It does not:
 - mutate MemoryPack, reviewed truth, review decisions, publish state, or verifier behavior
 - support memory claims
 - change prompt history
-- attach when strict scope identity is missing or degraded
+- attach when strict active scope identity is missing or degraded
 
 Key config block:
 
@@ -140,7 +140,7 @@ Key config block:
 }
 ```
 
-Strict scope identity is the safety gate. Callers provide `work_session_scope`; degraded or missing scope identity fails closed, and scratchpad rows remain non-authoritative helper state. Operational config can disable WSS, but the product behavior is live-on for strict-scope context packages.
+Strict active scope identity is the safety gate. Callers provide `work_session_scope`; degraded, inactive, or missing scope identity fails closed, and scratchpad rows remain non-authoritative helper state. Operational config can disable WSS, and callers can explicitly suppress WSS for a package, but the product behavior is live-on for strict active-scope context packages.
 
 Canonical behavior notes live in [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md).
 

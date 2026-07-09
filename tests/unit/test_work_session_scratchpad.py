@@ -103,8 +103,9 @@ def test_scope_isolation_and_resume_contract_are_strict() -> None:
     assert can_resume_scope(base, other_session, explicit_resume=True, policy=_policy()) is True
     assert can_resume_scope(base, other_workstream, explicit_resume=True, policy=_policy()) is False
     assert can_resume_scope(base, degraded, explicit_resume=True, policy=_policy()) is False
-    assert can_resume_scope(base, other_session, explicit_resume=False, policy=_policy()) is False
-    assert can_resume_scope(base, other_session, explicit_resume=True, policy=_policy(resume_injection_enabled=False)) is False
+    assert can_resume_scope(base, other_session, explicit_resume=False, policy=_policy()) is True
+    assert can_resume_scope(base, other_session, explicit_resume=True, policy=_policy(resume_injection_enabled=False)) is True
+    assert can_resume_scope(base, other_session, explicit_resume=False, policy=_policy(resume_injection_enabled=False)) is False
 
 
 def test_scratchpad_root_rejects_unsafe_paths() -> None:
@@ -180,6 +181,8 @@ def test_schema_has_no_support_flag_and_statuses_exclude_promoted() -> None:
         columns = set(store.schema_columns("scratchpad_entries"))
         assert "support_allowed" not in columns
         assert "promoted" not in SCRATCHPAD_STATUSES
+        with pytest.raises(ValueError):
+            store.schema_columns("scratchpad_entries); DROP TABLE scratchpad_entries; --")
     finally:
         shutil.rmtree(runtime_root, ignore_errors=True)
 

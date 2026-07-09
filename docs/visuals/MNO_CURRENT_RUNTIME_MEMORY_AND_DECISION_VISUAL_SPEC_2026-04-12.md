@@ -11,7 +11,7 @@ Use this package when you want to understand:
 - what memory layers exist during a live turn
 - which layers are authoritative and which are helper-only
 - where exact wording / provenance expansion now fits
-- where built-in work-session scratchpad context fits when strict project/thread/workstream scope is present
+- where built-in work-session scratchpad context fits when strict active project/thread/workstream scope is present
 - how reviewed truth-lineage affects runtime ranking and interpretation
 - where verifier, abstain, and proposal-only writeback sit in the live path
 
@@ -71,7 +71,7 @@ This page should show the live path:
 - fusion and guarded shortlist
 - context package assembly
 - raw-context quote/provenance expansion
-- work-session scratchpad context-package attachment through strict project/thread/workstream scope
+- work-session scratchpad context-package attachment through strict active project/thread/workstream scope
 - verifier and answer path
 - final output
 - post-turn capture
@@ -103,6 +103,6 @@ It should still explain:
 ## Current-iteration caveats
 
 - the raw-context lane is not a transcript-dump mode; it is a bounded provenance helper
-- the work-session scratchpad is project-local and only enters strict project/thread/workstream scoped context packages
+- the work-session scratchpad is project-local and only enters strict active project/thread/workstream scoped context packages
 - truth-lineage is explicit reviewed metadata, not autonomous reconsolidation
 - provisional memory remains revisable and lower-trust than reviewed memory

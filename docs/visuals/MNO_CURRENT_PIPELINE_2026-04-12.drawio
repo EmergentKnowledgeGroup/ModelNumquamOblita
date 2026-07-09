@@ -244,7 +244,7 @@
         <mxCell id="rb" value="STM / session state&amp;#10;recent turns, rolling summary, soft-close hints" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
           <mxGeometry x="55" y="185" width="230" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="rc" value="Runtime helper memory&amp;#10;provisional + strict-scope scratchpad_ephemeral WSS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" vertex="1" parent="1">
+        <mxCell id="rc" value="Runtime helper memory&amp;#10;provisional + strict active-scope scratchpad_ephemeral WSS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" vertex="1" parent="1">
           <mxGeometry x="375" y="85" width="230" height="80" as="geometry" />
         </mxCell>
         <mxCell id="rd" value="Proposal-only store&amp;#10;high-risk captures that must not auto-enter retrievable truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" vertex="1" parent="1">
@@ -336,7 +336,7 @@
         <mxCell id="d7" value="Fusion + guarded shortlist&amp;#10;shared-rule ranking, support, and tie-breaks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
           <mxGeometry x="365" y="495" width="250" height="75" as="geometry" />
         </mxCell>
-        <mxCell id="d8" value="Context package assembly&amp;#10;bounded evidence + WSS only when strict scope is present" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+        <mxCell id="d8" value="Context package assembly&amp;#10;bounded evidence + WSS only when strict active scope is present" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="815" y="110" width="280" height="80" as="geometry" />
         </mxCell>
         <mxCell id="d9" value="Raw-context quote / provenance expansion&amp;#10;only for explicit wording or source-context requests" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">

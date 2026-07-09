@@ -34,7 +34,7 @@
         <mxCell id="r6" value="STM&amp;#10;short-term session state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
           <mxGeometry x="345" y="75" width="270" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="r7" value="Runtime helper memory&amp;#10;provisional + strict-scope scratchpad_ephemeral WSS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+        <mxCell id="r7" value="Runtime helper memory&amp;#10;provisional + strict active-scope scratchpad_ephemeral WSS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
           <mxGeometry x="345" y="160" width="270" height="70" as="geometry" />
         </mxCell>
         <mxCell id="r8" value="Continuity surfaces&amp;#10;pins / action log / wake-up / resume" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
@@ -55,7 +55,7 @@
         <mxCell id="r13" value="Fusion + guarded shortlist&amp;#10;shared-rule ranking and support checks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="730" y="185" width="290" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="r14" value="Context package&amp;#10;bounded evidence + WSS only when strict scope is present" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+        <mxCell id="r14" value="Context package&amp;#10;bounded evidence + WSS only when strict active scope is present" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="730" y="285" width="290" height="70" as="geometry" />
         </mxCell>
         <mxCell id="r15" value="Quote / provenance expansion&amp;#10;raw-context lane wakes only when explicitly needed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">

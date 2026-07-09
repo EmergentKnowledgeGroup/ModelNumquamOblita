@@ -10,7 +10,7 @@ Companion draw.io file:
 Use this package when you want the current MNO shape, not a launch-only simplified picture. It should show:
 - how raw source intake becomes durable evidence
 - where the raw-context sidecar is written and how it stays separate from truth
-- where built-in WSS attaches to runtime context packages only under strict project/thread/workstream scope
+- where built-in WSS attaches to runtime context packages only under strict active project/thread/workstream scope
 - where optional draft curation sits
 - how reviewed cards become trusted runtime memory
 - how truth-lineage metadata links corrected reviewed cards
@@ -61,7 +61,7 @@ This page is the real pipeline map. It should preserve the engineering layering 
 
 ### Lane 3: Runtime Participation
 - runtime retriever consumes atoms, reviewed cards, and helper layers
-- context packages include WSS `scratchpad_ephemeral` when strict project/thread/workstream scope is present
+- context packages include WSS `scratchpad_ephemeral` when strict active project/thread/workstream scope is present
 - raw-context quote/provenance lane wakes only for explicit wording or source-context asks
 - lineage-aware read path prefers current reviewed truth over superseded reviewed cards
 - normal answer path remains bounded evidence plus verifier
@@ -108,7 +108,7 @@ This page should show the live request path inside the broader system package:
 - ANN candidate helper
 - lineage-aware reviewed resolution
 - fusion and guarded shortlist
-- context package assembly, with WSS attached only by strict project/thread/workstream scope
+- context package assembly, with WSS attached only by strict active project/thread/workstream scope
 - raw-context quote/provenance expansion
 - verifier and answer path
 - final output

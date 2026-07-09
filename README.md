@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2f7d4f?style=for-the-badge"></a>
-  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
+  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases/tag/v0.1.0"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
   <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge"></a>
   <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=ask"></a>
 </p>

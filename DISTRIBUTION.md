@@ -16,10 +16,12 @@ ModelNumquamOblita.
   `CONTRIBUTING.md`, and `pyproject.toml`
 - the empty `runtime/` workspace skeleton and `.gitkeep` files
 - generated public visual exports under `docs/visuals/exports/`
+- canonical WSS documentation such as `docs/WORK_SESSION_SCRATCHPAD.md`
 
 ## What Should Not Ship
 
 - populated memory stores
+- populated WSS scratchpad sidecars
 - private source datasets
 - generated checkpoint files
 - local setup reports

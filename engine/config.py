@@ -348,6 +348,22 @@ class RuntimeEfficiencyPolicy:
 
 
 @dataclass(slots=True)
+class WorkSessionScratchpadPolicy:
+    """Built-in helper-state lane for work-session context packages."""
+
+    enabled: bool = True
+    inject_enabled: bool = True
+    resume_injection_enabled: bool = True
+    diagnostics_enabled: bool = False
+    max_entries_per_scope: int = 200
+    max_injected_items: int = 8
+    max_injected_chars: int = 2400
+    max_raw_ref_bytes: int = 2_000_000
+    retention_days: int = 14
+    min_replaceability_score: float = 0.70
+
+
+@dataclass(slots=True)
 class ProvisionalSensitivityProfile:
     """Configurable caps and floors for provisional auto-write sensitivity."""
 
@@ -467,6 +483,7 @@ class NumquamOblitaConfig:
     history_surfaces: HistorySurfacesPolicy = field(default_factory=HistorySurfacesPolicy)
     continuity_adds: ContinuityAddsPolicy = field(default_factory=ContinuityAddsPolicy)
     efficiency: RuntimeEfficiencyPolicy = field(default_factory=RuntimeEfficiencyPolicy)
+    work_session_scratchpad: WorkSessionScratchpadPolicy = field(default_factory=WorkSessionScratchpadPolicy)
 
     def as_dict(self) -> dict[str, Any]:
         """Return config as a plain dictionary."""
@@ -978,6 +995,26 @@ def _validate_continuity_adds_policy(policy: ContinuityAddsPolicy) -> None:
     _validate_int("continuity_adds.action_log_max_entries", policy.action_log_max_entries, min_value=1, max_value=10_000)
 
 
+def _validate_work_session_scratchpad_policy(policy: WorkSessionScratchpadPolicy) -> None:
+    if not isinstance(policy, WorkSessionScratchpadPolicy):
+        raise TypeError("work_session_scratchpad must be WorkSessionScratchpadPolicy")
+    _validate_bool("work_session_scratchpad.enabled", policy.enabled)
+    _validate_bool("work_session_scratchpad.inject_enabled", policy.inject_enabled)
+    _validate_bool("work_session_scratchpad.resume_injection_enabled", policy.resume_injection_enabled)
+    _validate_bool("work_session_scratchpad.diagnostics_enabled", policy.diagnostics_enabled)
+    _validate_int("work_session_scratchpad.max_entries_per_scope", policy.max_entries_per_scope, min_value=1, max_value=10_000)
+    _validate_int("work_session_scratchpad.max_injected_items", policy.max_injected_items, min_value=1, max_value=100)
+    _validate_int("work_session_scratchpad.max_injected_chars", policy.max_injected_chars, min_value=128, max_value=64_000)
+    _validate_int("work_session_scratchpad.max_raw_ref_bytes", policy.max_raw_ref_bytes, min_value=1, max_value=100_000_000)
+    _validate_int("work_session_scratchpad.retention_days", policy.retention_days, min_value=1, max_value=3650)
+    _validate_float(
+        "work_session_scratchpad.min_replaceability_score",
+        policy.min_replaceability_score,
+        min_value=0.0,
+        max_value=1.0,
+    )
+
+
 def _validate_config(cfg: NumquamOblitaConfig) -> None:
     """Validate cross-field bounds that must hold after merges."""
 
@@ -989,3 +1026,4 @@ def _validate_config(cfg: NumquamOblitaConfig) -> None:
     _validate_continuity_adds_policy(cfg.continuity_adds)
     # Re-hydrate to trigger RuntimeEfficiencyPolicy.__post_init__ validations.
     cfg.efficiency = RuntimeEfficiencyPolicy(**asdict(cfg.efficiency))
+    _validate_work_session_scratchpad_policy(cfg.work_session_scratchpad)

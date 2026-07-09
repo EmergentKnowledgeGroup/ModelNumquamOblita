@@ -6,6 +6,7 @@ import time
 import logging
 import inspect
 import json
+import hashlib
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
@@ -59,6 +60,14 @@ from ..retrieval import (
     MemoryRetriever,
     VerificationDecision,
     VerificationResult,
+)
+from .scratchpad import (
+    WorkSessionScope,
+    WorkSessionScratchpadStore,
+    build_diagnostic_task_map,
+    estimate_context_tokens,
+    resolve_scope,
+    resolve_scratchpad_root,
 )
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9']+")
@@ -764,6 +773,8 @@ class RuntimeSession:
         turn_token_warn_limit: int = 850,
         turn_cost_warn_limit_usd: float = 0.015,
         prewarm_caches: bool | None = None,
+        project_root: str | Path | None = None,
+        runtime_state_root: str | Path | None = None,
     ) -> None:
         self.retriever = retriever
         self.config = config or getattr(retriever, "config", None) or default_config()
@@ -780,6 +791,20 @@ class RuntimeSession:
                 ) from exc
         self.verifier = verifier
         self.continuity_store = continuity_store or ContinuityStore()
+        self.project_root = Path(project_root).expanduser().resolve() if project_root else Path(__file__).resolve().parents[2]
+        self.runtime_state_root = Path(runtime_state_root).expanduser().resolve() if runtime_state_root else None
+        self._scratchpad_store: WorkSessionScratchpadStore | None = None
+        self._scratchpad_init_error = ""
+        if bool(getattr(self.config.work_session_scratchpad, "enabled", False)):
+            try:
+                resolve_scratchpad_root(self.project_root, self.runtime_state_root)
+                self._scratchpad_store = WorkSessionScratchpadStore(
+                    project_root=self.project_root,
+                    runtime_state_root=self.runtime_state_root,
+                    policy=self.config.work_session_scratchpad,
+                )
+            except Exception as exc:
+                self._scratchpad_init_error = str(exc)
         retrieval_policy = self.config.runtime.retrieval
         self.model_name = model_name
         self.input_cost_per_mtok = input_cost_per_mtok
@@ -2562,6 +2587,10 @@ class RuntimeSession:
         retrieval_query: str | None = None,
         retrieval_override: RetrievalOverrideRequestContract | None = None,
         render_citations: bool | None = None,
+        include_work_session_context: bool = True,
+        include_work_session_diagnostics: bool = False,
+        work_session_scope: dict[str, Any] | None = None,
+        explicit_resume: bool = False,
     ) -> dict[str, Any]:
         text = str(message or "").strip()
         if not text:
@@ -2578,6 +2607,10 @@ class RuntimeSession:
                 retrieval_query=retrieval_query,
                 retrieval_override=retrieval_override,
                 render_citations=render_citations,
+                include_work_session_context=include_work_session_context,
+                include_work_session_diagnostics=include_work_session_diagnostics,
+                work_session_scope=work_session_scope,
+                explicit_resume=explicit_resume,
             )
 
         preview = self.preview_route(
@@ -2634,6 +2667,10 @@ class RuntimeSession:
         retrieval_query: str | None,
         retrieval_override: RetrievalOverrideRequestContract | None,
         render_citations: bool | None,
+        include_work_session_context: bool,
+        include_work_session_diagnostics: bool,
+        work_session_scope: dict[str, Any] | None,
+        explicit_resume: bool,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         text = str(message or "").strip()
@@ -2854,7 +2891,7 @@ class RuntimeSession:
         requested_retrieval_query = str(
             (retrieval_override.query if retrieval_override is not None else retrieval_query) or ""
         ).strip()
-        return {
+        package = {
             "package_version": "v2",
             "message": text,
             "retrieval_query": requested_retrieval_query,
@@ -2915,6 +2952,186 @@ class RuntimeSession:
                 "ask_followup_when_evidence_weak": True,
             },
         }
+        work_context = self._build_work_session_context(
+            session=session,
+            include_work_session_context=include_work_session_context,
+            include_work_session_diagnostics=include_work_session_diagnostics,
+            work_session_scope=work_session_scope,
+            explicit_resume=explicit_resume,
+            package=package,
+        )
+        if work_context:
+            package["work_session_context"] = work_context
+        return package
+
+    def capture_work_session_entry(
+        self,
+        *,
+        session_id: str | None = None,
+        work_session_scope: dict[str, Any],
+        kind: str,
+        summary: str = "",
+        raw_content: str = "",
+        source_turn_id: str = "",
+        source_tool_call_id: str = "",
+        replaceability_score: float = 0.0,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not bool(self.config.work_session_scratchpad.enabled):
+            raise RuntimeError("work session scratchpad is disabled")
+        store = self._scratchpad_store
+        if store is None:
+            detail = self._scratchpad_init_error or "scratchpad store unavailable"
+            raise RuntimeError(detail)
+        scope = self._resolve_work_session_scope(session_id=session_id, work_session_scope=work_session_scope)
+        if not scope.scope_id:
+            raise RuntimeError("work session scratchpad scope is disabled")
+        entry = store.add_entry(
+            scope,
+            kind=kind,
+            summary=summary,
+            raw_content=raw_content,
+            source_turn_id=source_turn_id,
+            source_tool_call_id=source_tool_call_id,
+            replaceability_score=replaceability_score,
+            metadata=dict(metadata or {}),
+        )
+        return {
+            "entry_id": entry.entry_id,
+            "scope_id": entry.scope_id,
+            "kind": entry.kind,
+            "summary": entry.summary,
+            "raw_ref": entry.raw_ref,
+            "raw_ref_sha256": entry.raw_ref_sha256,
+            "status": entry.status,
+            "degraded": entry.degraded,
+            "token_estimate": entry.token_estimate,
+        }
+
+    def _build_work_session_context(
+        self,
+        *,
+        session: SessionState,
+        include_work_session_context: bool,
+        include_work_session_diagnostics: bool,
+        work_session_scope: dict[str, Any] | None,
+        explicit_resume: bool,
+        package: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        policy = self.config.work_session_scratchpad
+        if not (bool(policy.enabled) and bool(policy.inject_enabled) and bool(include_work_session_context)):
+            return None
+        store = self._scratchpad_store
+        if store is None:
+            return None
+        scope = self._resolve_work_session_scope(session_id=session.session_id, work_session_scope=work_session_scope)
+        if not scope.can_inject:
+            return None
+        entries = store.list_entries_for_injection(scope)
+        if not entries and bool(policy.resume_injection_enabled):
+            entries = store.list_entries_for_resume_injection(scope)
+        selected = []
+        used_chars = 0
+        max_chars = int(policy.max_injected_chars)
+        for entry in entries[: int(policy.max_injected_items)]:
+            summary = str(entry.summary or "").strip()
+            if not summary:
+                continue
+            projected = used_chars + len(summary)
+            if projected > max_chars and selected:
+                break
+            if projected > max_chars:
+                summary = summary[:max_chars].rstrip()
+                projected = len(summary)
+            selected.append(
+                {
+                    "entry_id": entry.entry_id,
+                    "kind": entry.kind,
+                    "summary": summary,
+                    "replaceability_score": round(float(entry.replaceability_score), 4),
+                    "token_estimate": int(entry.token_estimate),
+                    "raw_ref": entry.raw_ref,
+                    "raw_ref_sha256": entry.raw_ref_sha256,
+                }
+            )
+            used_chars = projected
+        if not selected:
+            return None
+        summaries = [str(item["summary"]) for item in selected if str(item.get("summary") or "").strip()]
+        context = {
+            "non_authoritative": True,
+            "trust_tier": "scratchpad_ephemeral",
+            "summary_mode": "deterministic",
+            "scope": {
+                "scope_id": scope.scope_id,
+                "project_id": scope.project_id,
+                "thread_id": scope.thread_id,
+                "session_id": scope.session_id,
+                "workstream_key": scope.workstream_key,
+                "workstream_name": scope.workstream_name,
+                "scope_mode": scope.scope_mode,
+            },
+            "summary": " ".join(summaries)[:max_chars],
+            "items": selected,
+            "budget": {
+                "max_injected_items": int(policy.max_injected_items),
+                "max_injected_chars": int(policy.max_injected_chars),
+                "observed_injected_tokens": estimate_context_tokens(selected),
+            },
+        }
+        context["metrics"] = {
+            "observed_package_tokens": estimate_context_tokens(package),
+            "observed_injected_tokens": estimate_context_tokens(context),
+            "hypothetical_prompt_tokens_replaced": int(
+                sum(int(dict(getattr(entry, "metadata", {}) or {}).get("hypothetical_prompt_tokens_replaced") or 0) for entry in entries)
+            ),
+        }
+        context["budget"]["observed_injected_tokens"] = context["metrics"]["observed_injected_tokens"]
+        if bool(policy.diagnostics_enabled) and bool(include_work_session_diagnostics):
+            try:
+                all_entries = store.list_entries_for_diagnostics(scope)
+                context["diagnostics"] = {
+                    "scratchpad_available": bool(all_entries),
+                    "scratchpad_injected": bool(selected),
+                    "task_map": build_diagnostic_task_map(scope, all_entries),
+                }
+            except Exception as exc:
+                context["diagnostics"] = {
+                    "scratchpad_available": True,
+                    "scratchpad_injected": bool(selected),
+                    "task_map_error": str(exc),
+                }
+        return context
+
+    def _resolve_work_session_scope(
+        self,
+        *,
+        session_id: str | None,
+        work_session_scope: dict[str, Any] | None,
+    ) -> WorkSessionScope:
+        metadata = dict(work_session_scope or {}) if isinstance(work_session_scope, dict) else {}
+        session_key = self._normalize_session_id(str(session_id or "default"))
+        thread_id = str(metadata.get("thread_id") or metadata.get("work_session_thread_id") or "").strip()
+        workstream_key = str(metadata.get("workstream_key") or metadata.get("checkpoint_track") or "").strip()
+        return resolve_scope(
+            project_id=str(self.project_root),
+            thread_id=thread_id,
+            session_id=session_key,
+            workstream_key=workstream_key,
+            workstream_name=str(metadata.get("workstream_name") or workstream_key).strip(),
+            runtime_store_fingerprint=self._runtime_store_fingerprint(),
+        )
+
+    def _runtime_store_fingerprint(self) -> str:
+        store = getattr(self.retriever, "store", None)
+        parts = [type(store).__name__]
+        for attr in ("db_path", "path", "store_path"):
+            value = getattr(store, attr, None)
+            if value:
+                parts.append(str(value))
+                break
+        token = "|".join(parts)
+        return "store:" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
 
     def _pack_to_evidence_v2(self, pack: MemoryPack) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []

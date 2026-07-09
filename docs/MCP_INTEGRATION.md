@@ -80,6 +80,14 @@ The clean repo ships stable MCP parity tools for the public integration contract
 
 These mirror the `integration-v1` HTTP contract.
 
+## Work-session scratchpad
+
+WSS is built-in runtime helper state for strict-scope v2 context packages. It may appear as `work_session_context` with trust tier `scratchpad_ephemeral` when a runtime context-package path has stable project/thread/workstream scope.
+
+MCP parity tools keep the `integration-v1` envelope evidence-focused. Do not treat WSS as MCP evidence or reviewed memory. Use it only as work-continuity context when a lower-level context-package path exposes it.
+
+More detail: [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md).
+
 ## Roles and auth
 
 MCP can run with viewer, operator, and admin roles.
@@ -115,3 +123,4 @@ Do not treat MCP as the only official contract if you are building a new orchest
 - [Agent Integration](AGENT_INTEGRATION.md)
 - [API](API.md)
 - [Configuration](CONFIGURATION.md)
+- [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md)

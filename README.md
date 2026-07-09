@@ -18,7 +18,8 @@
   <a href="#-quick-start">Quick Start</a> |
   <a href="docs/AGENT_INTEGRATION.md">Agent Integration</a> |
   <a href="docs/MCP_INTEGRATION.md">MCP</a> |
-  <a href="docs/API.md">API</a>
+  <a href="docs/API.md">API</a> |
+  <a href="docs/WORK_SESSION_SCRATCHPAD.md">WSS</a>
 </p>
 
 ModelNumquamOblita, or `MNO`, helps an assistant remember from real evidence instead of guessing from vibes.
@@ -98,7 +99,9 @@ raw source
   -> answer or abstain
 ```
 
-Runtime helpers can assist recall, but they do not outrank reviewed truth. Draft proposals stay separate from `review_decisions` until explicit promotion.
+Runtime helpers can assist recall, but they do not outrank reviewed truth. Draft proposals stay separate from `review_decisions` until explicit promotion. The built-in work-session scratchpad is project-local helper state that attaches to strict-scope context packages; it is not evidence.
+
+WSS, short for work-session scratchpad, is live-on for strict project/thread/workstream scoped v2 context packages. It appears as `work_session_context` with trust tier `scratchpad_ephemeral`. It helps an agent resume work, but it cannot prove a memory or bypass review.
 
 ## 🖼️ Picture Version
 
@@ -241,6 +244,7 @@ If you are new to the project:
 - [Quickstart](docs/QUICKSTART.md)
 - [Benchmarks](docs/BENCHMARKS.md)
 - [Pipeline Guide](docs/PIPELINE_GUIDE.md)
+- [Work-Session Scratchpad](docs/WORK_SESSION_SCRATCHPAD.md)
 - [Public Overview](docs/public/README.md)
 - [Public Architecture](docs/public/ARCHITECTURE.md)
 - [Security And Privacy](docs/SECURITY_AND_PRIVACY.md)
@@ -283,7 +287,7 @@ The short technical shape is:
 raw source -> import/normalize -> atoms.sqlite3 -> draft episode cards -> human review -> reviewed episode cards -> runtime
 ```
 
-The runtime includes bounded retrieval, reviewed memory, optional local ANN candidate generation, raw-context lookup for exact wording, and verification/abstention behavior. ANN and raw-context sidecars are helpers only. They are not truth sources and do not bypass review.
+The runtime includes bounded retrieval, reviewed memory, optional local ANN candidate generation, raw-context lookup for exact wording, built-in WSS `scratchpad_ephemeral` context for strict-scope agent continuity, and verification/abstention behavior. ANN, raw-context, and scratchpad sidecars are helpers only. They are not truth sources and do not bypass review.
 
 Engineer-facing diagrams:
 

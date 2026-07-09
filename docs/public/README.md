@@ -15,9 +15,11 @@ Core pieces:
 - reviewed episode cards
 - bounded retrieval with a local ANN helper
 - a read-only raw-context sidecar for quote and provenance requests
+- a built-in work-session scratchpad for strict project/thread/workstream scoped `scratchpad_ephemeral` context packages
 - verifier-guarded runtime behavior
 - optional MCP and adapter surfaces
 
 Further reading:
 - [Public Architecture](ARCHITECTURE.md)
+- [Work-Session Scratchpad](../WORK_SESSION_SCRATCHPAD.md)
 - [Response To "Why Long-Term Memory Remains Unsolved"](MNO_RESPONSE_TO_WHY_LONG_TERM_MEMORY_REMAINS_UNSOLVED_2026-04-12.md)

@@ -8,6 +8,8 @@ Use these when someone asks how MNO actually works internally:
 - where trust boundaries live
 - how runtime retrieval flows through evidence packaging and verification
 - how integration surfaces attach without becoming separate truth contracts
+- how WSS `scratchpad_ephemeral` context attaches to strict-scope work-session
+  packages without becoming truth
 - how source evidence stays traceable through reviewed memory and `context.why`
 
 Regenerate them with:

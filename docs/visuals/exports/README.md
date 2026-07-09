@@ -2,6 +2,10 @@
 
 These files are generated from the canonical `2026-04-12` draw.io sources in `docs/visuals`.
 
+The current exports identify WSS as built-in strict-scope work-continuity helper
+state. It appears as `scratchpad_ephemeral` context for runtime context packages,
+not as reviewed memory, retrieval evidence, or publish/verify truth.
+
 For public docs, prefer the simplified clean exports:
 
 - [Clean Public Diagram Exports](clean/README.md)

@@ -52,10 +52,10 @@
         <mxCell id="l13" value="Launch runtime&amp;#10;desktop / headless / integration-v1 / MCP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="745" y="195" width="260" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="l14" value="Runtime memory sources&amp;#10;reviewed cards + atoms + raw-context quote lane + helper memory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+        <mxCell id="l14" value="Runtime memory sources&amp;#10;reviewed cards + atoms + quote lane; WSS = strict-scope scratchpad_ephemeral" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="745" y="300" width="260" height="85" as="geometry" />
         </mxCell>
-        <mxCell id="l15" value="Key launch rule&amp;#10;reviewed cards become trusted runtime memory; helpers and receipts do not replace review" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+        <mxCell id="l15" value="Key launch rule&amp;#10;reviewed cards become trusted runtime memory; WSS helps work continuity, not proof" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
           <mxGeometry x="390" y="665" width="620" height="90" as="geometry" />
         </mxCell>
         <mxCell id="e2" edge="1" parent="1" source="l1" target="l3" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;jumpStyle=arc;jumpSize=6;endArrow=block;endFill=1;html=1;rounded=0;strokeWidth=2;strokeColor=#d6b656;entryX=0.5;entryY=0;entryPerimeter=1;exitX=0.5;exitY=1;exitPerimeter=1;">
@@ -135,7 +135,7 @@
         <mxCell id="q9" value="9. Reviewed memory goes live in the runtime." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="700" y="470" width="280" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="q10" value="Words to know&amp;#10;MCP = Model Context Protocol&amp;#10;ANN = approximate nearest neighbor" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+        <mxCell id="q10" value="Words to know&amp;#10;MCP = Model Context Protocol&amp;#10;ANN = approximate nearest neighbor&amp;#10;WSS = work-session scratchpad" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
           <mxGeometry x="480" y="640" width="320" height="90" as="geometry" />
         </mxCell>
         <mxCell id="e2" edge="1" parent="1" source="q1" target="q2" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;jumpStyle=arc;jumpSize=6;endArrow=block;endFill=1;html=1;rounded=0;strokeWidth=2;strokeColor=#d6b656;entryX=0;entryY=0.5;entryPerimeter=1;exitX=1;exitY=0.5;exitPerimeter=1;">

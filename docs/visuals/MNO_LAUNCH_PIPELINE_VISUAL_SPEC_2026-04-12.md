@@ -15,6 +15,7 @@ This package should explain:
 - where optional draft curation sits
 - where human review and truth-lineage annotation happen
 - when reviewed cards become runtime-usable
+- where built-in WSS appears as strict project/thread/workstream scoped `scratchpad_ephemeral` runtime helper state
 
 ## Authority
 
@@ -55,8 +56,8 @@ Show the launch flow in three areas:
 ### Runtime Launch And Operate
 - launch_setup_workspace entrypoint
 - runtime launch surfaces
-- runtime memory sources summary
-- launch rule that reviewed cards become trusted runtime memory while helpers stay helpers
+- runtime memory sources summary, including strict-scope WSS
+- launch rule that reviewed cards become trusted runtime memory while WSS stays work continuity, not proof
 
 ## Page 2: Caveman Pipeline
 
@@ -66,10 +67,12 @@ This page should explain the same flow in plain language while still teaching th
 - `draft = rough, not trusted yet`
 - `reviewed cards = trusted runtime memory`
 - `truth lineage = corrected reviewed cards stay linked`
+- `WSS = work-session scratchpad`
 
 ## Important launch boundaries
 
 - picker-first UX should be visible in the engineering page
 - append-to-existing-store behavior should be visible
 - raw-context sidecar should be visible but clearly non-authoritative
+- WSS should be visible as `scratchpad_ephemeral` work-session continuity support, not reviewed truth
 - human review remains the truth gate

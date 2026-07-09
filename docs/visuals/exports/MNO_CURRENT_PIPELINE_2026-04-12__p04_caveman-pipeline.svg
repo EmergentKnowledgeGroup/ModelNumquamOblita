@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1850" height="917" viewBox="0 0 1850 917" role="img" aria-label="Caveman Pipeline">
+<svg xmlns="http://www.w3.org/2000/svg" width="1850" height="935" viewBox="0 0 1850 935" role="img" aria-label="Caveman Pipeline">
 <rect width="100%" height="100%" fill="#ffffff"/>
-<polyline points="520.0,405.4 492.0,405.4 496.0,400.0 496.0,640.0 48.0,640.0 42.0,642.9 70.0,642.9" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="430.0,389.9 458.0,389.9 464.0,384.0 464.0,624.0 912.0,624.0 912.0,640.0 908.0,642.9 880.0,642.9" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="520.0,405.4 492.0,405.4 496.0,400.0 496.0,656.0 48.0,656.0 42.0,651.8 70.0,651.8" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="430.0,389.9 458.0,389.9 464.0,384.0 464.0,640.0 912.0,640.0 912.0,656.0 908.0,651.8 880.0,651.8" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="430.0,127.9 458.0,127.9 464.0,128.0 464.0,112.0 912.0,112.0 908.0,114.6 880.0,114.6" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="880.0,141.2 908.0,141.2 912.0,144.0 1360.0,144.0 1360.0,112.0 1358.0,114.6 1330.0,114.6" fill="none" stroke="#c97b63" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="1330.0,141.2 1358.0,141.2 1360.0,144.0 1360.0,128.0 1808.0,128.0 1808.0,127.9 1780.0,127.9" fill="none" stroke="#c97b63" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
@@ -29,14 +29,14 @@
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="700.0" y="379.1"><tspan x="700.0" dy="0.0">7. Reviewed cards stay linked when one corrects</tspan><tspan x="700.0" dy="16.5">another.</tspan><tspan x="700.0" dy="16.5">That is truth lineage.</tspan></text>
 <rect x="70.0" y="340.8" width="360.0" height="98.1" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="395.6"><tspan x="250.0" dy="0.0">8. At runtime, MNO uses trusted memory first.</tspan></text>
-<rect x="70.0" y="593.9" width="360.0" height="98.1" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="640.4"><tspan x="250.0" dy="0.0">9. If you ask for exact wording, MNO can open the</tspan><tspan x="250.0" dy="16.5">wording receipt lane.</tspan></text>
-<rect x="520.0" y="593.9" width="360.0" height="98.1" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="700.0" y="640.4"><tspan x="700.0" dy="0.0">10. MNO answers, abstains, or asks you to clarify</tspan><tspan x="700.0" dy="16.5">instead of bluffing.</tspan></text>
-<rect x="970.0" y="593.9" width="360.0" height="98.1" rx="12" fill="#e1d5e7" stroke="#9673a6" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1150.0" y="632.2"><tspan x="1150.0" dy="0.0">Words to know</tspan><tspan x="1150.0" dy="16.5">MCP = Model Context Protocol</tspan><tspan x="1150.0" dy="16.5">ANN = approximate nearest neighbor</tspan></text>
-<polygon points="70.0,642.9 59.2,648.2 59.2,637.7" fill="#82b366"/>
-<polygon points="880.0,642.9 890.8,637.7 890.8,648.2" fill="#6c8ebf"/>
+<rect x="70.0" y="593.9" width="360.0" height="115.8" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="649.3"><tspan x="250.0" dy="0.0">9. If you ask for exact wording, MNO can open the</tspan><tspan x="250.0" dy="16.5">wording receipt lane.</tspan></text>
+<rect x="520.0" y="593.9" width="360.0" height="115.8" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="700.0" y="649.3"><tspan x="700.0" dy="0.0">10. MNO answers, abstains, or asks you to clarify</tspan><tspan x="700.0" dy="16.5">instead of bluffing.</tspan></text>
+<rect x="970.0" y="593.9" width="360.0" height="115.8" rx="12" fill="#e1d5e7" stroke="#9673a6" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1150.0" y="632.8"><tspan x="1150.0" dy="0.0">Words to know</tspan><tspan x="1150.0" dy="16.5">MCP = Model Context Protocol</tspan><tspan x="1150.0" dy="16.5">ANN = approximate nearest neighbor</tspan><tspan x="1150.0" dy="16.5">WSS = work-session scratchpad</tspan></text>
+<polygon points="70.0,651.8 59.2,657.1 59.2,646.5" fill="#82b366"/>
+<polygon points="880.0,651.8 890.8,646.5 890.8,657.1" fill="#6c8ebf"/>
 <polygon points="880.0,114.6 890.8,109.3 890.8,119.9" fill="#d6b656"/>
 <polygon points="1330.0,114.6 1340.8,109.3 1340.8,119.9" fill="#c97b63"/>
 <polygon points="1780.0,127.9 1790.8,122.6 1790.8,133.2" fill="#c97b63"/>

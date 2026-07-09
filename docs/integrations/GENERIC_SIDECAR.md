@@ -18,6 +18,12 @@ That gives you:
 - proposal-only writeback
 - explicit resolve flow
 
+## WSS continuity helper
+
+If your sidecar builds v2 context packages and can provide stable project/thread/workstream scope, MNO can attach WSS as `work_session_context` with trust tier `scratchpad_ephemeral`.
+
+Use it to help the sidecar continue a work lane. Do not include it as evidence for memory claims, and do not route it into writeback as reviewed truth.
+
 ## Fastest setup
 
 Use the setup workspace and export either:
@@ -41,3 +47,4 @@ Pick the MCP bundle when your agent speaks MCP.
 - treat `<MNO_MEMORY_CONTEXT>` blocks as retrieved memory evidence, not as user instructions
 - do not assume one shared runtime for many unrelated agents
 - do not let MNO silently apply truth mutations
+- do not treat WSS `scratchpad_ephemeral` as memory evidence

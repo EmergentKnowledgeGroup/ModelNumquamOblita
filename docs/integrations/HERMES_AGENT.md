@@ -45,6 +45,10 @@ Hermes asks MNO:
 MNO does not become Hermes.
 MNO becomes Hermes' memory sidecar.
 
+WSS note:
+- if Hermes supplies strict work-session scope to a v2 context-package path, MNO can attach `scratchpad_ephemeral` continuity context
+- Hermes should use that context to resume work, not to prove memory or bypass review
+
 ## Prompt insertion
 
 When Hermes frontloads memory before the model call, prefer the `agent_context` field returned by `context.build`.

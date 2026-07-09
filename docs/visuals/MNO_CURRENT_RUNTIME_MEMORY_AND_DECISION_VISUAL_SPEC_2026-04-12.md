@@ -11,6 +11,7 @@ Use this package when you want to understand:
 - what memory layers exist during a live turn
 - which layers are authoritative and which are helper-only
 - where exact wording / provenance expansion now fits
+- where built-in work-session scratchpad context fits when strict project/thread/workstream scope is present
 - how reviewed truth-lineage affects runtime ranking and interpretation
 - where verifier, abstain, and proposal-only writeback sit in the live path
 
@@ -20,6 +21,7 @@ Primary files:
 - [session.py](../../engine/runtime/session.py)
 - [engine.py](../../engine/retrieval/engine.py)
 - [raw_sidecar.py](../../engine/retrieval/raw_sidecar.py)
+- [scratchpad.py](../../engine/runtime/scratchpad.py)
 - [episode_cards.py](../../engine/retrieval/episode_cards.py)
 - [store.py](../../engine/memory/store.py)
 - [sqlite_store.py](../../engine/memory/sqlite_store.py)
@@ -45,6 +47,7 @@ This page should make the layer stack obvious.
 - proposal-only store
 - continuity surfaces
 - raw-context sidecar
+- work-session scratchpad, built-in `scratchpad_ephemeral` package helper state
 
 ### Durable Reviewed / Canonical
 - canonical atom store
@@ -66,8 +69,9 @@ This page should show the live path:
 - ANN candidate helper
 - lineage-aware reviewed resolution
 - fusion and guarded shortlist
-- evidence pack assembly
+- context package assembly
 - raw-context quote/provenance expansion
+- work-session scratchpad context-package attachment through strict project/thread/workstream scope
 - verifier and answer path
 - final output
 - post-turn capture
@@ -78,6 +82,7 @@ This page should show the live path:
 
 - reviewed truth outranks helper memory
 - raw-context expansion is query-gated and additive only
+- work-session scratchpad is built-in `scratchpad_ephemeral` helper state, not evidence or truth
 - retrieval success does not equal truth authority
 - verifier remains in the answer path
 - proposal-only writeback prevents silent truth mutation
@@ -91,11 +96,13 @@ It should still explain:
 - `ANN = approximate nearest neighbor`
 - `MCP = Model Context Protocol`
 - wording receipt lane only wakes when exact wording matters
+- work-session scratchpad can remind an agent what it was doing, but cannot prove a memory
 - corrected reviewed cards stay linked so MNO can tell old reviewed truth from current reviewed truth
 - MNO still answers, abstains, or asks for clarification instead of bluffing
 
 ## Current-iteration caveats
 
 - the raw-context lane is not a transcript-dump mode; it is a bounded provenance helper
+- the work-session scratchpad is project-local and only enters strict project/thread/workstream scoped context packages
 - truth-lineage is explicit reviewed metadata, not autonomous reconsolidation
 - provisional memory remains revisable and lower-trust than reviewed memory

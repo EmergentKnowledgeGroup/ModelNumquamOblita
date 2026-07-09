@@ -129,6 +129,7 @@ The desktop app is the easiest local operator path if you want:
 - memory graphs
 - draft curation lane
 - continuity surfaces like pins, wake-up pack, and resume pack
+- WSS `scratchpad_ephemeral` continuity for strict-scope agent context packages
 - managed install or export for assistant/agent targets
 
 ## MCP launch
@@ -169,3 +170,4 @@ This launcher starts:
 - [Pipeline Guide](PIPELINE_GUIDE.md)
 - [Agent Integration](AGENT_INTEGRATION.md)
 - [MCP Integration](MCP_INTEGRATION.md)
+- [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md)

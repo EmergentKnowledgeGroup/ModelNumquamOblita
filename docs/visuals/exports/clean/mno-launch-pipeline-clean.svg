@@ -30,7 +30,7 @@
 <rect x="1115" y="210" width="340" height="100" rx="9" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
 <text x="1285.0" y="244.5" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="1285.0" dy="0.0">Launch runtime</tspan><tspan x="1285.0" dy="22.3">desktop, headless, integration-v1,</tspan><tspan x="1285.0" dy="22.3">MCP</tspan></text>
 <rect x="1115" y="430" width="340" height="120" rx="9" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
-<text x="1285.0" y="474.5" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="1285.0" dy="0.0">Runtime memory sources</tspan><tspan x="1285.0" dy="22.3">reviewed cards + atoms + quote lane</tspan><tspan x="1285.0" dy="22.3">+ helpers</tspan></text>
+<text x="1285.0" y="474.5" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="1285.0" dy="0.0">Runtime memory sources</tspan><tspan x="1285.0" dy="22.3">reviewed cards + atoms + quote lane;</tspan><tspan x="1285.0" dy="22.3">WSS is strict-scope helper state</tspan></text>
 <rect x="310" y="760" width="930" height="96" rx="9" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
 <text x="775.0" y="803.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="775.0" dy="0.0">Key rule</tspan><tspan x="775.0" dy="22.3">reviewed cards become trusted runtime memory; helpers and receipts do not replace review</tspan></text>
 <polygon points="265.0,330.0 259.7,319.2 270.3,319.2" fill="#d6b656"/>

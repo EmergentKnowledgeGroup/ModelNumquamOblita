@@ -48,9 +48,9 @@
 <rect x="1158.0" y="249.8" width="372.0" height="83.8" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1344.0" y="289.1"><tspan x="1344.0" dy="0.0">Launch runtime</tspan><tspan x="1344.0" dy="16.5">desktop / headless / integration-v1 / MCP</tspan></text>
 <rect x="1158.0" y="375.5" width="372.0" height="102.6" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1344.0" y="416.1"><tspan x="1344.0" dy="0.0">Runtime memory sources</tspan><tspan x="1344.0" dy="16.5">reviewed cards + atoms + raw-context quote lane +</tspan><tspan x="1344.0" dy="16.5">helper memory</tspan></text>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1344.0" y="416.1"><tspan x="1344.0" dy="0.0">Runtime memory sources</tspan><tspan x="1344.0" dy="16.5">reviewed cards + atoms + quote lane; WSS =</tspan><tspan x="1344.0" dy="16.5">strict-scope scratchpad_ephemeral</tspan></text>
 <rect x="418.0" y="1027.3" width="780.0" height="83.8" rx="12" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="1066.7"><tspan x="808.0" dy="0.0">Key launch rule</tspan><tspan x="808.0" dy="16.5">reviewed cards become trusted runtime memory; helpers and receipts do not replace review</tspan></text>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="1066.7"><tspan x="808.0" dy="0.0">Key launch rule</tspan><tspan x="808.0" dy="16.5">reviewed cards become trusted runtime memory; WSS helps work continuity, not proof</tspan></text>
 <polygon points="753.3,459.3 758.6,470.1 748.1,470.1" fill="#82b366"/>
 <polygon points="753.3,585.0 758.6,595.8 748.1,595.8" fill="#82b366"/>
 <polygon points="808.0,710.8 813.3,721.6 802.7,721.6" fill="#82b366"/>

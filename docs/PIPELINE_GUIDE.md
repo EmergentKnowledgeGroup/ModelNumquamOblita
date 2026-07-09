@@ -144,9 +144,12 @@ These are not part of the build/import truth path:
 - proposal-only writeback
 - pins, action log, wake-up pack, resume pack
 - retrieval feedback
+- built-in work-session scratchpad context for strict project/thread/workstream scoped v2 context packages
 
 They are runtime helpers and operator surfaces, not replacements for reviewed truth.
 
 ## Contract rule
 
 Draft, proposal, and runtime-helper artifacts do not become reviewed truth unless they pass the explicit human-controlled path.
+
+WSS-specific rule: `scratchpad_ephemeral` can help an agent resume work, but it cannot support a memory claim. See [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md).

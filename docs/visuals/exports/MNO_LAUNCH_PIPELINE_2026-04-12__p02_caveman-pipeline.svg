@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1850" height="864" viewBox="0 0 1850 864" role="img" aria-label="Caveman Pipeline">
+<svg xmlns="http://www.w3.org/2000/svg" width="1850" height="882" viewBox="0 0 1850 882" role="img" aria-label="Caveman Pipeline">
 <rect width="100%" height="100%" fill="#ffffff"/>
 <polyline points="430.0,110.2 458.0,110.2 464.0,112.0 464.0,96.0 912.0,96.0 908.0,102.8 880.0,102.8" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="880.0,117.6 908.0,117.6 912.0,112.0 1360.0,112.0 1360.0,96.0 1358.0,99.1 1330.0,99.1" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
@@ -8,7 +8,7 @@
 <polyline points="1420.0,345.6 1392.0,345.6 1392.0,336.0 944.0,336.0 942.0,338.2 970.0,338.2" fill="none" stroke="#c97b63" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="970.0,353.0 942.0,353.0 944.0,352.0 496.0,352.0 496.0,336.0 492.0,338.2 520.0,338.2" fill="none" stroke="#b8549e" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="520.0,353.0 492.0,353.0 496.0,352.0 48.0,352.0 42.0,345.6 70.0,345.6" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="250.0,385.8 250.0,413.8 256.0,416.0 256.0,672.0 250.0,666.9 250.0,638.9" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="250.0,385.8 250.0,413.8 256.0,416.0 256.0,688.0 250.0,684.6 250.0,656.6" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <rect x="70.0" y="70.0" width="360.0" height="80.4" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="115.9"><tspan x="250.0" dy="0.0">1. Click the starter file or open the app.</tspan></text>
 <rect x="520.0" y="70.0" width="360.0" height="80.4" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
@@ -25,10 +25,10 @@
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="700.0" y="351.3"><tspan x="700.0" dy="0.0">7. Human decides what becomes trusted memory.</tspan></text>
 <rect x="70.0" y="305.4" width="360.0" height="80.4" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="343.1"><tspan x="250.0" dy="0.0">8. Corrected reviewed cards stay linked so old vs</tspan><tspan x="250.0" dy="16.5">current truth is clearer.</tspan></text>
-<rect x="70.0" y="540.8" width="360.0" height="98.1" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="595.6"><tspan x="250.0" dy="0.0">9. Reviewed memory goes live in the runtime.</tspan></text>
-<rect x="520.0" y="540.8" width="360.0" height="98.1" rx="12" fill="#e1d5e7" stroke="#9673a6" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="700.0" y="579.1"><tspan x="700.0" dy="0.0">Words to know</tspan><tspan x="700.0" dy="16.5">MCP = Model Context Protocol</tspan><tspan x="700.0" dy="16.5">ANN = approximate nearest neighbor</tspan></text>
+<rect x="70.0" y="540.8" width="360.0" height="115.8" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="604.4"><tspan x="250.0" dy="0.0">9. Reviewed memory goes live in the runtime.</tspan></text>
+<rect x="520.0" y="540.8" width="360.0" height="115.8" rx="12" fill="#e1d5e7" stroke="#9673a6" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="700.0" y="579.7"><tspan x="700.0" dy="0.0">Words to know</tspan><tspan x="700.0" dy="16.5">MCP = Model Context Protocol</tspan><tspan x="700.0" dy="16.5">ANN = approximate nearest neighbor</tspan><tspan x="700.0" dy="16.5">WSS = work-session scratchpad</tspan></text>
 <polygon points="880.0,102.8 890.8,97.5 890.8,108.1" fill="#d6b656"/>
 <polygon points="1330.0,99.1 1340.8,93.8 1340.8,104.4" fill="#d6b656"/>
 <polygon points="1780.0,110.2 1790.8,104.9 1790.8,115.5" fill="#c97b63"/>
@@ -36,5 +36,5 @@
 <polygon points="970.0,338.2 959.2,343.5 959.2,332.9" fill="#c97b63"/>
 <polygon points="520.0,338.2 509.2,343.5 509.2,332.9" fill="#b8549e"/>
 <polygon points="70.0,345.6 59.2,350.9 59.2,340.3" fill="#82b366"/>
-<polygon points="250.0,638.9 255.3,649.7 244.7,649.7" fill="#82b366"/>
+<polygon points="250.0,656.6 255.3,667.4 244.7,667.4" fill="#82b366"/>
 </svg>

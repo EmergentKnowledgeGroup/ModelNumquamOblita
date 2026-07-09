@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1850" height="882" viewBox="0 0 1850 882" role="img" aria-label="Caveman Runtime And Integration">
+<svg xmlns="http://www.w3.org/2000/svg" width="1850" height="900" viewBox="0 0 1850 900" role="img" aria-label="Caveman Runtime And Integration">
 <rect width="100%" height="100%" fill="#ffffff"/>
 <polyline points="430.0,110.2 458.0,110.2 464.0,112.0 464.0,96.0 912.0,96.0 908.0,102.8 880.0,102.8" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="880.0,117.6 908.0,117.6 912.0,112.0 1360.0,112.0 1360.0,96.0 1358.0,102.8 1330.0,102.8" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
@@ -25,8 +25,8 @@
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="700.0" y="343.1"><tspan x="700.0" dy="0.0">7. MNO builds a bounded evidence bundle, then</tspan><tspan x="700.0" dy="16.5">answers, abstains, or asks to clarify.</tspan></text>
 <rect x="70.0" y="305.4" width="360.0" height="80.4" rx="12" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="343.1"><tspan x="250.0" dy="0.0">8. New risky memory still goes to proposal/review,</tspan><tspan x="250.0" dy="16.5">not straight into truth.</tspan></text>
-<rect x="70.0" y="540.8" width="360.0" height="115.8" rx="12" fill="#e1d5e7" stroke="#9673a6" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="579.7"><tspan x="250.0" dy="0.0">Words to know</tspan><tspan x="250.0" dy="16.5">MCP = Model Context Protocol</tspan><tspan x="250.0" dy="16.5">STM = short-term memory</tspan><tspan x="250.0" dy="16.5">ANN = approximate nearest neighbor</tspan></text>
+<rect x="70.0" y="540.8" width="360.0" height="133.5" rx="12" fill="#e1d5e7" stroke="#9673a6" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="250.0" y="580.2"><tspan x="250.0" dy="0.0">Words to know</tspan><tspan x="250.0" dy="16.5">MCP = Model Context Protocol</tspan><tspan x="250.0" dy="16.5">STM = short-term memory</tspan><tspan x="250.0" dy="16.5">ANN = approximate nearest neighbor</tspan><tspan x="250.0" dy="16.5">WSS = work-session scratchpad</tspan></text>
 <polygon points="880.0,102.8 890.8,97.5 890.8,108.1" fill="#d6b656"/>
 <polygon points="1330.0,102.8 1340.8,97.5 1340.8,108.1" fill="#d6b656"/>
 <polygon points="1780.0,110.2 1790.8,104.9 1790.8,115.5" fill="#82b366"/>

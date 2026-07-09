@@ -8,6 +8,8 @@
 
 `incoming turn -> route -> shortlist evidence -> build context package -> answer or abstain -> optional proposal-only writeback`
 
+Work-session scratchpad context is built into v2 context packages when strict project/thread/workstream scope identity is present. It appears as `scratchpad_ephemeral` helper state for agent continuity, not retrieval evidence.
+
 ## Import behavior
 
 Raw-source import is normalized before extraction:
@@ -30,6 +32,7 @@ Raw-source import is normalized before extraction:
   - provisional memory
   - proposal-only writeback
   - continuity surfaces like pins, action log, wake-up pack, and resume pack
+  - work-session scratchpad for project-local `scratchpad_ephemeral` agent work state
 
 Important rule:
 
@@ -92,6 +95,9 @@ The design goal is not to maximize the number of signals. The goal is to recover
 - human review remains authoritative
 - writeback is propose/resolve gated
 - verifier remains in the live answer path
+- work-session scratchpad rows are non-authoritative helper state and never support memory claims by themselves
+
+Canonical WSS details live in [Work-Session Scratchpad](../WORK_SESSION_SCRATCHPAD.md).
 
 ## Visual reference
 

@@ -30,6 +30,8 @@ The `runtime/` tree is local generated state. It can contain memory stores, revi
 
 Do not publish populated runtime data. A clean public repo should not include private memory stores, setup logs, checkpoint reports, desktop shell logs, or generated packaging output.
 
+Work-session scratchpad data is runtime data too. It is stored as a project-local sidecar for strict-scope agent continuity and may contain compact operational summaries. Do not publish populated WSS sidecars.
+
 ## Logs And Reports
 
 MNO logs are meant for local diagnosis. Depending on what you run, logs and reports may include:
@@ -50,9 +52,13 @@ MNO can preserve bounded raw-context receipts for provenance and quote-oriented 
 
 Practical rule: if the source file contains private text, assume raw-context surfaces may reveal short excerpts of that text to local operators or authorized agents.
 
+## Work-Session Scratchpad Risks
+
+WSS summaries are non-authoritative `scratchpad_ephemeral` helper state, but they can still mention local work details. Keep the runtime state root private, rotate or delete WSS sidecars according to your retention policy, and never treat scratchpad summaries as reviewed memory evidence.
+
 ## Truth Boundaries
 
-Human review remains authoritative for reviewed episode truth. Draft cards, proposal artifacts, provisional memory, pins, action logs, wake-up packs, resume packs, and retrieval feedback do not outrank reviewed truth.
+Human review remains authoritative for reviewed episode truth. Draft cards, proposal artifacts, provisional memory, pins, action logs, wake-up packs, resume packs, WSS `scratchpad_ephemeral` context, and retrieval feedback do not outrank reviewed truth.
 
 Writeback is propose/resolve gated. Draft or proposal artifacts are not silently promoted into reviewed truth.
 
@@ -65,6 +71,7 @@ Before using MNO outside a local workstation:
 - configure OS-level file permissions around `runtime/`
 - keep MCP config files scoped to the intended assistant or agent
 - verify that raw-context and report retention matches your privacy expectations
+- verify that WSS sidecar retention matches your local work-session privacy expectations
 - disable or restrict mutation-capable tokens for agents that only need retrieval
 
 ## Public Repo Hygiene
@@ -74,6 +81,7 @@ The distributable repo should contain product code, launch scripts, tests, and d
 - personal machine paths
 - generated checkpoint files
 - populated memory stores
+- populated WSS sidecars
 - desktop build output
 - local setup reports
 - copied dependency folders

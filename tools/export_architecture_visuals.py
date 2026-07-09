@@ -537,7 +537,7 @@ def system_context() -> Diagram:
         Node("entry_bus", "request\nentry", 1300, 220, 68, 410, "bus", 13, True),
         Node("runtime_session", "RuntimeSession\nrequest entry and orchestration", 930, 170, 255, 92, "runtime"),
         Node("retrieval", "Retrieval engine\nfusion across trusted and helper layers", 930, 345, 255, 110, "runtime"),
-        Node("evidence_pack", "Evidence package\nbounded context with citations", 930, 520, 255, 92, "evidence"),
+        Node("evidence_pack", "Context package\nbounded evidence plus strict active-scope scratchpad_ephemeral WSS", 930, 520, 255, 92, "evidence"),
         Node("verifier", "Verifier and responder\nanswer, abstain, or clarify", 930, 655, 255, 92, "decision"),
         Node("desktop", "Desktop shell\nmanaged local operator surface", 1430, 165, 280, 86, "integration"),
         Node("iv1", "integration-v1\npreferred orchestration contract", 1430, 315, 280, 86, "integration"),
@@ -564,7 +564,7 @@ def system_context() -> Diagram:
         Edge("verifier", "outcomes", "#bb5b54", target_pos=0.6),
     ]
     notes = [
-        Node("truth_rule", "Architectural invariant\nOnly reviewed cards become trusted truth. Atoms and wording receipts support evidence; helper memory stays lower-trust.", 380, 845, 1010, 86, "note", 17, True)
+        Node("truth_rule", "Architectural invariant\nOnly reviewed cards become trusted truth. Atoms and wording receipts support evidence; WSS supports work continuity only.", 380, 845, 1010, 86, "note", 17, True)
     ]
     boundaries = [
         Boundary("truth gate", 398, 130, 640, "#bb5b54"),
@@ -605,7 +605,7 @@ def build_pipeline() -> Diagram:
         Node("review_ui", "Review pack and UI\napprove, edit, reject, annotate", 1145, 230, 260, 96, "govern"),
         Node("lineage", "Truth-lineage finalizer\ntruth_family_id, current flag, supersedes", 1145, 445, 260, 104, "govern"),
         Node("compiled", "Compiled reviewed cards\nepisode_cards.reviewed.json", 1525, 230, 250, 96, "review"),
-        Node("runtime", "Runtime memory registry\nreviewed cards + atoms + quote lane", 1525, 445, 250, 104, "runtime"),
+        Node("runtime", "Runtime memory registry\nreviewed cards + atoms + quote lane\nWSS sidecar stays helper-only", 1525, 445, 250, 104, "runtime"),
         Node("launch", "Launch surfaces\ndesktop, headless HTTP, MCP, integration-v1", 1525, 640, 250, 100, "integration"),
     ]
     edges = [
@@ -657,14 +657,14 @@ def runtime_retrieval() -> Diagram:
         Node("source_bus", "candidate\nbus", 732, 185, 86, 520, "bus", 11, True),
         Node("immediate", "Immediate context\ncurrent turn and request-local state", 420, 165, 270, 82, "source"),
         Node("stm", "STM / session state\nshort-term notes and rolling summary", 420, 275, 270, 82, "memory"),
-        Node("provisional", "Provisional memory\nrevisable lower-trust candidates", 420, 385, 270, 82, "memory"),
+        Node("provisional", "Helper work state\nprovisional memory + strict active-scope WSS", 420, 385, 270, 82, "memory"),
         Node("reviewed", "Reviewed episodes\ntrusted event memory with lineage", 420, 495, 270, 82, "review"),
         Node("atoms_ann", "Atoms + bounded ANN\ncanonical evidence and additive candidates", 420, 605, 270, 92, "evidence"),
         Node("raw_context", "Raw-context sidecar\nexact wording and provenance only when asked", 420, 725, 270, 82, "evidence"),
         Node("retrieval", "Hybrid retrieval\nlexical, BM25, semantic, sequence, graph", 835, 230, 230, 98, "runtime"),
         Node("lineage", "Lineage-aware resolution\nprefer current reviewed truth", 835, 425, 230, 98, "review"),
         Node("shortlist", "Guarded shortlist\nbounded, deduped, evidence-ranked", 835, 620, 230, 98, "runtime"),
-        Node("package", "Evidence package\nsectioned payload with citations", 1205, 250, 250, 98, "evidence"),
+        Node("package", "Context package\nevidence plus scratchpad_ephemeral WSS when strict active scope is present", 1205, 250, 250, 98, "evidence"),
         Node("quote", "Quote / provenance expansion\nonly for exact wording asks", 1205, 445, 250, 98, "evidence"),
         Node("verifier", "Verifier and answer path\nPASS, ABSTAIN, or CLARIFY", 1205, 640, 250, 98, "decision"),
         Node("answer", "Final response\nanswer text plus evidence metadata", 1600, 225, 220, 96, "integration"),
@@ -692,7 +692,7 @@ def runtime_retrieval() -> Diagram:
         Edge("verifier", "proposal", "#bb5b54", source_pos=0.66, target_pos=0.5),
     ]
     notes = [
-        Node("runtime_rule", "Decision rule\nRetrieval success is not authority. The verifier gates final output, and risky new memory becomes a proposal.", 635, 885, 750, 78, "note", 17, True)
+        Node("runtime_rule", "Decision rule\nRetrieval success is not authority. WSS can help resume work under strict active scope, but cannot prove memory.", 635, 885, 750, 78, "note", 17, True)
     ]
     return Diagram(
         "mno-architecture-runtime-retrieval",
@@ -721,7 +721,7 @@ def memory_trust_boundaries() -> Diagram:
     nodes = [
         Node("immediate", "Immediate context\ncurrent turn and request-local state", 95, 185, 250, 74, "source"),
         Node("stm", "STM / session state\nshort-term notes and rolling summary", 95, 385, 250, 78, "memory"),
-        Node("provisional", "Provisional memory\nretrievable, revisable, lower-trust", 95, 485, 250, 78, "memory"),
+        Node("provisional", "Helper work state\nprovisional memory + strict active-scope WSS", 95, 485, 250, 78, "memory"),
         Node("atoms", "Canonical atom store\nsmall evidence units with provenance", 95, 675, 250, 78, "evidence"),
         Node("reviewed", "Reviewed episode cards\ntrusted runtime event memory", 505, 185, 300, 82, "review"),
         Node("lineage", "Truth-lineage metadata\ncurrent vs superseded reviewed truth", 505, 310, 300, 82, "review"),
@@ -729,7 +729,7 @@ def memory_trust_boundaries() -> Diagram:
         Node("raw_context", "Raw-context receipts\nread-only exact wording support", 505, 665, 300, 82, "evidence"),
         Node("read_bus", "layered\nread bus", 900, 220, 78, 490, "bus", 12, True),
         Node("rank", "Rank and resolve\nreviewed truth outranks helper memory", 1045, 205, 400, 92, "runtime"),
-        Node("bound", "Bounded context package\ncitations, IDs, source scope", 1045, 370, 400, 92, "evidence"),
+        Node("bound", "Bounded context package\ncitations, IDs, source scope, scratchpad_ephemeral WSS by strict active scope", 1045, 370, 400, 92, "evidence"),
         Node("verify", "Verifier\npasses, abstains, or asks to clarify", 1045, 535, 400, 92, "decision"),
         Node("proposal", "Proposal output path\nnew memory cannot enter truth silently", 1045, 680, 400, 78, "govern"),
     ]
@@ -749,7 +749,7 @@ def memory_trust_boundaries() -> Diagram:
         Edge("queue", "reviewed", "#bb5b54", source_side="left", target_side="bottom", source_pos=0.35, target_pos=0.5, dashed=True, vias=((435, 569), (435, 300), (655, 300))),
     ]
     notes = [
-        Node("trust_note", "Trust ordering\nrequest-local freshness helps routing; reviewed truth carries authority; helper layers and raw receipts are additive evidence support.", 410, 845, 905, 78, "note", 17, True)
+        Node("trust_note", "Trust ordering\nreviewed truth carries authority; raw receipts support evidence; WSS scratchpad_ephemeral supports work continuity, not proof.", 410, 845, 905, 78, "note", 17, True)
     ]
     boundaries = [Boundary("authority boundary", 430, 150, 640, "#bb5b54"), Boundary("runtime read boundary", 970, 150, 640, "#5f78c8")]
     return Diagram(
@@ -782,12 +782,12 @@ def integration_contract() -> Diagram:
         Node("clients", "Agent or app client\norchestrator hot loop", 85, 605, 245, 82, "source"),
         Node("contract_bus", "integration-v1\ncontract bus", 376, 205, 96, 450, "bus", 10, True),
         Node("turn", "Turn request\ninput, mode, scope, memory policy", 485, 185, 270, 82, "integration"),
-        Node("context", "Context package\nbounded evidence payload", 485, 315, 270, 82, "evidence"),
+        Node("context", "Context package\nbounded evidence plus strict active-scope scratchpad_ephemeral WSS", 485, 315, 270, 82, "evidence"),
         Node("propose", "Memory propose/resolve\nexplicit writeback path", 485, 445, 270, 82, "govern"),
         Node("health", "Health and metadata\ncapabilities, version, diagnostics", 485, 575, 270, 82, "store"),
         Node("session", "RuntimeSession\nmain entry and orchestration", 925, 210, 260, 92, "runtime"),
         Node("retrieval", "Retrieval engine\nmemory fusion and evidence assembly", 925, 375, 260, 96, "runtime"),
-        Node("store", "Local stores\natoms, reviewed cards, raw receipts, state", 925, 550, 260, 100, "store"),
+        Node("store", "Local stores\natoms, reviewed cards, raw receipts, WSS scratchpad_ephemeral sidecar", 925, 550, 260, 100, "store"),
         Node("mcp", "MCP sidecar\nstdio or HTTP over running runtime", 1350, 225, 220, 88, "integration"),
         Node("adapters", "Compatibility adapters\nOpenClaw, Hermes, Nanobot, generic", 1350, 405, 220, 94, "integration"),
         Node("response", "Answer / abstain / clarify\nsame evidence envelope", 1715, 230, 205, 92, "decision"),
@@ -816,7 +816,7 @@ def integration_contract() -> Diagram:
         Edge("store", "writeback", "#bb5b54", source_pos=0.65, target_pos=0.5),
     ]
     notes = [
-        Node("contract_rule", "Integration rule\nNew integrations should prefer integration-v1. MCP and compatibility adapters wrap the same runtime semantics.", 585, 870, 920, 78, "note", 17, True)
+        Node("contract_rule", "Integration rule\nNew integrations should prefer integration-v1. WSS enters only through strict active-scope context packages, not a truth contract.", 585, 870, 920, 78, "note", 17, True)
     ]
     boundaries = [Boundary("preferred public boundary", 415, 145, 660, "#8b5fbf")]
     return Diagram(
@@ -903,7 +903,7 @@ def deployment_process() -> Diagram:
     ]
     nodes = [
         Node("sources", "Source files and folders\noperator-selected local material", 95, 195, 265, 86, "source"),
-        Node("workspace", "runtime/ workspace\nimports, episodes, state, logs", 95, 390, 265, 92, "store"),
+        Node("workspace", "runtime/ workspace\nimports, episodes, WSS scratchpad_ephemeral sidecar, logs", 95, 390, 265, 92, "store"),
         Node("review_files", "Review artifacts\nTSV, MD, reviewed JSON", 95, 595, 265, 92, "review"),
         Node("setup", "run_setup_workspace.py\npicker UX, bundle export, launch helpers", 490, 200, 260, 96, "source"),
         Node("import_tools", "Import and build tools\nimport_memories.py, import_ia_db.py, build_episode_cards.py", 490, 400, 260, 112, "build"),
@@ -915,7 +915,7 @@ def deployment_process() -> Diagram:
         Node("adapter", "Compatibility clients\nreference, OpenClaw, Hermes, Nanobot", 1295, 445, 220, 96, "integration"),
         Node("answers", "Responses\nanswer, abstain, clarify, context.why", 1650, 225, 220, 96, "decision"),
         Node("proposals", "Proposal queue\noperator review before truth mutation", 1650, 445, 220, 96, "govern"),
-        Node("logs", "Runtime logs and diagnostics\nlocal operational state", 1650, 650, 220, 86, "store"),
+        Node("logs", "Runtime logs and diagnostics\nlocal operational state, not truth", 1650, 650, 220, 86, "store"),
     ]
     edges = [
         Edge("sources", "setup", "#b97818", target_pos=0.35),
@@ -936,7 +936,7 @@ def deployment_process() -> Diagram:
         Edge("proposals", "review_files", "#bb5b54", source_side="left", target_side="right", source_pos=0.72, target_pos=0.72, dashed=True, vias=((1580, 514), (1580, 790), (380, 790), (380, 660))),
     ]
     notes = [
-        Node("deploy_rule", "Deployment shape\nMNO is local-first: the desktop app, HTTP runtime, MCP sidecar, stores, logs, and review artifacts stay inside the local workspace.", 515, 875, 930, 78, "note", 17, True)
+        Node("deploy_rule", "Deployment shape\nMNO is local-first: desktop, HTTP runtime, MCP, review artifacts, logs, and the WSS scratchpad_ephemeral sidecar stay inside the local workspace.", 515, 875, 930, 78, "note", 17, True)
     ]
     return Diagram(
         "mno-architecture-deployment-process",

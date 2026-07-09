@@ -37,6 +37,10 @@ If you are just wiring MNO into an existing Nanobot-shaped client, the adapter i
 
 If you are designing a new Nanobot-side integration, prefer `integration-v1`.
 
+## WSS continuity helper
+
+Nanobot context-package calls can receive WSS only when strict work-session scope is supplied. The block is `scratchpad_ephemeral` helper state for work continuity. It is not memory evidence and should not be used to justify a user-facing memory claim.
+
 ## Prompt insertion
 
 When Nanobot frontloads memory before the model call, prefer the `agent_context` field returned by `context.build`.

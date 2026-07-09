@@ -25,3 +25,5 @@ Open a minimal private report with:
 - Use viewer tokens for read-only agents whenever possible.
 - Treat operator and admin tokens as mutation-capable local secrets.
 - Inspect logs before sharing them; logs can include local paths and source names.
+- Treat populated WSS sidecars as private runtime data; they are local
+  `scratchpad_ephemeral` work-continuity summaries, not public artifacts.

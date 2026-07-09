@@ -40,6 +40,16 @@ def test_default_config_matches_locked_policy() -> None:
     assert cfg.efficiency.enabled is False
     assert cfg.efficiency.fanout_hard_cap == 24
     assert cfg.efficiency.fanout_p95_soft_cap == 24
+    assert cfg.work_session_scratchpad.enabled is True
+    assert cfg.work_session_scratchpad.inject_enabled is True
+    assert cfg.work_session_scratchpad.resume_injection_enabled is True
+    assert cfg.work_session_scratchpad.diagnostics_enabled is False
+    assert cfg.work_session_scratchpad.max_entries_per_scope == 200
+    assert cfg.work_session_scratchpad.max_injected_items == 8
+    assert cfg.work_session_scratchpad.max_injected_chars == 2400
+    assert cfg.work_session_scratchpad.max_raw_ref_bytes == 2_000_000
+    assert cfg.work_session_scratchpad.retention_days == 14
+    assert cfg.work_session_scratchpad.min_replaceability_score == pytest.approx(0.70)
 
 
 def test_load_config_overrides_nested_values(tmp_path: Path) -> None:
@@ -134,6 +144,18 @@ def test_load_config_overrides_nested_values(tmp_path: Path) -> None:
             "context_token_budget": 2200,
             "early_stop_min_evidence": 2,
         },
+        "work_session_scratchpad": {
+            "enabled": True,
+            "inject_enabled": True,
+            "resume_injection_enabled": True,
+            "diagnostics_enabled": True,
+            "max_entries_per_scope": 64,
+            "max_injected_items": 4,
+            "max_injected_chars": 1200,
+            "max_raw_ref_bytes": 4096,
+            "retention_days": 7,
+            "min_replaceability_score": 0.82,
+        },
     }
     path = tmp_path / "config.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -196,6 +218,16 @@ def test_load_config_overrides_nested_values(tmp_path: Path) -> None:
     assert cfg.efficiency.fanout_p95_soft_cap == 32
     assert cfg.efficiency.context_token_budget == 2200
     assert cfg.efficiency.early_stop_min_evidence == 2
+    assert cfg.work_session_scratchpad.enabled is True
+    assert cfg.work_session_scratchpad.inject_enabled is True
+    assert cfg.work_session_scratchpad.resume_injection_enabled is True
+    assert cfg.work_session_scratchpad.diagnostics_enabled is True
+    assert cfg.work_session_scratchpad.max_entries_per_scope == 64
+    assert cfg.work_session_scratchpad.max_injected_items == 4
+    assert cfg.work_session_scratchpad.max_injected_chars == 1200
+    assert cfg.work_session_scratchpad.max_raw_ref_bytes == 4096
+    assert cfg.work_session_scratchpad.retention_days == 7
+    assert cfg.work_session_scratchpad.min_replaceability_score == pytest.approx(0.82)
 
 
 def test_load_config_validation_errors(tmp_path: Path) -> None:
@@ -424,4 +456,31 @@ def test_load_config_validates_continuity_adds_bounds(tmp_path: Path) -> None:
     path = tmp_path / "bad_continuity_adds.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match=r"continuity_adds\.action_log_max_entries must be >= 1"):
+        load_config(path)
+
+
+def test_load_config_validates_work_session_scratchpad_bounds(tmp_path: Path) -> None:
+    payload = {
+        "work_session_scratchpad": {
+            "enabled": "false",
+        }
+    }
+    path = tmp_path / "bad_scratchpad.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(TypeError, match=r"work_session_scratchpad\.enabled must be bool"):
+        load_config(path)
+
+    payload["work_session_scratchpad"] = {
+        "enabled": False,
+        "max_injected_items": 0,
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"work_session_scratchpad\.max_injected_items must be >= 1"):
+        load_config(path)
+
+    payload["work_session_scratchpad"] = {
+        "min_replaceability_score": 1.2,
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"work_session_scratchpad\.min_replaceability_score must be <= 1.0"):
         load_config(path)

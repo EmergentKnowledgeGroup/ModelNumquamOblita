@@ -34,7 +34,7 @@
         <mxCell id="r6" value="STM&amp;#10;short-term session state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
           <mxGeometry x="345" y="75" width="270" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="r7" value="Provisional memory&amp;#10;lower-trust runtime helper memory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+        <mxCell id="r7" value="Runtime helper memory&amp;#10;provisional + strict active-scope scratchpad_ephemeral WSS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
           <mxGeometry x="345" y="160" width="270" height="70" as="geometry" />
         </mxCell>
         <mxCell id="r8" value="Continuity surfaces&amp;#10;pins / action log / wake-up / resume" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
@@ -55,7 +55,7 @@
         <mxCell id="r13" value="Fusion + guarded shortlist&amp;#10;shared-rule ranking and support checks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="730" y="185" width="290" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="r14" value="Evidence pack&amp;#10;bounded memory/context bundle" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+        <mxCell id="r14" value="Context package&amp;#10;bounded evidence + WSS only when strict active scope is present" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="730" y="285" width="290" height="70" as="geometry" />
         </mxCell>
         <mxCell id="r15" value="Quote / provenance expansion&amp;#10;raw-context lane wakes only when explicitly needed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
@@ -73,7 +73,7 @@
         <mxCell id="r19" value="Human/operator resolve&amp;#10;review queue stays authoritative" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
           <mxGeometry x="1135" y="340" width="240" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="r20" value="Key runtime rule&amp;#10;reviewed truth outranks helper memory; raw-context sidecar is inspectability support, not a new truth layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+        <mxCell id="r20" value="Key runtime rule&amp;#10;reviewed truth outranks helper memory; WSS is work continuity, not memory proof" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
           <mxGeometry x="1120" y="470" width="260" height="100" as="geometry" />
         </mxCell>
         <mxCell id="e2" edge="1" parent="1" source="r1" target="r2" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;jumpStyle=arc;jumpSize=6;endArrow=block;endFill=1;html=1;rounded=0;strokeWidth=2;strokeColor=#d6b656;entryX=0.5;entryY=0;entryPerimeter=1;exitX=0.5;exitY=1;exitPerimeter=1;">
@@ -165,7 +165,7 @@
         <mxCell id="z8" value="8. New risky memory still goes to proposal/review, not straight into truth." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
           <mxGeometry x="360" y="470" width="420" height="90" as="geometry" />
         </mxCell>
-        <mxCell id="z9" value="Words to know&amp;#10;MCP = Model Context Protocol&amp;#10;STM = short-term memory&amp;#10;ANN = approximate nearest neighbor" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+        <mxCell id="z9" value="Words to know&amp;#10;MCP = Model Context Protocol&amp;#10;STM = short-term memory&amp;#10;ANN = approximate nearest neighbor&amp;#10;WSS = work-session scratchpad" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
           <mxGeometry x="500" y="640" width="330" height="100" as="geometry" />
         </mxCell>
         <mxCell id="e2" edge="1" parent="1" source="z1" target="z2" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;jumpStyle=arc;jumpSize=6;endArrow=block;endFill=1;html=1;rounded=0;strokeWidth=2;strokeColor=#d6b656;entryX=0;entryY=0.5;entryPerimeter=1;exitX=1;exitY=0.5;exitPerimeter=1;">

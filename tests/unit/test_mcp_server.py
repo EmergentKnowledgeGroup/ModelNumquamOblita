@@ -2306,6 +2306,9 @@ def test_mcp_chat_tools_phase2_surface() -> None:
     stats = dict(package_payload.get("stats") or {})
     assert stats.get("retrieved_count") == 2
     assert stats.get("route") == "ltm_light"
+    package_body = dict(package_payload.get("package") or {})
+    assert "work_session_context" not in package_body
+    assert "include_work_session_context" not in client.post_calls[-1][1]
 
 
 def test_mcp_exploration_tools_surface() -> None:

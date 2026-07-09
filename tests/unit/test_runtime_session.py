@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
+import uuid
 from concurrent.futures import Future
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+import engine.runtime.session as runtime_session_module
 from engine.continuity import ContinuityBuilder, ContinuityStore
 from engine.config import default_config
 from engine.contracts import (
@@ -34,6 +37,7 @@ from engine.retrieval import (
 from engine.retrieval.ann_sidecar import RetrievalAnnTelemetry
 from engine.retrieval.engine import RetrievalResult, RetrievalScoredAtom
 from engine.runtime import RuntimeSession, WritebackEvent
+from engine.runtime.scratchpad import evaluate_context_diet_fixture
 from engine.runtime.session import ShortTermNote
 
 
@@ -106,6 +110,377 @@ def test_runtime_session_prewarm_passes_continuity_store_when_supported() -> Non
         assert retriever.prewarm_calls[0] is continuity
     finally:
         runtime.close()
+
+
+def _repo_runtime_tmp(name: str) -> Path:
+    root = Path(__file__).resolve().parents[2] / "runtime" / "tmp" / f"{name}_{uuid.uuid4().hex}"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _resume_state_from_work_context(work_context: dict[str, object]) -> dict[str, object]:
+    state: dict[str, object] = {
+        "next_action": "",
+        "current_files": [],
+        "blockers": [],
+        "needed_refs": [],
+    }
+    for item in list(work_context.get("items") or []):
+        if not isinstance(item, dict):
+            continue
+        summary = str(item.get("summary") or "")
+        for segment in summary.split(";"):
+            if "=" not in segment:
+                continue
+            key, raw_value = segment.split("=", 1)
+            key = key.strip().lower()
+            value = raw_value.strip()
+            if key == "next_action":
+                state["next_action"] = value
+            elif key == "current_files":
+                state["current_files"] = [part.strip() for part in value.split(",") if part.strip()]
+            elif key == "blockers":
+                state["blockers"] = [part.strip() for part in value.split(",") if part.strip()]
+            elif key == "needed_refs":
+                state["needed_refs"] = [part.strip() for part in value.split(",") if part.strip()]
+    return state
+
+
+def test_runtime_session_work_session_context_default_live_and_no_leakage() -> None:
+    cfg = default_config()
+    runtime_root = _repo_runtime_tmp("runtime_wsp")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        runtime_state_root=runtime_root,
+        enable_writeback=False,
+    )
+    scope = {
+        "thread_id": "thread_runtime_unit",
+        "workstream_key": "MNO_WORK_SESSION_SCRATCHPAD_SPEC WORK",
+        "workstream_name": "MNO work-session scratchpad",
+    }
+    try:
+        runtime._ensure_session("sess_wsp")
+        runtime.capture_work_session_entry(
+            session_id="sess_wsp",
+            work_session_scope=scope,
+            kind="decision",
+            summary="Use the scratchpad only as non-authoritative work-state.",
+            raw_content="The raw work receipt cannot support a memory claim.",
+            replaceability_score=0.94,
+        )
+
+        package_v1 = runtime.build_context_package(
+            "What should we do next?",
+            session_id="sess_wsp",
+            package_version="v1",
+        )
+        package_v2_default = runtime.build_context_package(
+            "What should we do next?",
+            session_id="sess_wsp",
+            package_version="v2",
+        )
+        package_v2_live = runtime.build_context_package(
+            "What should we do next?",
+            session_id="sess_wsp",
+            package_version="v2",
+            work_session_scope=scope,
+        )
+        package_v2_degraded = runtime.build_context_package(
+            "What should we do next?",
+            session_id="sess_wsp",
+            package_version="v2",
+            include_work_session_context=True,
+            work_session_scope={"thread_id": "", "workstream_key": ""},
+        )
+        package_v2 = runtime.build_context_package(
+            "What should we do next?",
+            session_id="sess_wsp",
+            package_version="v2",
+            include_work_session_context=True,
+            work_session_scope=scope,
+        )
+
+        assert "work_session_context" not in package_v1
+        assert "work_session_context" not in package_v2_default
+        assert "work_session_context" not in package_v2_degraded
+        assert "work_session_context" in package_v2_live
+        work_context = dict(package_v2["work_session_context"])
+        assert work_context["non_authoritative"] is True
+        assert work_context["trust_tier"] == "scratchpad_ephemeral"
+        assert work_context["scope"]["scope_mode"] == "strict"
+        assert work_context["items"][0]["entry_id"].startswith("sp_")
+
+        serialized_evidence = json.dumps(package_v2.get("ltm_evidence") or [], sort_keys=True)
+        serialized_citations = json.dumps(dict(package_v2.get("service_verdict") or {}).get("citations") or [])
+        retrieved_ids = [str(item) for item in dict(package_v2.get("retrieval_stats") or {}).get("retrieved_atom_ids") or []]
+        assert "scratchpad" not in serialized_evidence.lower()
+        assert "sp_" not in serialized_evidence
+        assert "sp_" not in serialized_citations
+        assert all(not item.startswith("sp_") for item in retrieved_ids)
+
+        trace = runtime.handle_turn("Can the scratchpad prove this memory claim?", session_id="sess_wsp")
+        assert trace.decision != "PASS"
+        assert all("scratchpad" not in json.dumps(check).lower() for check in trace.claim_checks)
+    finally:
+        runtime.close()
+        shutil.rmtree(runtime_root, ignore_errors=True)
+
+
+def test_runtime_session_work_session_explicit_resume_and_fingerprint_are_stable() -> None:
+    cfg = default_config()
+    cfg.work_session_scratchpad.enabled = True
+    cfg.work_session_scratchpad.inject_enabled = True
+    cfg.work_session_scratchpad.resume_injection_enabled = True
+    runtime_root = _repo_runtime_tmp("runtime_wsp_resume")
+    store = AtomStore()
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(store, config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        runtime_state_root=runtime_root,
+        enable_writeback=False,
+    )
+    scope = {
+        "thread_id": "thread_resume_unit",
+        "workstream_key": "MNO_WORK_SESSION_SCRATCHPAD_SPEC WORK",
+        "workstream_name": "MNO work-session scratchpad",
+    }
+    try:
+        runtime._ensure_session("sess_resume_a")
+        runtime._ensure_session("sess_resume_b")
+        runtime.capture_work_session_entry(
+            session_id="sess_resume_a",
+            work_session_scope=scope,
+            kind="task_state",
+            summary="NEXT_ACTION=resume from explicit scratchpad state;",
+            raw_content="session A work receipt",
+            replaceability_score=0.96,
+        )
+
+        store.add_candidate(_candidate("unrelated_after_capture", "Unrelated atom write after WSS capture.", "conv_wsp"))
+
+        same_session = runtime.build_context_package(
+            "What is next?",
+            session_id="sess_resume_a",
+            package_version="v2",
+            include_work_session_context=True,
+            work_session_scope=scope,
+        )
+        other_session_default = runtime.build_context_package(
+            "What is next?",
+            session_id="sess_resume_b",
+            package_version="v2",
+            work_session_scope=scope,
+        )
+        other_session_wrong_workstream = runtime.build_context_package(
+            "What is next?",
+            session_id="sess_resume_b",
+            package_version="v2",
+            include_work_session_context=True,
+            work_session_scope={**scope, "workstream_key": "OTHER_WORK"},
+        )
+        other_session_explicit = runtime.build_context_package(
+            "What is next?",
+            session_id="sess_resume_b",
+            package_version="v2",
+            include_work_session_context=True,
+            explicit_resume=True,
+            work_session_scope=scope,
+        )
+        cfg.work_session_scratchpad.resume_injection_enabled = False
+        other_session_resume_disabled = runtime.build_context_package(
+            "What is next?",
+            session_id="sess_resume_b",
+            package_version="v2",
+            include_work_session_context=True,
+            work_session_scope=scope,
+        )
+        other_session_explicit_with_auto_resume_disabled = runtime.build_context_package(
+            "What is next?",
+            session_id="sess_resume_b",
+            package_version="v2",
+            include_work_session_context=True,
+            explicit_resume=True,
+            work_session_scope=scope,
+        )
+
+        assert "work_session_context" in same_session
+        assert "work_session_context" in other_session_default
+        assert "work_session_context" not in other_session_wrong_workstream
+        assert "work_session_context" in other_session_explicit
+        assert "work_session_context" not in other_session_resume_disabled
+        assert "work_session_context" in other_session_explicit_with_auto_resume_disabled
+        assert "resume from explicit scratchpad state" in other_session_default["work_session_context"]["summary"]
+        assert "resume from explicit scratchpad state" in other_session_explicit["work_session_context"]["summary"]
+        assert (
+            "resume from explicit scratchpad state"
+            in other_session_explicit_with_auto_resume_disabled["work_session_context"]["summary"]
+        )
+    finally:
+        runtime.close()
+        shutil.rmtree(runtime_root, ignore_errors=True)
+
+
+def test_runtime_session_work_session_context_metrics_fixed_fixture_and_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = default_config()
+    cfg.work_session_scratchpad.enabled = True
+    cfg.work_session_scratchpad.inject_enabled = True
+    cfg.work_session_scratchpad.diagnostics_enabled = True
+    cfg.work_session_scratchpad.max_injected_items = 2
+    cfg.work_session_scratchpad.max_injected_chars = 4000
+    runtime_root = _repo_runtime_tmp("runtime_wsp_fixture")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        runtime_state_root=runtime_root,
+        enable_writeback=False,
+    )
+    scope = {
+        "thread_id": "thread_runtime_fixture",
+        "workstream_key": "MNO_WORK_SESSION_SCRATCHPAD_SPEC WORK",
+        "workstream_name": "MNO work-session scratchpad",
+    }
+    expected_state = {
+        "next_action": "run targeted WSS verification",
+        "current_files": ["engine/runtime/session.py", "engine/runtime/scratchpad.py"],
+        "blockers": ["B3 context-diet proof"],
+        "needed_refs": ["docs/MNO_WORK_SESSION_SCRATCHPAD_CONTEXT_DIET_SPEC_2026-07-07.md"],
+    }
+    try:
+        runtime._ensure_session("sess_wsp_fixture")
+        runtime.capture_work_session_entry(
+            session_id="sess_wsp_fixture",
+            work_session_scope=scope,
+            kind="operator_note",
+            summary="Keep MemoryPack, evidence, verifier, integration-v1, desktop UI, and prompt history untouched.",
+            raw_content="scope fence\n" * 120,
+            replaceability_score=0.93,
+            metadata={
+                "hypothetical_prompt_tokens_replaced": 999,
+            },
+        )
+        first = runtime.capture_work_session_entry(
+            session_id="sess_wsp_fixture",
+            work_session_scope=scope,
+            kind="task_state",
+            summary=(
+                "NEXT_ACTION=run targeted WSS verification; "
+                "CURRENT_FILES=engine/runtime/session.py,engine/runtime/scratchpad.py; "
+                "NEEDED_REFS=docs/MNO_WORK_SESSION_SCRATCHPAD_CONTEXT_DIET_SPEC_2026-07-07.md"
+            ),
+            raw_content="runtime/session.py\n" * 360,
+            replaceability_score=0.96,
+            metadata={
+                "task_id": "resume-state",
+                "hypothetical_prompt_tokens_replaced": 720,
+            },
+        )
+        runtime.capture_work_session_entry(
+            session_id="sess_wsp_fixture",
+            work_session_scope=scope,
+            kind="blocker",
+            summary="BLOCKERS=B3 context-diet proof; scratchpad rows alone cannot claim success.",
+            raw_content="blockerboard B3\n" * 260,
+            replaceability_score=0.95,
+            metadata={
+                "task_id": "b3",
+                "depends_on_entry_ids": [first["entry_id"]],
+                "hypothetical_prompt_tokens_replaced": 520,
+            },
+        )
+
+        latencies: list[float] = []
+        package: dict[str, object] = {}
+        for _ in range(8):
+            started = time.perf_counter()
+            package = runtime.build_context_package(
+                "Resume WSS work.",
+                session_id="sess_wsp_fixture",
+                package_version="v2",
+                include_work_session_context=True,
+                include_work_session_diagnostics=True,
+                work_session_scope=scope,
+            )
+            latencies.append((time.perf_counter() - started) * 1000.0)
+        work_context = dict(package["work_session_context"])  # type: ignore[index]
+        metrics = dict(work_context["metrics"])  # type: ignore[index]
+
+        actual_state = _resume_state_from_work_context(work_context)
+        trace = runtime.handle_turn("Can the scratchpad prove this memory claim?", session_id="sess_wsp_fixture")
+        false_memory_unchanged = trace.decision != "PASS" and all(
+            "scratchpad" not in json.dumps(check).lower() for check in trace.claim_checks
+        )
+        baseline_prompt = {
+            "repeated_rereads": ["runtime/session.py\n" * 360, "blockerboard B3\n" * 260],
+            "resume_state": expected_state,
+        }
+        assisted_prompt = {
+            "message": package["message"],
+            "working_set": package["working_set"],
+            "work_session_context": work_context,
+        }
+        fixture_metrics = evaluate_context_diet_fixture(
+            baseline_prompt=baseline_prompt,
+            scratchpad_assisted_prompt=assisted_prompt,
+            work_session_context=work_context,
+            expected_resume_state=expected_state,
+            actual_resume_state=actual_state,
+            repeated_reread_steps=["runtime/session.py", "blockerboard B3"],
+            false_memory_behavior_unchanged=false_memory_unchanged,
+            package_build_latencies_ms=latencies,
+            latency_budget_ms=1000.0,
+        )
+
+        assert set(metrics) >= {
+            "observed_package_tokens",
+            "observed_injected_tokens",
+            "hypothetical_prompt_tokens_replaced",
+        }
+        assert "tokens_saved" not in json.dumps(work_context)
+        assert metrics["observed_package_tokens"] > metrics["observed_injected_tokens"]
+        assert metrics["observed_injected_tokens"] == work_context["budget"]["observed_injected_tokens"]
+        assert metrics["hypothetical_prompt_tokens_replaced"] == 1240
+        assert fixture_metrics["context_diet_fixture_pass"] is True
+        assert fixture_metrics["repeat_reread_avoided_count"] == 2
+        assert fixture_metrics["resume_fidelity_pass"] is True
+        assert fixture_metrics["fewer_prompt_tokens"] is True
+        assert fixture_metrics["p95_package_build_latency_ms"] <= 1000.0
+
+        diagnostics = dict(work_context["diagnostics"])  # type: ignore[index]
+        task_map = dict(diagnostics["task_map"])
+        assert diagnostics["scratchpad_injected"] is True
+        assert task_map["render_mode"] == "deterministic"
+        assert task_map["memory_layer"] == "scratchpad"
+        assert all(node.get("entry_ids") for node in task_map["nodes"])
+        assert any(task_map["unmapped_entries"])
+
+        def _broken_task_map(*_args: object, **_kwargs: object) -> dict[str, object]:
+            raise RuntimeError("fixture map failure")
+
+        monkeypatch.setattr(runtime_session_module, "build_diagnostic_task_map", _broken_task_map)
+        package_with_map_error = runtime.build_context_package(
+            "Resume WSS work.",
+            session_id="sess_wsp_fixture",
+            package_version="v2",
+            include_work_session_context=True,
+            include_work_session_diagnostics=True,
+            work_session_scope=scope,
+        )
+        error_context = dict(package_with_map_error["work_session_context"])  # type: ignore[index]
+        assert "task_map_error" in dict(error_context["diagnostics"])  # type: ignore[index]
+        assert error_context["items"]
+    finally:
+        runtime.close()
+        shutil.rmtree(runtime_root, ignore_errors=True)
 
 
 def test_runtime_session_prewarm_falls_back_for_legacy_signature() -> None:

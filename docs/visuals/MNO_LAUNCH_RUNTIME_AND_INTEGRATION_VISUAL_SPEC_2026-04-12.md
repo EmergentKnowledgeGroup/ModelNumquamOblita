@@ -12,6 +12,7 @@ This package should explain:
 - what memory layers exist at runtime
 - where the ANN helper sits
 - where the raw-context quote/provenance lane sits
+- where built-in WSS attaches to context packages only under strict active project/thread/workstream scope
 - how reviewed truth-lineage affects runtime use of reviewed cards
 - where response, abstain, clarify, and proposal-only writeback happen
 - how integrators should think about integration-v1, MCP, and adapters
@@ -22,6 +23,7 @@ Primary files:
 - [session.py](../../engine/runtime/session.py)
 - [engine.py](../../engine/retrieval/engine.py)
 - [raw_sidecar.py](../../engine/retrieval/raw_sidecar.py)
+- [scratchpad.py](../../engine/runtime/scratchpad.py)
 - [episode_cards.py](../../engine/retrieval/episode_cards.py)
 - [server.py](../../engine/runtime/server.py)
 - [adapters.py](../../engine/runtime/adapters.py)
@@ -47,6 +49,7 @@ Show four areas:
 ### Memory Layers
 - STM
 - provisional memory
+- built-in WSS `scratchpad_ephemeral` sidecar helper state
 - continuity surfaces
 - raw-context sidecar
 - reviewed episode cards plus lineage
@@ -55,7 +58,7 @@ Show four areas:
 ### Retrieval And Decision
 - router and query shaping
 - fusion and guarded shortlist
-- evidence pack
+- context package, including WSS `scratchpad_ephemeral` when strict active scope is present
 - quote/provenance expansion
 - responder and verifier
 
@@ -73,6 +76,7 @@ It should still explain:
 - `MCP = Model Context Protocol`
 - `STM = short-term memory`
 - `ANN = approximate nearest neighbor`
+- `WSS = work-session scratchpad`
 - wording receipt lane only wakes when exact wording matters
 - reviewed truth can distinguish old corrected cards from current reviewed cards
 - risky new memory still goes through proposal/review instead of jumping into truth
@@ -83,4 +87,5 @@ It should still explain:
 - adapters are compatibility surfaces, not the main truth contract
 - ANN is additive only
 - raw-context sidecar is inspectability support only
+- WSS is `scratchpad_ephemeral` work-session continuity support only
 - reviewed truth remains authoritative over helper layers

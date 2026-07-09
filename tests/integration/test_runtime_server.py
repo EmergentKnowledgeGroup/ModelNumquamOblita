@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError
@@ -10,6 +12,7 @@ from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from engine.continuity import ContinuityBuilder, ContinuityStore
+from engine.config import default_config
 from engine.contracts import AtomType, CandidateAtom, SourceRef
 from engine.memory import AtomStore, SqliteAtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
@@ -458,6 +461,95 @@ def test_runtime_http_server_quicknote_and_whats_new_roundtrip() -> None:
         assert usage_guide["guide"]["version"] == "quicknote.v1"
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_runtime_http_context_package_work_session_context_is_live_with_strict_scope() -> None:
+    runtime_root = Path(__file__).resolve().parents[2] / "runtime" / "tmp" / f"http_wsp_{uuid.uuid4().hex}"
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    cfg = default_config()
+    cfg.work_session_scratchpad.enabled = True
+    cfg.work_session_scratchpad.inject_enabled = True
+    cfg.work_session_scratchpad.diagnostics_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        runtime_state_root=runtime_root,
+        enable_writeback=False,
+    )
+    scope = {
+        "thread_id": "thread_http_context",
+        "workstream_key": "MNO_WORK_SESSION_SCRATCHPAD_SPEC WORK",
+        "workstream_name": "MNO work-session scratchpad",
+    }
+    runtime._ensure_session("sess_http_wsp")
+    runtime.capture_work_session_entry(
+        session_id="sess_http_wsp",
+        work_session_scope=scope,
+        kind="task_state",
+        summary="B1 and B2 are resolved before source edits.",
+        raw_content="This is a local work receipt, not evidence.",
+        replaceability_score=0.93,
+    )
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    try:
+        default_payload = _json_post(
+            f"{base}/api/chat/context-package",
+            {"message": "What is next?", "session_id": "sess_http_wsp", "package_version": "v2"},
+        )
+        assert default_payload["ok"] is True
+        assert "work_session_context" not in default_payload["package"]
+
+        degraded_payload = _json_post(
+            f"{base}/api/chat/context-package",
+            {
+                "message": "What is next?",
+                "session_id": "sess_http_wsp",
+                "package_version": "v2",
+                "include_work_session_context": True,
+                "work_session_scope": {"thread_id": "", "workstream_key": ""},
+            },
+        )
+        assert "work_session_context" not in degraded_payload["package"]
+
+        opt_in_payload = _json_post(
+            f"{base}/api/chat/context-package",
+            {
+                "message": "What is next?",
+                "session_id": "sess_http_wsp",
+                "package_version": "v2",
+                "work_session_scope": scope,
+            },
+        )
+        context = dict(opt_in_payload["package"]["work_session_context"])
+        assert context["non_authoritative"] is True
+        assert context["trust_tier"] == "scratchpad_ephemeral"
+        assert context["items"][0]["entry_id"].startswith("sp_")
+        assert "diagnostics" not in context
+        assert "sp_" not in json.dumps(opt_in_payload["package"].get("ltm_evidence") or [])
+        assert "sp_" not in json.dumps(opt_in_payload["package"].get("service_verdict") or {})
+
+        diagnostics_payload = _json_post(
+            f"{base}/api/chat/context-package",
+            {
+                "message": "What is next?",
+                "session_id": "sess_http_wsp",
+                "package_version": "v2",
+                "include_work_session_diagnostics": True,
+                "work_session_scope": scope,
+            },
+        )
+        diagnostic_context = dict(diagnostics_payload["package"]["work_session_context"])
+        diagnostics = dict(diagnostic_context["diagnostics"])
+        assert diagnostics["scratchpad_injected"] is True
+        assert diagnostics["task_map"]["render_mode"] == "deterministic"
+        assert diagnostics["task_map"]["nodes"][0]["entry_ids"][0].startswith("sp_")
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+        shutil.rmtree(runtime_root, ignore_errors=True)
 
 
 def test_runtime_http_server_methodology_lifecycle_roundtrip() -> None:

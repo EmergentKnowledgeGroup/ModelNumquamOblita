@@ -1014,6 +1014,28 @@ def _to_bool(value: Any, *, default: bool = False) -> bool:
     return bool(default)
 
 
+def _parse_work_session_request(source: Mapping[str, Any]) -> tuple[dict[str, Any], bool, bool, bool]:
+    scope_raw = source.get("work_session_scope")
+    work_session_scope = dict(scope_raw) if isinstance(scope_raw, Mapping) else {}
+    for source_key, target_key in (
+        ("work_session_thread_id", "thread_id"),
+        ("work_session_workstream_key", "workstream_key"),
+        ("work_session_workstream_name", "workstream_name"),
+        ("workstream_key", "workstream_key"),
+        ("workstream_name", "workstream_name"),
+        ("runtime_store_fingerprint", "runtime_store_fingerprint"),
+        ("project_id", "project_id"),
+    ):
+        if source_key in source and target_key not in work_session_scope:
+            work_session_scope[target_key] = source.get(source_key)
+    return (
+        work_session_scope,
+        _to_bool(source.get("include_work_session_context"), default=True),
+        _to_bool(source.get("include_work_session_diagnostics"), default=False),
+        _to_bool(source.get("explicit_work_session_resume"), default=False),
+    )
+
+
 def _normalize_string_list(value: Any, *, max_items: int = 128, max_chars: int = 120) -> list[str]:
     if isinstance(value, str):
         rows = [item.strip() for item in value.replace("\n", ",").split(",")]
@@ -12894,6 +12916,12 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 )
                 render_citations_raw = data.get("render_citations")
                 render_citations = bool(render_citations_raw) if isinstance(render_citations_raw, bool) else None
+                (
+                    work_session_scope,
+                    include_work_session_context,
+                    include_work_session_diagnostics,
+                    explicit_resume,
+                ) = _parse_work_session_request(data)
                 package = self.server.runtime.build_context_package(
                     message,
                     high_risk=high_risk,
@@ -12903,6 +12931,10 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     retrieval_query=retrieval_query,
                     retrieval_override=retrieval_override,
                     render_citations=render_citations,
+                    include_work_session_context=include_work_session_context,
+                    include_work_session_diagnostics=include_work_session_diagnostics,
+                    work_session_scope=work_session_scope,
+                    explicit_resume=explicit_resume,
                 )
                 return _json_response(self, HTTPStatus.OK, {"ok": True, "package": package})
             except KeyError:
@@ -13045,6 +13077,12 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 )
                 render_citations = adapted.metadata.get("render_citations")
                 render_citations_flag = bool(render_citations) if isinstance(render_citations, bool) else None
+                (
+                    work_session_scope,
+                    include_work_session_context,
+                    include_work_session_diagnostics,
+                    explicit_resume,
+                ) = _parse_work_session_request(adapted.metadata)
                 package = self.server.runtime.build_context_package(
                     adapted.message,
                     high_risk=adapted.high_risk,
@@ -13054,6 +13092,10 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     retrieval_query=retrieval_query,
                     retrieval_override=retrieval_override,
                     render_citations=render_citations_flag,
+                    include_work_session_context=include_work_session_context,
+                    include_work_session_diagnostics=include_work_session_diagnostics,
+                    work_session_scope=work_session_scope,
+                    explicit_resume=explicit_resume,
                 )
                 formatter = getattr(adapter, "format_context_package", None)
                 if callable(formatter):

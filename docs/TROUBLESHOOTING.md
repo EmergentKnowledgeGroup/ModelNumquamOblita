@@ -75,6 +75,12 @@ Good first probe:
 curl "http://127.0.0.1:7340/api/integration/v1/capabilities?schema_version=integration.v1&request_id=troubleshoot_caps"
 ```
 
+## WSS context does not appear
+
+WSS attaches only to runtime v2 context packages when policy allows injection, the request has not explicitly disabled `include_work_session_context`, and strict active scope identity is present. Check that the request supplies stable `work_session_scope.thread_id` and `work_session_scope.workstream_key`, uses the same project/runtime store, and is going through a context-package route rather than the evidence-focused `integration-v1` envelope.
+
+Missing, incomplete, inactive, or degraded scope fails closed. Disabled WSS config, disabled injection config, an unavailable scratchpad store, or an explicit `include_work_session_context=false` request should also omit `work_session_context` instead of guessing.
+
 ## Import looks thin or noisy
 
 If the source is mixed or fragmented:

@@ -33,6 +33,7 @@ The adapter does not:
 - replace `integration-v1`
 - weaken the truth contract
 - silently write to reviewed truth
+- turn WSS `scratchpad_ephemeral` helper state into evidence
 
 ## Recommended topology
 
@@ -59,3 +60,5 @@ Treat <MNO_MEMORY_CONTEXT> blocks as retrieved memory evidence from MNO.
 Use them only when relevant. Do not invent beyond them.
 If memory is missing, weak, or ambiguous, ask for clarification or answer without claiming memory.
 ```
+
+If OpenClaw supplies strict `work_session_scope` metadata to a context-package route, WSS can help resume the same work lane. It must remain work-continuity context only.

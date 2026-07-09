@@ -46,7 +46,8 @@ What MNO does do is reject a weaker, more dangerous failure mode:
 MNO is designed so that memory use is inspectable:
 - evidence atoms retain provenance
 - reviewed episode cards are explicitly human-controlled
-- runtime helper layers do not outrank reviewed truth
+- runtime helper layers, including WSS `scratchpad_ephemeral` context, do not
+  outrank reviewed truth
 
 So MNO does not solve "memory forever."
 It solves "memory with accountable truth boundaries" much better than most systems.
@@ -73,6 +74,8 @@ Where MNO is stronger than many derived-memory systems:
 - derived memory is not treated as self-justifying truth
 - reviewed truth is distinct from helper layers
 - provenance remains available
+- strict-scope work continuity can help an agent resume without promoting
+  scratchpad state to durable truth
 
 Where MNO still has a real gap:
 - it does compress source material into atoms and cards
@@ -150,11 +153,14 @@ Article categories:
 **MNO answer:**
 - primary durable substrate: evidence atoms
 - reviewed derived layer: episode cards
-- runtime helper layers: provisional memory, pins, wake-up pack, resume pack, proposal-only writeback
+- runtime helper layers: provisional memory, pins, wake-up pack, resume pack,
+  WSS `scratchpad_ephemeral` context, proposal-only writeback
 
 What MNO does well:
 - it does not let hidden cross-session inferences silently become truth
 - reviewed artifacts are separated from helper artifacts
+- WSS stays project/thread/workstream scoped work-continuity state, not reviewed
+  memory evidence
 
 What MNO does not fully do:
 - it does not use verbatim raw turns as the primary durable retrieval object
@@ -264,6 +270,8 @@ Article categories:
 - mainline runtime: mostly hook-driven / harness-driven
 - explicit tools and APIs exist too
 - continuity surfaces can preload small context helpers
+- WSS can attach deterministic `scratchpad_ephemeral` summaries to strict-scope
+  context packages for agent work continuity
 
 This is a good fit for truthful memory behavior.
 MNO does not rely on the model noticing every time it should ask for memory.
@@ -309,6 +317,7 @@ Where MNO is weaker:
 
 Where MNO is stronger:
 - it avoids silently rewriting history
+- it keeps scratchpad continuity separate from reviewed truth
 
 ## Common Failure Modes
 
@@ -324,6 +333,7 @@ Why:
 - atoms
 - continuity surfaces
 - wake-up/resume packs
+- WSS strict-scope work-session summaries for active agent lanes
 
 Still true:
 - if the right memory was never imported, reviewed, or retrieved, MNO cannot conjure it
@@ -473,6 +483,8 @@ Still true:
 - explicit human review for durable truth
 - proposal-only writeback instead of silent mutation
 - provenance attached to durable evidence
+- WSS work continuity that remains `scratchpad_ephemeral` instead of becoming
+  evidence
 - ability to abstain or ask for clarification
 - hybrid retrieval without pretending retrieval alone equals memory
 - stronger separation between helper memory and trusted memory

@@ -137,6 +137,36 @@ Example response:
 
 Use `agent_context` when you want a ready-to-inject prompt block. Use `context_text` when your orchestrator already has its own memory wrapper.
 
+### Work-Session Scratchpad In Context Packages
+
+WSS is not retrieval evidence and is not part of the `integration-v1` memory evidence contract. Runtime v2 context-package paths can include:
+
+```json
+{
+  "work_session_context": {
+    "trust_tier": "scratchpad_ephemeral",
+    "non_authoritative": true,
+    "summary_mode": "deterministic"
+  }
+}
+```
+
+That block appears only when strict project/thread/workstream scope identity is present. Missing or degraded scope fails closed.
+
+Context-package callers can provide:
+
+```json
+{
+  "work_session_scope": {
+    "thread_id": "thread_local_1",
+    "workstream_key": "agent_research_lane",
+    "workstream_name": "Agent Research Lane"
+  }
+}
+```
+
+Never use `work_session_context` to support a memory claim. Use it only to help an agent continue its own work. See [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md).
+
 ## Context Why
 
 Use `context.why` to explain evidence IDs returned by `context.build`. This includes atom IDs and reviewed episode-card IDs such as `episode_card:*`.
@@ -310,3 +340,4 @@ These are valid local/operator APIs, but not the primary public orchestration co
 - [Agent Integration](AGENT_INTEGRATION.md)
 - [MCP Integration](MCP_INTEGRATION.md)
 - [API Matrix](api/API_MATRIX.md)
+- [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md)

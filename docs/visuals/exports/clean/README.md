@@ -2,6 +2,11 @@
 
 These diagrams are simplified public-facing renders derived from the canonical visual specs. They intentionally bundle dense fan-ins and fan-outs into readable stages instead of preserving every raw draw.io connector.
 
+The public renders include WSS as a strict active project/thread/workstream
+scoped continuity helper for active agent work. It attaches only when that scope
+gate passes, and its label is intentionally separate from reviewed memory and
+evidence paths.
+
 Regenerate them with:
 
 ```bash

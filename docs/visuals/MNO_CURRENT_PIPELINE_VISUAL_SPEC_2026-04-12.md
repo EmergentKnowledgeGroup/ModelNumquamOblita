@@ -10,6 +10,7 @@ Companion draw.io file:
 Use this package when you want the current MNO shape, not a launch-only simplified picture. It should show:
 - how raw source intake becomes durable evidence
 - where the raw-context sidecar is written and how it stays separate from truth
+- where built-in WSS attaches to runtime context packages only under strict active project/thread/workstream scope
 - where optional draft curation sits
 - how reviewed cards become trusted runtime memory
 - how truth-lineage metadata links corrected reviewed cards
@@ -23,6 +24,7 @@ Primary files for this map:
 - [store.py](../../engine/memory/store.py)
 - [sqlite_store.py](../../engine/memory/sqlite_store.py)
 - [raw_sidecar.py](../../engine/retrieval/raw_sidecar.py)
+- [scratchpad.py](../../engine/runtime/scratchpad.py)
 - [engine.py](../../engine/retrieval/engine.py)
 - [episode_cards.py](../../engine/retrieval/episode_cards.py)
 - [session.py](../../engine/runtime/session.py)
@@ -55,10 +57,11 @@ This page is the real pipeline map. It should preserve the engineering layering 
 - compile reviewed cards
 - truth-lineage finalize
 - reviewed episode cards as trusted runtime memory
-- explicit note that draft helpers and raw-context receipts are not truth authorities
+- explicit note that draft helpers, WSS context, and raw-context receipts are not truth authorities
 
 ### Lane 3: Runtime Participation
 - runtime retriever consumes atoms, reviewed cards, and helper layers
+- context packages include WSS `scratchpad_ephemeral` when strict active project/thread/workstream scope is present
 - raw-context quote/provenance lane wakes only for explicit wording or source-context asks
 - lineage-aware read path prefers current reviewed truth over superseded reviewed cards
 - normal answer path remains bounded evidence plus verifier
@@ -85,6 +88,7 @@ This page should show the current live memory stack inside the broader system pa
 - immediate context
 - STM / session state
 - provisional memory
+- built-in WSS `scratchpad_ephemeral` sidecar helper state
 - proposal-only store
 - continuity surfaces
 - raw-context sidecar
@@ -104,7 +108,7 @@ This page should show the live request path inside the broader system package:
 - ANN candidate helper
 - lineage-aware reviewed resolution
 - fusion and guarded shortlist
-- evidence pack assembly
+- context package assembly, with WSS attached only by strict active project/thread/workstream scope
 - raw-context quote/provenance expansion
 - verifier and answer path
 - final output
@@ -122,6 +126,7 @@ It should still explain:
 - `truth lineage = old and corrected reviewed cards stay linked`
 - `MCP = Model Context Protocol`
 - `ANN = approximate nearest neighbor`
+- `WSS = work-session scratchpad`
 
 The caveman page should answer a basic user question:
 `What happens when I give MNO my stuff, and how does it stay honest?`
@@ -129,5 +134,6 @@ The caveman page should answer a basic user question:
 ## Current-iteration caveats
 
 - raw-context receipts are bounded and query-gated; they do not become the primary truth layer
+- WSS is built-in `scratchpad_ephemeral` work-session helper state, not evidence or reviewed truth
 - lineage metadata currently lives on reviewed cards, not as an autonomous mutable memory system
 - this package is for the clean repo current state, not older internal pre-clean diagrams

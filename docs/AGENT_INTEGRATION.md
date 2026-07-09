@@ -105,6 +105,19 @@ Typical `context.build` request:
 }
 ```
 
+## Work-session scratchpad context
+
+WSS, the work-session scratchpad, is MNO's built-in continuity helper for active agent work. It is live-on for v2 context packages when strict project/thread/workstream scope identity is present, and it appears as `work_session_context` with trust tier `scratchpad_ephemeral`.
+
+Agent rule:
+
+- use WSS to avoid rereading repeated work-session background
+- do not treat WSS as retrieved memory evidence
+- do not use WSS to support user-facing memory claims
+- keep `work_session_scope.thread_id` and `work_session_scope.workstream_key` stable for a real work lane
+
+The stable `integration-v1` memory envelope remains evidence-focused. Context-package and adapter routes can carry WSS when strict scope is supplied. See [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md).
+
 Typical `writeback.propose` rules:
 - bearer auth required
 - `Idempotency-Key` header required
@@ -205,3 +218,4 @@ See:
 - [Generic Sidecar Integration](integrations/GENERIC_SIDECAR.md)
 - [MCP Integration](MCP_INTEGRATION.md)
 - [API](API.md)
+- [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md)

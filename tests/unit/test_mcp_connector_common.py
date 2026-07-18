@@ -48,6 +48,11 @@ def test_build_posix_and_windows_entries_are_stable(tmp_path: Path) -> None:
             self.stderr = ""
 
     def _runner(cmd, **_kwargs):
+        if "-c" in cmd and "--exec" in cmd:
+            candidate = str(cmd[cmd.index("--exec") + 1])
+            if candidate == "/usr/local/bin/python3.14":
+                return _Proc("3.14\n")
+            return type("Failed", (), {"returncode": 1, "stdout": "", "stderr": "missing"})()
         return _Proc(f"/converted/{Path(str(cmd[-1])).name}\n")
 
     windows = module.build_windows_wsl_stdio_entry(
@@ -64,7 +69,7 @@ def test_build_posix_and_windows_entries_are_stable(tmp_path: Path) -> None:
     assert windows["command"] == r"C:\Windows\System32\wsl.exe"
     assert windows["env"] == {}
     assert windows["args"][:4] == ["-d", "Ubuntu-24.04", "--cd", "/mnt/z/mno-workspace"]
-    assert windows["args"][4:6] == ["--exec", "/usr/bin/python3"]
+    assert windows["args"][4:6] == ["--exec", "/usr/local/bin/python3.14"]
     assert "tools/run_claude_live_mcp.py" in windows["args"]
     raw_memories = str(memories)
     expected_memories = raw_memories
@@ -135,6 +140,56 @@ def test_detect_wsl_distro_returns_empty_when_command_is_missing() -> None:
         raise FileNotFoundError("wsl.exe")
 
     assert module.detect_wsl_distro(env={}, runner=_runner) == ""
+
+
+def test_wsl_python_discovery_does_not_assume_usr_bin_python3() -> None:
+    module = _load_module()
+
+    class _Proc:
+        def __init__(self, returncode: int, stdout: str = ""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = ""
+
+    def _runner(cmd, **_kwargs):
+        candidate = cmd[cmd.index("--exec") + 1]
+        if candidate == "/usr/local/bin/python3.13":
+            return _Proc(0, "3.13\n")
+        return _Proc(1)
+
+    assert module.discover_wsl_python_path(distro_name="Ubuntu", runner=_runner) == "/usr/local/bin/python3.13"
+
+
+def test_wsl_python_discovery_uses_one_path_probe_when_supported() -> None:
+    module = _load_module()
+    calls: list[list[str]] = []
+
+    class _Proc:
+        returncode = 0
+        stdout = '{"path":"/opt/python/bin/python3.14","version":[3,14]}\n'
+        stderr = ""
+
+    def _runner(cmd, **_kwargs):
+        calls.append(list(cmd))
+        return _Proc()
+
+    assert module.discover_wsl_python_path(distro_name="Ubuntu", runner=_runner) == "/opt/python/bin/python3.14"
+    assert len(calls) == 1
+
+
+def test_default_memory_path_scans_selected_legacy_imports_root(tmp_path: Path) -> None:
+    module = _load_module()
+    nested = tmp_path / ".runtime" / "imports" / "export" / "memories.json"
+    nested.parent.mkdir(parents=True)
+    nested.write_text("[]", encoding="utf-8")
+    assert module.default_memory_path(repo_root=tmp_path) == nested
+
+
+def test_empty_injected_environment_does_not_read_process_profile(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "ProcessUser"))
+    monkeypatch.setenv("USERNAME", "ProcessUser")
+    assert module._current_windows_user_dir(users_root=tmp_path / "Users", env={}) is None
 
 
 def test_detect_wsl_distro_returns_empty_when_no_distro_is_available() -> None:

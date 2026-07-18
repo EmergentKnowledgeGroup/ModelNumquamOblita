@@ -185,7 +185,7 @@ def test_import_pipeline_malformed_input_fails_without_partial_commit(tmp_path: 
 def test_import_rejects_secrets_before_any_store_persistence(tmp_path: Path) -> None:
     input_path = tmp_path / "secret_export.json"
     store_path = tmp_path / "atoms.sqlite3"
-    secret = "sk-MNO-CANARY-1234567890abcdef"
+    secret = "sk-MNO-CANARY-1234567890abcdef"  # noqa: S105
     input_path.write_text(
         json.dumps(
             {
@@ -225,6 +225,22 @@ def test_sqlite_import_snapshot_includes_committed_wal_state(tmp_path: Path) -> 
         snapshot_store = SqliteAtomStore(snapshot_path)
         try:
             assert any(atom.canonical_text == "Committed memory waiting in WAL state." for atom in snapshot_store.list_atoms())
+        finally:
+            snapshot_store.close()
+    finally:
+        live_store.close()
+
+
+def test_sqlite_import_snapshot_escapes_special_path_characters_for_uri_mode(tmp_path: Path) -> None:
+    live_path = tmp_path / "live#snapshot.sqlite3"
+    snapshot_path = tmp_path / "snapshot.sqlite3"
+    live_store = SqliteAtomStore(live_path)
+    try:
+        live_store.add_candidate(_seed_candidate("uri_candidate", "URI-safe SQLite backup.", "uri_source"))
+        _backup_sqlite_store(live_path, snapshot_path)
+        snapshot_store = SqliteAtomStore(snapshot_path)
+        try:
+            assert any(atom.canonical_text == "URI-safe SQLite backup." for atom in snapshot_store.list_atoms())
         finally:
             snapshot_store.close()
     finally:

@@ -263,7 +263,7 @@ def _backup_sqlite_store(source_path: str | Path, target_path: str | Path) -> Pa
     if source == target:
         raise ValueError("SQLite snapshot target must differ from source")
     target.parent.mkdir(parents=True, exist_ok=True)
-    source_uri = f"file:{source.as_posix()}?mode=ro"
+    source_uri = f"{source.as_uri()}?mode=ro"
     try:
         with closing(sqlite3.connect(source_uri, uri=True)) as source_conn, closing(
             sqlite3.connect(str(target))

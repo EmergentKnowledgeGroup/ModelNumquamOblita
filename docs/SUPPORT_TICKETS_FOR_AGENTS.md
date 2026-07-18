@@ -58,7 +58,7 @@ First create and inspect the local bundle. If the human explicitly authorizes is
 mno-report ... --submit
 ```
 
-This opens an issue at `EmergentKnowledgeGroup/ModelNumquamOblita` using the generated body. Without `--submit`, no network or GitHub mutation occurs. If submission fails, the local bundle remains available and no success is claimed.
+This opens an issue only at the official `EmergentKnowledgeGroup/ModelNumquamOblita` repository using the generated body; `--submit` rejects alternate repository targets. Without `--submit`, no network or GitHub mutation occurs. If submission times out or otherwise fails, the local bundle remains available and no success is claimed.
 
 ## Triage contract
 

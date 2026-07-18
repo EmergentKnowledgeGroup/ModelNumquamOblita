@@ -153,7 +153,7 @@ Typical `writeback.propose` rules:
 7. If the user explicitly wants durable writeback, call `writeback.propose`.
 8. Let a human workflow holding the separate `review_apply` capability resolve with `writeback.resolve`; `apply=true` creates only a non-reviewed evidence atom.
 
-At startup and after a dependency/auth change, inspect `integration.capabilities.get`. Tool presence is not proof that the current principal can use it: honor each operation's backend/policy state, `authorized`, `available`, and reason fields. Never retry a denied operation by selecting a stronger credential yourself.
+Before every write or maintenance operation, inspect `integration.capabilities.get` (and refresh it after dependency/auth changes). Tool presence is not proof that the current principal can use it: honor each operation's backend/policy state, `authorized`, `available`, and reason fields. Never retry a denied operation by selecting a stronger credential yourself.
 
 Exported bundles are launch plans, not installers. They call the installed `mno-runtime` or `mno-agent-mcp` command, contain no originating checkout path, and fail before mutation when that declared dependency is missing.
 

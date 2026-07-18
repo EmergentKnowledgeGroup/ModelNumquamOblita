@@ -32,7 +32,7 @@ If `npm run desktop:pack:dir --prefix app/desktop` fails during `codesign` with 
 Practical fixes:
 - use the default local unsigned pack path from this repo for a local `.app` directory build; it now sets `mac.identity=null` so electron-builder skips signing entirely
 - build the signed/notarized mac release from a local APFS checkout or CI runner instead of an SMB-mounted workspace
-- if you need to force a specific interpreter for runtime bundling, set `MNO_PYTHON` to a healthy Python 3.12+ binary such as `/opt/homebrew/bin/python3`
+- if you need to force a specific interpreter for runtime bundling, set `MNO_PYTHON` to a healthy Python 3.12+ command; launcher arguments and quoted executable paths are preserved (for example, `py -3.12` or `"/opt/My Python/python3" -X utf8`)
 - prefer the local APFS workspace documented in `docs/MAC_PACKAGING.md` for signed app, DMG, and ZIP builds
 
 Then check:

@@ -7,11 +7,25 @@ param(
 
 $repo = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+function ConvertTo-MnoArgv([string]$Value) {
+  $tokens = [System.Collections.Generic.List[string]]::new()
+  foreach ($match in [regex]::Matches($Value, '"(?:\\.|[^"])*"|''(?:''''|[^''])*''|[^\s]+')) {
+    $token = $match.Value
+    if ($token.Length -ge 2 -and (($token[0] -eq '"' -and $token[-1] -eq '"') -or ($token[0] -eq "'" -and $token[-1] -eq "'"))) {
+      $token = $token.Substring(1, $token.Length - 2)
+    }
+    $tokens.Add($token)
+  }
+  return @($tokens)
+}
+
 $selectedPython = $null
 $candidates = [System.Collections.Generic.List[object]]::new()
 if ($env:MNO_PYTHON) {
-  if ($env:MNO_PYTHON -match '^py(?:\.exe)?\s+(-3\.\d+)$') { $candidates.Add([pscustomobject]@{ Exe = "py"; Args = @($Matches[1]) }) }
-  else { $candidates.Add([pscustomobject]@{ Exe = $env:MNO_PYTHON; Args = @() }) }
+  $overrideArgv = @(ConvertTo-MnoArgv $env:MNO_PYTHON)
+  if ($overrideArgv.Count -gt 0) {
+    $candidates.Add([pscustomobject]@{ Exe = $overrideArgv[0]; Args = @($overrideArgv | Select-Object -Skip 1) })
+  }
 }
 foreach ($version in @("-3.12", "-3.13", "-3.14", "-3.15")) { $candidates.Add([pscustomobject]@{ Exe = "py"; Args = @($version) }) }
 foreach ($exe in @("python3.15", "python3.14", "python3.13", "python3.12", "python")) { $candidates.Add([pscustomobject]@{ Exe = $exe; Args = @() }) }

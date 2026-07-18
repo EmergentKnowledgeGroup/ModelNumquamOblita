@@ -27,7 +27,11 @@ RUNTIME_SKELETON_FILES = {
     "runtime/tmp/.gitkeep",
     "runtime/wizard_runs/.gitkeep",
 }
-FORBIDDEN_SUFFIXES = (".sqlite3", ".sqlite3-wal", ".sqlite3-shm")
+FORBIDDEN_SUFFIXES = (
+    ".sqlite3", ".sqlite3-wal", ".sqlite3-shm",
+    ".sqlite", ".sqlite-wal", ".sqlite-shm",
+    ".db", ".db-wal", ".db-shm",
+)
 
 
 def _artifact(dist_dir: Path, pattern: str) -> Path:
@@ -113,7 +117,7 @@ def verify_isolated_wheel(wheel: Path, *, work_root: Path) -> dict[str, object]:
     install_root.mkdir(parents=True, exist_ok=True)
     profile_root.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--no-deps", "--target", str(install_root), str(wheel)],
+        [sys.executable, "-m", "pip", "install", "--target", str(install_root), str(wheel)],
         check=True,
         cwd=work_root,
     )
@@ -143,7 +147,7 @@ payload = {{
 print(json.dumps(payload))
 """
     result = subprocess.run(
-        [sys.executable, "-I", "-c", probe],
+        [sys.executable, "-I", "-S", "-c", probe],
         check=True,
         cwd=profile_root,
         env=env,
@@ -173,7 +177,7 @@ print(json.dumps(payload))
             f"runpy.run_module({module!r},run_name='__main__')"
         )
         subprocess.run(
-            [sys.executable, "-I", "-c", module_probe],
+            [sys.executable, "-I", "-S", "-c", module_probe],
             check=True,
             cwd=profile_root,
             env=env,
@@ -192,7 +196,7 @@ print(json.dumps(payload))
         "runpy.run_module('tools.report_issue',run_name='__main__')"
     )
     subprocess.run(
-        [sys.executable, "-I", "-c", report_probe],
+        [sys.executable, "-I", "-S", "-c", report_probe],
         check=True,
         cwd=profile_root,
         env=env,

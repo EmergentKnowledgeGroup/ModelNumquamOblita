@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime, timezone
 from importlib import metadata as importlib_metadata
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -20,11 +21,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from engine.memory.content_safety import scrub_content
+from engine.memory.content_safety import scrub_content  # noqa: E402
 
 
 DEFAULT_REPOSITORY = "EmergentKnowledgeGroup/ModelNumquamOblita"
 MAX_LOG_BYTES = 128 * 1024
+
+
+def _validated_timeout(value: Any) -> float:
+    timeout = float(value)
+    if not math.isfinite(timeout) or timeout < 0:
+        raise ValueError("timeout must be a finite non-negative number")
+    return timeout
 
 
 def _quick_check_argv() -> list[str]:
@@ -133,6 +141,7 @@ def _render_issue(ticket: dict[str, Any]) -> str:
 
 
 def build_ticket(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
+    timeout_s = _validated_timeout(args.timeout)
     output_root = Path(args.output_dir).expanduser().resolve() if args.output_dir else _default_output_root()
     ticket_dir = output_root / f"ticket_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid4().hex[:8]}"
     attachments = ticket_dir / "attachments"
@@ -144,10 +153,10 @@ def build_ticket(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
     checks: list[dict[str, Any]] = []
     repo_root = REPO_ROOT
     if args.check in {"quick", "full"}:
-        checks.append(_run_check(_quick_check_argv(), cwd=repo_root, timeout_s=float(args.timeout)))
+        checks.append(_run_check(_quick_check_argv(), cwd=repo_root, timeout_s=timeout_s))
     if args.check == "full":
         if _source_suite_available(repo_root):
-            checks.append(_run_check([sys.executable, "-m", "pytest", "-q"], cwd=repo_root, timeout_s=float(args.timeout)))
+            checks.append(_run_check([sys.executable, "-m", "pytest", "-q"], cwd=repo_root, timeout_s=timeout_s))
         else:
             checks.append({
                 "argv": ["pytest", "<source-checkout-suite>"],
@@ -185,6 +194,14 @@ def main() -> int:
     parser.add_argument("--repository", default=DEFAULT_REPOSITORY)
     parser.add_argument("--submit", action="store_true", help="After local report creation, submit with authenticated GitHub CLI.")
     args = parser.parse_args()
+    try:
+        timeout_s = _validated_timeout(args.timeout)
+    except (TypeError, ValueError):
+        print(json.dumps({"ok": False, "submitted": False, "error": "INVALID_TIMEOUT"}, indent=2))
+        return 2
+    if args.submit and str(args.repository).strip() != DEFAULT_REPOSITORY:
+        print(json.dumps({"ok": False, "submitted": False, "error": "UNSUPPORTED_SUBMISSION_REPOSITORY"}, indent=2))
+        return 2
     ticket_dir, ticket = build_ticket(args)
     result: dict[str, Any] = {"ok": True, "ticket_dir": str(ticket_dir), "issue_body": str(ticket_dir / "issue.md"), "submitted": False}
     if args.submit:
@@ -192,10 +209,16 @@ def main() -> int:
             result.update({"ok": False, "error": "GITHUB_CLI_NOT_AVAILABLE"})
             print(json.dumps(result, indent=2))
             return 2
-        submitted = subprocess.run(
-            ["gh", "issue", "create", "--repo", str(args.repository), "--title", str(ticket["title"]), "--body-file", str(ticket_dir / "issue.md")],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, shell=False,
-        )
+        try:
+            submitted = subprocess.run(
+                ["gh", "issue", "create", "--repo", DEFAULT_REPOSITORY, "--title", str(ticket["title"]), "--body-file", str(ticket_dir / "issue.md")],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, shell=False,
+                timeout=timeout_s,
+            )
+        except subprocess.TimeoutExpired:
+            result.update({"ok": False, "error": "GITHUB_SUBMISSION_TIMEOUT"})
+            print(json.dumps(result, indent=2))
+            return 2
         if submitted.returncode != 0:
             result.update({"ok": False, "error": "GITHUB_SUBMISSION_FAILED", "detail": scrub_content(submitted.stderr[-2000:])})
             print(json.dumps(result, indent=2))

@@ -30,3 +30,31 @@ def test_blind_llm_gate_fails_closed_on_hard_boundary_violation() -> None:
     result = score(payload)
     assert result["passed"] is False
     assert "reinforcement_boundary" in result["hard_failures"]
+
+
+def test_blind_llm_gate_derives_hard_violation_instead_of_trusting_answer_flag() -> None:
+    payload = json.loads(
+        (ROOT / "tests/fixtures/blind_llm_reference_answers_v0.2.1.json").read_text(encoding="utf-8")
+    )
+    payload["answers"][3]["decision"] = "auto_promote_to_canonical"
+    payload["answers"][3]["hard_violation"] = False
+    result = score(payload)
+    assert result["passed"] is False
+    assert "reinforcement_boundary" in result["hard_failures"]
+
+
+def test_blind_llm_gate_rejects_duplicate_missing_and_unknown_ids() -> None:
+    source = json.loads(
+        (ROOT / "tests/fixtures/blind_llm_reference_answers_v0.2.1.json").read_text(encoding="utf-8")
+    )
+    for rows in (
+        [*source["answers"], dict(source["answers"][0])],
+        source["answers"][:-1],
+        [*source["answers"][:-1], {"id": "unknown", "decision": "anything"}],
+    ):
+        try:
+            score({"answers": rows})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("expected exact answer-ID validation failure")

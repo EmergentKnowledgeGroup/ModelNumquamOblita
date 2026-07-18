@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from .proposal_store import SqliteProposalStore
-from .provisional_store import SqliteProvisionalMemoryStore
 from .sqlite_store import SqliteAtomStore
 
 
@@ -37,12 +37,8 @@ def backup_memory_family(store: SqliteAtomStore, target_dir: str | Path) -> dict
             artifacts[name] = {"present": False}
             continue
         target = destination / path.name
-        sidecar = SqliteProvisionalMemoryStore(path) if name == "provisional" else SqliteProposalStore(path)
-        try:
-            sidecar.backup_to(target)
-            artifacts[name] = {"path": target.name, "present": True}
-        finally:
-            sidecar.close()
+        _backup_sqlite_file(path, target)
+        artifacts[name] = {"path": target.name, "present": True}
     manifest = {"schema": "mno.memory-family-backup.v1", "artifacts": artifacts}
     manifest_path = destination / "memory_family_manifest.json"
     temp_path = manifest_path.with_suffix(".json.tmp")
@@ -54,6 +50,25 @@ def backup_memory_family(store: SqliteAtomStore, target_dir: str | Path) -> dict
         pass
     manifest["manifest_path"] = str(manifest_path)
     return manifest
+
+
+def _backup_sqlite_file(source_path: str | Path, target_path: str | Path) -> Path:
+    """Copy an existing SQLite file without opening it through a store constructor."""
+
+    source = Path(source_path).expanduser().resolve()
+    target = Path(target_path).expanduser().resolve()
+    if source == target:
+        raise ValueError("SQLite snapshot target must differ from source")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with closing(sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True)) as source_conn, closing(
+            sqlite3.connect(str(target))
+        ) as target_conn:
+            source_conn.backup(target_conn)
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
+    return target
 
 
 __all__ = ["backup_memory_family"]

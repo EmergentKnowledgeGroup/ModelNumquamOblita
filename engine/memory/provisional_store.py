@@ -19,6 +19,7 @@ from .content_safety import SecretDetectedError, assert_safe_content, scrub_cont
 
 _TOKEN_RE = re.compile(r"[a-z0-9']+")
 _SCHEMA_VERSION = 3
+_MAX_COMPLETED_MAINTENANCE_RUNS = 256
 
 
 def _now_utc() -> datetime:
@@ -1174,6 +1175,18 @@ class SqliteProvisionalMemoryStore:
                 "INSERT INTO provisional_control(control_key, control_value) VALUES ('maintenance_cursor', ?) "
                 "ON CONFLICT(control_key) DO UPDATE SET control_value = excluded.control_value",
                 (cursor_payload,),
+            )
+            self._conn.execute(
+                """
+                DELETE FROM provisional_maintenance_runs
+                WHERE run_id IN (
+                    SELECT run_id FROM provisional_maintenance_runs
+                    WHERE status = 'completed'
+                    ORDER BY completed_at_utc DESC, run_id DESC
+                    LIMIT -1 OFFSET ?
+                )
+                """,
+                (_MAX_COMPLETED_MAINTENANCE_RUNS,),
             )
 
     def maintenance_fail(self, run_id: str, *, error_code: str) -> None:

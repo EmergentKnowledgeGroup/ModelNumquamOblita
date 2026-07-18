@@ -28,3 +28,13 @@ def test_pyproject_packages_runnable_engine_and_cli_surfaces() -> None:
     runtime_data = pyproject.get("tool", {}).get("setuptools", {}).get("package-data", {}).get("engine.runtime", [])
     assert "ui/*" in runtime_data
     assert "resources/*.md" in runtime_data
+
+
+def test_llm_and_agent_docs_require_capability_refresh_before_each_mutating_operation() -> None:
+    llms = (REPO_ROOT / "LLMS.md").read_text(encoding="utf-8")
+    agent = (REPO_ROOT / "docs" / "AGENT_INTEGRATION.md").read_text(encoding="utf-8")
+    assert "Before using every write or maintenance operation, call `integration.capabilities.get`" in llms
+    assert "Before every write or maintenance operation, inspect `integration.capabilities.get`" in agent
+    for field in ("authorized", "available", "reason"):
+        assert field in llms
+        assert field in agent

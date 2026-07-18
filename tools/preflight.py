@@ -93,7 +93,8 @@ def _clean_probe_detail(raw: str) -> str:
 
 def python_command_argv(python_cmd: str | tuple[str, ...] | list[str]) -> tuple[str, ...]:
     if isinstance(python_cmd, (tuple, list)):
-        return tuple(str(piece) for piece in python_cmd if str(piece).strip())
+        parts = tuple(str(piece) for piece in python_cmd if str(piece).strip())
+        return (str(Path(parts[0]).expanduser()), *parts[1:]) if parts else ()
     candidate = str(python_cmd or "").strip()
     if not candidate:
         return ()
@@ -104,7 +105,11 @@ def python_command_argv(python_cmd: str | tuple[str, ...] | list[str]) -> tuple[
         parts = shlex.split(candidate, posix=os.name != "nt")
     except ValueError:
         return (candidate,)
-    return tuple(piece[1:-1] if len(piece) >= 2 and piece[0] == piece[-1] and piece[0] in {'"', "'"} else piece for piece in parts)
+    normalized = tuple(
+        piece[1:-1] if len(piece) >= 2 and piece[0] == piece[-1] and piece[0] in {'"', "'"} else piece
+        for piece in parts
+    )
+    return (str(Path(normalized[0]).expanduser()), *normalized[1:]) if normalized else ()
 
 
 def python_command_display(argv: tuple[str, ...] | list[str]) -> str:

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import json
+import subprocess
 from pathlib import Path
 
+from tools import report_issue
 from tools.report_issue import build_ticket
 
 
@@ -44,3 +47,37 @@ def test_quick_check_uses_installed_product_smoke_without_source_test_paths(tmp_
     assert ticket["checks"][0]["status"] == "passed"
     assert ticket["checks"][0]["argv"][1] == "-c"
     assert "pytest" not in ticket["checks"][0]["argv"]
+
+
+def test_build_ticket_rejects_nonfinite_or_negative_timeout(tmp_path: Path) -> None:
+    for value in (-1, float("inf"), float("nan")):
+        try:
+            build_ticket(_args(tmp_path / str(value), timeout=value))
+        except ValueError as exc:
+            assert "finite non-negative" in str(exc)
+        else:
+            raise AssertionError(f"expected timeout rejection for {value!r}")
+
+
+def test_submit_rejects_nondefault_repository_before_creating_ticket(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        report_issue.argparse.ArgumentParser,
+        "parse_args",
+        lambda _self: _args(Path("unused"), repository="attacker/repo", submit=True),
+    )
+    assert report_issue.main() == 2
+    assert json.loads(capsys.readouterr().out)["error"] == "UNSUPPORTED_SUBMISSION_REPOSITORY"
+
+
+def test_submit_timeout_is_structured_and_uses_validated_timeout(monkeypatch, tmp_path: Path, capsys) -> None:
+    args = _args(tmp_path, repository=report_issue.DEFAULT_REPOSITORY, submit=True, timeout=1.25)
+    monkeypatch.setattr(report_issue.argparse.ArgumentParser, "parse_args", lambda _self: args)
+    monkeypatch.setattr(report_issue.shutil, "which", lambda _name: "gh")
+
+    def _timeout(*_args, **kwargs):
+        assert kwargs["timeout"] == 1.25
+        raise subprocess.TimeoutExpired(cmd="gh issue create", timeout=kwargs["timeout"])
+
+    monkeypatch.setattr(report_issue.subprocess, "run", _timeout)
+    assert report_issue.main() == 2
+    assert json.loads(capsys.readouterr().out)["error"] == "GITHUB_SUBMISSION_TIMEOUT"

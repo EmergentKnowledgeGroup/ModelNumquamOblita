@@ -82,7 +82,7 @@ Example response:
     "contract_version": "1.0.0",
     "operations": [
       {"name": "context.build", "exposed": true, "backend_available": true, "authorized": true, "degraded": false, "available": true, "reason_codes": []},
-      {"name": "writeback.resolve", "exposed": true, "backend_available": true, "authorized": false, "available": false, "required_capability": "review_apply", "reason_codes": ["review_capability_required"], "policy_state": "human_review_required"}
+      {"name": "writeback.resolve", "exposed": true, "backend_available": true, "degraded": false, "authorized": false, "available": false, "required_capability": "review_apply", "reason_codes": ["review_capability_required"], "policy_state": "human_review_required"}
     ],
     "support_ticket": {
       "schema": "mno.support_ticket.v1",

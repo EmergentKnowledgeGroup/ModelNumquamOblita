@@ -12,7 +12,7 @@ function commandArgv(value) {
   if (Array.isArray(value)) return value.map(String).filter(Boolean);
   const text = String(value || '').trim();
   if (!text) return [];
-  const matches = text.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+  const matches = text.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
   return matches.map((part) => part.replace(/^(["'])(.*)\1$/, '$2'));
 }
 

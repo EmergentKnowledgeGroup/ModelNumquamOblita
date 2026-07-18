@@ -481,3 +481,19 @@ def test_memory_family_backup_uses_sqlite_apis_and_records_only_topology_metadat
         assert len(restored.list_atoms()) == 1
     finally:
         restored.close()
+
+
+def test_memory_family_backup_does_not_initialize_existing_sidecars(tmp_path: Path) -> None:
+    atom_store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    provisional_path = tmp_path / "atoms.provisional.sqlite3"
+    with sqlite3.connect(provisional_path) as provisional:
+        provisional.execute("CREATE TABLE untouched_sidecar (value TEXT NOT NULL)")
+        provisional.execute("INSERT INTO untouched_sidecar(value) VALUES ('preserve')")
+
+    manifest = backup_memory_family(atom_store, tmp_path / "backups")
+    atom_store.close()
+
+    with sqlite3.connect(provisional_path) as provisional:
+        tables = {str(row[0]) for row in provisional.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        assert tables == {"untouched_sidecar"}
+    assert manifest["artifacts"]["provisional"]["present"] is True

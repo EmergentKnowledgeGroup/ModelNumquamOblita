@@ -27,6 +27,7 @@ from importlib import metadata as importlib_metadata
 import ipaddress
 import hmac
 from pathlib import Path
+from socketserver import TCPServer
 from typing import Any, Mapping, Sequence
 from urllib import request as urllib_request
 from urllib.error import HTTPError, URLError
@@ -8348,10 +8349,14 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                             retryable=False,
                             operator_action="set_target_id_for_mutation_intent",
                         )
+                    action = {
+                        "create": WriteAction.PROPOSE_CREATE,
+                        "edit": WriteAction.PROPOSE_EDIT,
+                        "delete": WriteAction.PROPOSE_DELETE,
+                        "conflict": WriteAction.PROPOSE_EDIT,
+                    }[intent]
                     candidate: CandidateAtom | None = None
-                    if intent == "delete":
-                        action = WriteAction.PROPOSE_DELETE
-                    else:
+                    if intent != "delete":
                         body_value = mutation.get("body")
                         if isinstance(body_value, str):
                             candidate_text = body_value.strip()
@@ -8419,9 +8424,6 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         "idempotent_replay": False,
                         "audit_ref": audit_ref,
                     }
-                    action = WriteAction.PROPOSE_CREATE if intent == "create" else action
-                    if intent in {"edit", "conflict"}:
-                        action = WriteAction.PROPOSE_EDIT
                     proposal, durable_state, response_data = queue.propose_idempotent(
                         action=action,
                         target_atom_id=target_id,
@@ -13835,6 +13837,14 @@ class RuntimeHTTPServer(ThreadingHTTPServer):
     """HTTP server wrapper that carries runtime and adapter dependencies."""
     daemon_threads = True
     block_on_close = False
+
+    def server_bind(self) -> None:
+        """Bind without the reverse-DNS lookup performed by HTTPServer."""
+
+        TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
 
     def __init__(
         self,

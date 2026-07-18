@@ -49,7 +49,7 @@ Authority and maturity are separate. A consolidated provisional memory is more m
 6. Pass back the signed `source_registration` and `retrieval_receipt` exactly as MNO issued them.
 7. If the user explicitly says “remember this,” report `remember_intent: "user_explicit"` and tell the user that human-reviewed writeback is still required for durable evidence/canonical truth.
 
-Before using a write or maintenance operation, call `integration.capabilities.get`. Distinguish an exposed tool from one that is authorized and available for your current principal. If the response says unavailable, degraded, or unauthorized, report that state; do not invent success, switch credentials, or bypass the operation through raw import.
+Before using every write or maintenance operation, call `integration.capabilities.get`. Distinguish an exposed tool from one that is authorized and available for your current principal, and honor its `authorized`, `available`, and reason fields. If the response says unavailable, degraded, or unauthorized, report that state; do not invent success, switch credentials, or bypass the operation through raw import.
 
 `context.build` is read-only. `memory.observe` is the explicit live write that lets MNO evaluate safe provisional evidence. Do not use raw import as the day-to-day “remember this” path.
 

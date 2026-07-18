@@ -113,7 +113,7 @@ def _normalize_parity_payload(payload: dict) -> dict:
 
 def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
     store = AtomStore()
-    store.add_candidate(_candidate("cand_1", "User prefers tea before bed.", "conv_tea"))
+    base_atom = store.add_candidate(_candidate("cand_1", "User prefers tea before bed.", "conv_tea"))
     continuity = ContinuityStore()
     continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
     runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=continuity)
@@ -206,6 +206,43 @@ def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
         assert first_payload["data"]["idempotent_replay"] is False
         proposal_id = str(first_payload["data"]["proposal_id"])
 
+        for intent, mutation, key in (
+            (
+                "edit",
+                {
+                    "intent": "edit",
+                    "target_kind": "fact_card",
+                    "target_id": base_atom.atom_id,
+                    "body": {"canonical_text": "User prefers tea before sleep."},
+                },
+                "idem_integration_edit_001",
+            ),
+            (
+                "conflict",
+                {
+                    "intent": "conflict",
+                    "target_kind": "fact_card",
+                    "target_id": base_atom.atom_id,
+                    "candidate_text": "User prefers coffee before sleep.",
+                    "conflict_reason": "new contradictory statement",
+                    "resolution_options": ["keep_existing", "replace", "defer"],
+                },
+                "idem_integration_conflict_001",
+            ),
+        ):
+            mutation_request = json.loads(json.dumps(propose_request))
+            mutation_request["request_id"] = f"req_{intent.upper()}1234567890"
+            mutation_request["data"]["mutation"] = mutation
+            status, payload = _http_json(
+                method="POST",
+                url=f"{base}/api/integration/v1/writeback/propose",
+                payload=mutation_request,
+                headers={**operator_headers, "Idempotency-Key": key},
+            )
+            assert status == 200
+            assert payload["ok"] is True
+            assert payload["data"]["idempotent_replay"] is False
+
         replay_status, replay_payload = _http_json(
             method="POST",
             url=f"{base}/api/integration/v1/writeback/propose",
@@ -275,7 +312,8 @@ def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
 
 
 def test_durable_writeback_proposal_replays_after_server_restart_and_audit_failure(tmp_path, monkeypatch) -> None:
-    store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    db_path = tmp_path / "atoms.sqlite3"
+    store = SqliteAtomStore(db_path)
     runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier())
     queue = MutationReviewQueue(store)
     server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
@@ -310,24 +348,36 @@ def test_durable_writeback_proposal_replays_after_server_restart_and_audit_failu
         proposal_id = str(first["data"]["proposal_id"])
         assert len(queue.list_all()) == 1
         stop_runtime_server(server, thread, runtime=runtime)
+        server = thread = runtime = None
+        store.close()
+        store = None
 
         monkeypatch.setattr(runtime_server_module, "_integration_append_audit", original_append)
-        restarted, restarted_thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
-        restarted_host, restarted_port = restarted.server_address
-        replay_status, replay = _http_json(
-            method="POST",
-            url=f"http://{restarted_host}:{restarted_port}/api/integration/v1/writeback/propose",
-            payload=payload,
-            headers=headers,
-        )
-        assert replay_status == 200
-        assert replay["data"]["proposal_id"] == proposal_id
-        assert replay["data"]["idempotent_replay"] is True
-        assert len(queue.list_all()) == 1
-        stop_runtime_server(restarted, restarted_thread, runtime=runtime)
+        store = SqliteAtomStore(db_path)
+        runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier())
+        queue = MutationReviewQueue(store)
+        server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+        restarted_host, restarted_port = server.server_address
+        try:
+            replay_status, replay = _http_json(
+                method="POST",
+                url=f"http://{restarted_host}:{restarted_port}/api/integration/v1/writeback/propose",
+                payload=payload,
+                headers=headers,
+            )
+            assert replay_status == 200
+            assert replay["data"]["proposal_id"] == proposal_id
+            assert replay["data"]["idempotent_replay"] is True
+            assert len(queue.list_all()) == 1
+        finally:
+            stop_runtime_server(server, thread, runtime=runtime)
+            server = thread = runtime = None
     finally:
         monkeypatch.setattr(runtime_server_module, "_integration_append_audit", original_append)
-        store.close()
+        if server is not None:
+            stop_runtime_server(server, thread, runtime=runtime)
+        if store is not None:
+            store.close()
 
 
 def test_external_observe_consolidates_provisionally_and_survives_context_contract(tmp_path) -> None:

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from engine.contracts import SourceRef
 from engine.memory.provisional_maintenance import MaintenancePolicy, run_maintenance
+import engine.memory.provisional_store as provisional_store_module
 from engine.memory.provisional_store import (
     ProvisionalLifecycle,
     ProvisionalMemoryCandidate,
@@ -189,4 +190,18 @@ def test_maintenance_cursor_wraps_fairly_and_dry_run_does_not_mutate_state(tmp_p
     assert store.maintenance_begin("active-run")["state"] == "acquired"
     assert store.maintenance_begin("active-run")["state"] == "join"
     assert store.maintenance_begin("other-run")["state"] == "conflict"
+    store.close()
+
+
+def test_completed_maintenance_runs_are_bounded(tmp_path, monkeypatch) -> None:
+    store = SqliteProvisionalMemoryStore(tmp_path / "bounded-runs.sqlite3")
+    monkeypatch.setattr(provisional_store_module, "_MAX_COMPLETED_MAINTENANCE_RUNS", 2)
+    for run_id in ("run-a", "run-b", "run-c"):
+        assert store.maintenance_begin(run_id)["state"] == "acquired"
+        store.maintenance_complete(run_id, cursor={"created_at": "", "record_id": ""}, transitions=[])
+    with store._lock:
+        completed_ids = [str(row[0]) for row in store._conn.execute(
+            "SELECT run_id FROM provisional_maintenance_runs WHERE status = 'completed' ORDER BY run_id"
+        )]
+    assert completed_ids == ["run-b", "run-c"]
     store.close()

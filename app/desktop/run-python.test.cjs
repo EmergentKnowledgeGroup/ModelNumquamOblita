@@ -40,6 +40,13 @@ test('commandArgv preserves py launcher version arguments', () => {
   assert.deepEqual(commandArgv('py -3.12'), ['py', '-3.12']);
 });
 
+test('commandArgv preserves single- and double-quoted executable paths', () => {
+  assert.deepEqual(commandArgv("'/opt/My Python/python3' -X utf8"), ['/opt/My Python/python3', '-X', 'utf8']);
+  assert.deepEqual(commandArgv('"C:\\Program Files\\Python\\python.exe" -X utf8'), [
+    'C:\\Program Files\\Python\\python.exe', '-X', 'utf8',
+  ]);
+});
+
 test('probe does not require ensurepip and preserves launcher arguments', () => {
   let observed;
   const fakeSpawn = (command, args) => {

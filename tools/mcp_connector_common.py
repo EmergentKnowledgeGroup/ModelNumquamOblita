@@ -8,11 +8,11 @@ import shutil
 import subprocess
 from collections import Counter
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 from uuid import uuid4
 
-from tools.preflight import _default_memories
+from tools.preflight import PYTHON_BOOTSTRAP_PROBE, _default_memories
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SERVER_NAME = "numquamoblita-live"
@@ -23,6 +23,11 @@ WINDOWS_CLAUDE_DESKTOP_REL = Path("AppData/Roaming/Claude/claude_desktop_config.
 WINDOWS_CLAUDE_CODE_REL = Path(".claude.json")
 _WINDOWS_USER_EXCLUDE = {"All Users", "Default", "Default User", "Public", "defaultuser0"}
 SUPPORTED_MEMORY_SUFFIXES = {".sqlite3", ".sqlite", ".db", ".json"}
+WSL_PYTHON_CANDIDATES = tuple(
+    f"{prefix}/python3{suffix}"
+    for suffix in (".15", ".14", ".13", ".12", "")
+    for prefix in ("/usr/bin", "/usr/local/bin")
+)
 
 
 def _path_text(value: str | Path | None) -> str:
@@ -99,7 +104,7 @@ def default_memory_path(*, repo_root: Path = REPO_ROOT) -> Path:
     default_path = _default_memories(repo_root)
     if default_path.exists():
         return default_path
-    imports_dir = repo_root / "runtime" / "imports"
+    imports_dir = default_path.parent
     if imports_dir.exists():
         candidates = sorted(imports_dir.rglob("memories.json"), key=lambda path: path.stat().st_mtime, reverse=True)
         if candidates:
@@ -357,6 +362,7 @@ def build_windows_wsl_stdio_entry(
     distro_name: str,
     runner: Any | None = None,
     config_path: str | Path | None = None,
+    python_path: str = "",
 ) -> dict[str, Any]:
     runner = runner or run_subprocess_hidden_on_windows
     repo_root_arg, distro = wsl_path_from_windows(repo_root, distro_name=distro_name, runner=runner)
@@ -367,10 +373,14 @@ def build_windows_wsl_stdio_entry(
         episodes_arg, distro = wsl_path_from_windows(episodes_path, distro_name=distro, runner=runner)
     if config_path is not None and _path_text(config_path):
         config_arg, distro = wsl_path_from_windows(config_path, distro_name=distro, runner=runner)
+    selected_python = str(python_path or "").strip() or discover_wsl_python_path(
+        distro_name=distro,
+        runner=runner,
+    )
     args: list[str] = []
     if distro:
         args.extend(["-d", distro])
-    args.extend(["--cd", repo_root_arg, "--exec", "/usr/bin/python3"])
+    args.extend(["--cd", repo_root_arg, "--exec", selected_python])
     args.extend(
         build_launcher_cli_args(
             launcher_path="tools/run_claude_live_mcp.py",
@@ -388,6 +398,56 @@ def build_windows_wsl_stdio_entry(
         "args": args,
         "env": {},
     }
+
+
+def discover_wsl_python_path(*, distro_name: str, runner: Any | None = None) -> str:
+    runner = runner or run_subprocess_hidden_on_windows
+    path_probe = (
+        "import json,sys,venv,xml.parsers.expat; "
+        "assert sys.version_info >= (3,12); "
+        "print(json.dumps({'path':sys.executable,'version':[sys.version_info[0],sys.version_info[1]]}))"
+    )
+    path_command = [windows_wsl_command()]
+    if distro_name:
+        path_command.extend(["-d", distro_name])
+    path_command.extend(["--exec", "/usr/bin/env", "python3", "-c", path_probe])
+    try:
+        path_result = runner(path_command, check=False, capture_output=True, text=True)
+    except OSError:
+        path_result = None
+    if path_result is not None and int(path_result.returncode) == 0:
+        try:
+            payload = json.loads(str(path_result.stdout or "").strip().splitlines()[-1])
+            selected_path = str(payload.get("path") or "").strip()
+            version = tuple(int(piece) for piece in payload.get("version") or ())
+            if len(version) == 2 and version >= (3, 12) and PurePosixPath(selected_path).is_absolute():
+                return selected_path
+        except (IndexError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+    best: tuple[tuple[int, int], str] | None = None
+    for candidate in WSL_PYTHON_CANDIDATES:
+        command = [windows_wsl_command()]
+        if distro_name:
+            command.extend(["-d", distro_name])
+        command.extend(["--exec", candidate, "-c", PYTHON_BOOTSTRAP_PROBE])
+        try:
+            proc = runner(command, check=False, capture_output=True, text=True)
+        except OSError:
+            continue
+        if int(proc.returncode) != 0:
+            continue
+        raw = str(proc.stdout or "").strip()
+        parts = raw.split(".", 1)
+        if len(parts) != 2 or not all(part.isdigit() for part in parts):
+            continue
+        version = (int(parts[0]), int(parts[1]))
+        if version < (3, 12):
+            continue
+        if best is None or version > best[0]:
+            best = (version, candidate)
+    if best is None:
+        raise ValueError("no compatible Python 3.12+ interpreter found inside the selected WSL distribution")
+    return best[1]
 
 
 
@@ -478,7 +538,7 @@ def candidate_windows_user_dirs(*, users_root: Path | None = None) -> list[Path]
 
 
 def _current_windows_user_dir(*, users_root: Path | None = None, env: Mapping[str, str] | None = None) -> Path | None:
-    env_map = dict(env or os.environ)
+    env_map = dict(os.environ if env is None else env)
     user_profile = str(env_map.get("USERPROFILE") or "").strip()
     if user_profile:
         return Path(user_profile).expanduser().resolve()

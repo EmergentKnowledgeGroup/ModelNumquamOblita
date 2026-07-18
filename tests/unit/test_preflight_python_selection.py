@@ -68,6 +68,20 @@ def test_python_discovery_preserves_launcher_arguments_and_does_not_require_ensu
     assert "ensurepip" not in calls[0][-1]
 
 
+def test_python_command_argv_expands_home_only_on_executable(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    expected = str(tmp_path / "My Python" / "python3")
+    assert preflight.python_command_argv("'~/My Python/python3' --flag=~/literal") == (
+        expected,
+        "--flag=~/literal",
+    )
+    assert preflight.python_command_argv(("~/My Python/python3", "~/literal")) == (
+        expected,
+        "~/literal",
+    )
+
+
 def test_default_memories_prefers_runtime_and_warns_when_legacy_also_exists(tmp_path) -> None:
     canonical = tmp_path / "runtime" / "imports"
     legacy = tmp_path / ".runtime" / "imports"

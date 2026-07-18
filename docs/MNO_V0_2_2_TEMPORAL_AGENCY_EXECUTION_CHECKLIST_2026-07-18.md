@@ -73,8 +73,8 @@
 - [x] Checkpoint post-green DEV.
 - [x] Stage only reviewed files into CLEAN and prove content equivalence.
 - [x] Run full CLEAN gates and secret/runtime-data scan.
-- [ ] Commit/push `codex/v0.2.2-temporal-agency`, open ready PR, and checkpoint PR-open.
-- [ ] Run `pr-review-ci-loop`; resolve all actionable review/CI findings.
-- [ ] Merge and close PR, tag `v0.2.2`, publish release notes/artifacts/checksums, and checkpoint post-merge.
-- [ ] Verify public repo/release and fresh-clone install/smoke.
-- [ ] Mark goal complete only after every required release surface is green.
+- [x] Commit/push `codex/v0.2.2-temporal-agency`, open ready PR, and checkpoint PR-open.
+- [x] Run `pr-review-ci-loop`; resolve all actionable review/CI findings.
+- [x] Merge and close PR, tag `v0.2.2`, publish release notes/artifacts/checksums, and checkpoint post-merge.
+- [x] Verify public repo/release and fresh-clone install/smoke.
+- [x] Mark goal complete only after every required release surface is green.

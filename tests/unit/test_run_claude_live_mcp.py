@@ -179,7 +179,17 @@ def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
             }
         ).encode("utf-8")
         framed = f"Content-Length: {len(body)}\r\nContent-Type: application/json\r\n\r\n".encode("utf-8") + body
-        response, stderr = proc.communicate(input=framed, timeout=30.0)
+        try:
+            response, stderr = proc.communicate(input=framed, timeout=30.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            response, stderr = proc.communicate(timeout=5.0)
+            trace_path = tmp_path / "mcp-stdio-trace.jsonl"
+            trace = trace_path.read_text(encoding="utf-8") if trace_path.exists() else "<missing>"
+            pytest.fail(
+                f"MCP stdio child timed out: trace={trace!r} stdout={response!r} stderr={stderr!r}",
+                pytrace=False,
+            )
         assert proc.returncode == 0, stderr.decode("utf-8", errors="replace")
         assert b"protocolVersion" in response, stderr.decode("utf-8", errors="replace")
         assert b"runtime_url=" not in stderr

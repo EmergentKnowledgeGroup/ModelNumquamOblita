@@ -184,7 +184,7 @@ def main() -> int:
     try:
         runtime_config = load_config(config_path, strict=True, upgrade=config_path is not None) if config_path else default_config()
     except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
-        print(f"error=invalid runtime config: {exc}")
+        print(f"error=invalid runtime config: {exc}", file=sys.stderr)
         return 2
     if config_path is None and not args.plan_only:
         config_path = standard_config_path

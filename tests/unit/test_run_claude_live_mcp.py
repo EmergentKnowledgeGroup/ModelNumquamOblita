@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "tools" / "run_claude_live_mcp.py"
@@ -42,6 +44,17 @@ def test_resolved_auth_tokens_fall_back_to_env() -> None:
     assert viewer == "viewer-secret"
     assert operator == "operator-secret"
     assert admin == "admin-secret"
+
+
+def test_review_apply_token_is_env_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+
+    assert module._review_apply_token({"NO_INTEGRATION_REVIEW_APPLY_TOKEN": " human-secret "}) == "human-secret"
+
+    monkeypatch.setattr(sys, "argv", ["run_claude_live_mcp.py", "--review-apply-token", "argv-secret"])
+    with pytest.raises(SystemExit) as exc_info:
+        module._parse_args()
+    assert exc_info.value.code == 2
 
 
 def test_build_claude_config_uses_python_and_memories_path(tmp_path: Path) -> None:

@@ -394,7 +394,7 @@ def memory_decision() -> Diagram:
         Node("pack", "Context package\nbounded evidence; WSS scratchpad_ephemeral by strict active scope", 1090, 380, 320, 100, "runtime"),
         Node("verify", "Verifier\nPASS / ABSTAIN / CLARIFY", 680, 390, 330, 100, "runtime"),
         Node("output", "Final output\nanswer text + evidence metadata", 350, 390, 250, 100, "helper"),
-        Node("proposal", "Explicit ‘remember this’\nreview_apply: create/edit → evidence; delete → tombstone; not canonical truth", 680, 610, 330, 100, "govern"),
+        Node("proposal", "Explicit 'remember this'\nreview_apply: create/edit → evidence; delete → tombstone; not canonical truth", 680, 610, 330, 100, "govern"),
     ]
     edges = [
         Edge("turn", "route", "#d6b656"),

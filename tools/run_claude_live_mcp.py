@@ -181,11 +181,6 @@ def _parse_args() -> argparse.Namespace:
         help="Operator auth token (optional, falls back to NO_MCP_OPERATOR_TOKEN).",
     )
     parser.add_argument("--admin-token", default="", help="Admin auth token (optional, falls back to NO_MCP_ADMIN_TOKEN).")
-    parser.add_argument(
-        "--review-apply-token",
-        default="",
-        help="Dedicated downstream review_apply token (optional, falls back to NO_INTEGRATION_REVIEW_APPLY_TOKEN).",
-    )
     parser.add_argument("--mutations-enabled", action="store_true")
     parser.add_argument("--server-name", default="numquamoblita-live", help="Server key for generated Claude Desktop config.")
     parser.add_argument("--plan-only", action="store_true", help="Validate inputs and print resolved launch info.")
@@ -196,6 +191,11 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--verbose", action="store_true", help="Emit non-error startup diagnostics to stderr.")
     return parser.parse_args()
+
+
+def _review_apply_token(env: dict[str, str] | None = None) -> str:
+    source = os.environ if env is None else env
+    return str(source.get("NO_INTEGRATION_REVIEW_APPLY_TOKEN") or "").strip()
 
 
 def main() -> int:
@@ -259,9 +259,7 @@ def main() -> int:
             return 2
 
     viewer_token, operator_token, admin_token = _resolved_auth_tokens(args)
-    review_apply_token = str(
-        getattr(args, "review_apply_token", "") or os.environ.get("NO_INTEGRATION_REVIEW_APPLY_TOKEN") or ""
-    ).strip()
+    review_apply_token = _review_apply_token()
     config_payload = build_mcp_servers_payload(
         server_name=str(args.server_name),
         entry=build_posix_stdio_entry(

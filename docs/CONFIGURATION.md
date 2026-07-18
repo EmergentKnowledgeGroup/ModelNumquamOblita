@@ -186,6 +186,7 @@ Useful env vars for the HTTP integration contract:
 Practical rule:
 - local/dev can use simple local tokens
 - production should load tokens from a real file or secret manager path
+- `NO_INTEGRATION_REVIEW_APPLY_TOKEN` is a human-held secret channel; the MCP launchers intentionally do not accept it through command-line arguments and generated model bundles must not contain it
 
 ## MCP settings
 

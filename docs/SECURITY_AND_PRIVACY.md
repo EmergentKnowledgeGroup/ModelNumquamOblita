@@ -17,6 +17,7 @@ HTTP integration and MCP entrypoints support bearer tokens. Treat viewer, operat
 Recommended handling:
 
 - set tokens through environment variables or local process managers
+- keep `NO_INTEGRATION_REVIEW_APPLY_TOKEN` out of command-line arguments, process listings, shell history, and model-generated bundles; the shipped MCP launchers read it only from the environment
 - avoid committing token values into config files
 - avoid pasting tokens into screenshots or support logs
 - rotate tokens after sharing a machine, config bundle, or terminal session

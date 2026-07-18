@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -54,13 +55,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--viewer-token", default="", help="Viewer auth token (optional).")
     parser.add_argument("--operator-token", default="", help="Operator auth token (optional).")
     parser.add_argument("--admin-token", default="", help="Admin auth token (optional).")
-    parser.add_argument(
-        "--review-apply-token",
-        default="",
-        help="Dedicated downstream reviewer token; never include this in model-generated bundles.",
-    )
     parser.add_argument("--mutations-enabled", action="store_true", help="Enable mutating MCP tools.")
     return parser.parse_args()
+
+
+def _review_apply_token(env: dict[str, str] | None = None) -> str:
+    source = os.environ if env is None else env
+    return str(source.get("NO_INTEGRATION_REVIEW_APPLY_TOKEN") or "").strip()
 
 
 def main() -> int:
@@ -88,7 +89,7 @@ def main() -> int:
         diagnostics_dir=str(args.diagnostics_dir),
         audit_log_path=str(args.audit_log_path),
         mutations_enabled=bool(args.mutations_enabled),
-        integration_review_apply_token=str(args.review_apply_token),
+        integration_review_apply_token=_review_apply_token(),
         auth=auth,
     )
     client = RuntimeApiClient(base_url=config.runtime_base_url, timeout_s=config.timeout_s)

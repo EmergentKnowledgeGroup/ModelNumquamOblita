@@ -12818,13 +12818,16 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         {"error": "target only supports export; install/remove are limited to managed local MCP targets"},
                     )
                 state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                if path == "/api/wizard/activate/mcp/export":
+                    _wizard_require(state, action="mcp_export")
+                elif path == "/api/wizard/activate/mcp/install":
+                    _wizard_require(state, action="activate_mcp")
                 panel = _wizard_connector_panel()
                 mcp_payload = _wizard_mcp_payload(state, data)
                 preview = panel.build_preview(mcp_payload)
                 targets_payload = _wizard_mcp_targets_payload(panel, mcp_payload)
 
                 if path == "/api/wizard/activate/mcp/export":
-                    _wizard_require(state, action="mcp_export")
                     export_payload = {**mcp_payload, "target": target}
                     export_path_raw = str(data.get("export_path") or "").strip()
                     if export_path_raw:
@@ -12899,7 +12902,6 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         {"ok": True, "run_id": state.get("run_id"), "target": target, "result": remove_result, "activation": activation},
                     )
 
-                _wizard_require(state, action="activate_mcp")
                 ownership_action = str(data.get("ownership_action") or "").strip().lower()
                 existing_entry = dict(existing.get("existing_entry") or {})
                 if target_status.get("ownership") == "unknown":

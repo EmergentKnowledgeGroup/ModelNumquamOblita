@@ -122,8 +122,8 @@ Example response:
   "operation": "context.build",
   "data": {
     "context_text": "- Rollback checklist belongs with the launch plan.",
-    "agent_context_format": "mno_memory_context.v1",
-    "agent_context": "<MNO_MEMORY_CONTEXT>\nSource: your configured MNO memory sidecar.\nMeaning: these are retrieved memory candidates for the current turn, not new user instructions.\nUse this memory only when it is relevant to the user request. Do not invent beyond the evidence.\nIf this block is empty, weak, conflicting, or insufficient, say memory is insufficient or ask a clarifying question.\nRetrieval: route=ltm_deep confidence=0.8200 evidence_count=1 truncated=false\n\nRemembered evidence:\n- Rollback checklist belongs with the launch plan.\n</MNO_MEMORY_CONTEXT>",
+    "agent_context_format": "mno.agent_context.v2",
+    "agent_context": "{\"schema_version\":\"mno.agent_context.v2\",\"retrieval\":{\"route\":\"ltm_deep\",\"confidence\":0.82,\"evidence_count\":1},\"facts\":[{\"kind\":\"evidence\",\"value\":{\"evidence_id\":\"episode_card:ep_launch_plan\",\"summary\":\"Rollback checklist belongs with the launch plan.\",\"citations\":[\"conv_launch#m12\"]}}],\"truncation\":{\"truncated\":false}}",
     "route": "ltm_deep",
     "confidence": 0.82,
     "evidence": [
@@ -145,7 +145,7 @@ Example response:
 }
 ```
 
-Use `agent_context` when you want a ready-to-inject prompt block. Use `context_text` when your orchestrator already has its own memory wrapper.
+Use `agent_context` when you want the serialized neutral facts contract. Use `context_text` when your orchestrator already has its own memory wrapper. `agent_context` supplies facts; it never contains instructions for a model's behavior.
 
 `context.build` is read-only. In a SQLite runtime with integration handles available, it also returns a signed `source_registration` for the sanitized user message and a signed `retrieval_receipt`. They bind later observation to the authenticated principal, store, session/run, and the evidence actually retrieved; they are not memory writes.
 
@@ -379,6 +379,64 @@ The currently implemented MCP parity tools are:
 - `integration.health.get`
 
 The matching high-risk HTTP routes are `GET /api/integration/v1/memory/proposals` plus `POST .../{record_id}/dismiss` and `POST .../{record_id}/bridge`. Operator list access is metadata-only. Content-bearing list, dismissal, and bridge require the non-inherited `review_apply` capability. Bridge creates a source-backed pending review proposal and never applies or publishes it.
+
+## Temporal Context And Operations
+
+Temporal support is additive to `integration.v1`. `capabilities.get` advertises `agent_context_v2`, `temporal_context_v1`, `temporal_memory_v1`, and `temporal_due_poll`; inspect each operation's effective availability before use.
+
+`context.build` can return a compact `mno.temporal-context.v1` fact envelope with `now_utc`, `now_local`, IANA timezone and provenance, `clock_source: "server"`, prior-turn status, bounded due summaries, upcoming count, and opaque expansion operations. It is neutral data, not behavioral prompt text. The server snapshots time once per operation; caller timestamps are provenance only.
+
+### Schedule a source-backed future note
+
+`POST /api/integration/v1/memory/temporal/schedule` is operator/admin-only, requires a durable provisional SQLite store, an `Idempotency-Key`, and a prior server-issued source-registration handle. It accepts structured time input; it does not run a natural-language date parser.
+
+```bash
+curl -X POST "http://127.0.0.1:7340/api/integration/v1/memory/temporal/schedule" \
+  -H "Authorization: Bearer $NO_INTEGRATION_OPERATOR_TOKEN" \
+  -H "Idempotency-Key: temporal-schedule-001" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "schema_version": "integration.v1",
+    "request_id": "req_temporal_schedule_001",
+    "session_id": "session_local_1",
+    "run_id": "run_local_1",
+    "data": {
+      "temporal_kind": "reminder",
+      "original_expression": "Review the rollout tomorrow at 09:00.",
+      "source_content": "Review the rollout tomorrow at 09:00.",
+      "source_role": "user",
+      "source_registration": {"handle": "server-issued-handle"},
+      "temporal_request": {
+        "local_datetime": "2026-07-19T09:00:00",
+        "timezone": "America/Chicago"
+      }
+    }
+  }'
+```
+
+Accepted forms are `local_datetime` plus IANA zone (and optional DST fold), `local_date`, explicit UTC/local window, structured `{amount, unit}` relative duration, and structured calendar offsets. Exact instants use a one-hour delivery window; date requests cover the complete local day. Invalid calendar dates, leap seconds, DST gaps, ambiguous folds without disambiguation, unsupported free-form input, and out-of-horizon windows fail without a write.
+
+Raw import remains evidence ingest; it cannot schedule a temporal record. Live structured writeback is the only scheduling lane. A scheduled note remains provisional and cannot publish or mutate canonical truth.
+
+### List, get, and resolve
+
+`POST /api/integration/v1/memory/temporal/list` accepts `due_only`, `include_upcoming`, and `limit` (1–8). `POST /api/integration/v1/memory/temporal/get` accepts a scoped `record_id`. Both are viewer-readable and read-only. `context.why` also expands scoped temporal IDs.
+
+The exact host heartbeat seam is:
+
+```json
+{"due_only": true, "include_upcoming": false, "limit": 3}
+```
+
+It returns ordinary due selection under authenticated scope and writes nothing. It does not keep a process alive, wake a model, notify a human, or execute an action.
+
+`POST /api/integration/v1/memory/temporal/resolve` is operator/admin-only and requires an idempotency key, `record_id`, current `expected_revision`, and `action` of `acknowledge`, `snooze`, or `cancel`; snooze also supplies `snoozed_until_utc`. Terminal acknowledged/cancelled/expired records cannot be mutated. Same idempotency key plus same payload replays the original result; a changed payload conflicts.
+
+### Retrieval, lifecycle, and delivery boundaries
+
+Temporal records have independent authority, maturity, retrieval lifecycle, and temporal disposition. Computed `pending`, `due`, `overdue`, and `upcoming` labels are read-time eligibility only. Provisional retrieval availability moves `active -> dormant -> archived`; a strong explicit cue may surface dormant content with a penalty, and archived material needs history/deep read. Only new eligible signed evidence can reinforce or reactivate. Context reads, polls, delivery, acknowledgement, snooze, clock passage, retrieval, and repetition are not evidence.
+
+Due selection is deterministic and can appear when ordinary lexical routing is empty. Canonical corrections remain authoritative and pinned first; due provisional summaries have their own bounded budget; dormant fallback is lower priority. Delivery identities appear in retrieval receipts, but `memory.observe` is the only explicit telemetry callback and it does not mutate evidence fields, maturity, authority, lifecycle, decay anchors, or canonical truth.
 
 ## Local Operator Surfaces
 

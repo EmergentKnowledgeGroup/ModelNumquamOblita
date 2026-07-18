@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2032" height="866" viewBox="0 0 2032 866" role="img" aria-label="Temporal Agency Contract">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<rect x="42.0" y="42.0" width="430.0" height="739.3" rx="8" fill="#eaf2f8" fill-opacity="0.48" stroke="#6c8ebf" stroke-width="2"/>
+<text x="58.0" y="69.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#243b53">Per-turn temporal facts (read-only)</text>
+<rect x="548.0" y="42.0" width="430.0" height="739.3" rx="8" fill="#edf7ed" fill-opacity="0.48" stroke="#82b366" stroke-width="2"/>
+<text x="564.0" y="69.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#243b53">Provisional temporal record</text>
+<rect x="1054.0" y="42.0" width="430.0" height="739.3" rx="8" fill="#f4eef9" fill-opacity="0.48" stroke="#9673a6" stroke-width="2"/>
+<text x="1070.0" y="69.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#243b53">Selection and neutral context</text>
+<rect x="1560.0" y="42.0" width="430.0" height="739.3" rx="8" fill="#fbf3e7" fill-opacity="0.48" stroke="#d6b656" stroke-width="2"/>
+<text x="1576.0" y="69.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#243b53">Host boundary</text>
+<polyline points="257.0,245.5 257.0,273.5 256.0,272.0 256.0,416.0 257.0,418.2 257.0,390.2" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="763.0,226.6 763.0,254.6 768.0,256.0 768.0,400.0 720.0,400.0 713.3,418.2 713.3,390.2" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="812.7,390.2 812.7,418.2 816.0,416.0 816.0,576.0 720.0,576.0 713.3,581.7 713.3,553.7" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="812.7,553.7 812.7,581.7 816.0,576.0 816.0,720.0 768.0,720.0 763.0,726.3 763.0,698.3" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="934.0,329.4 962.0,329.4 960.0,336.0 960.0,192.0 1472.0,192.0 1468.0,186.4 1440.0,186.4" fill="none" stroke="#9673a6" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1269.0,226.6 1269.0,254.6 1264.0,256.0 1264.0,432.0 1216.0,432.0 1219.3,437.0 1219.3,409.0" fill="none" stroke="#9673a6" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1318.7,409.0 1318.7,437.0 1312.0,432.0 1312.0,576.0 1264.0,576.0 1269.0,581.7 1269.0,553.7" fill="none" stroke="#9673a6" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1440.0,164.2 1468.0,164.2 1472.0,160.0 1968.0,160.0 1968.0,192.0 1974.0,184.8 1946.0,184.8" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1440.0,338.8 1468.0,338.8 1472.0,336.0 1968.0,336.0 1974.0,338.8 1946.0,338.8" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="86.0" y="124.0" width="342.0" height="121.5" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="257.0" y="165.7"><tspan x="257.0" dy="0.0">Server clock snapshot</tspan><tspan x="257.0" dy="16.5">now_utc + now_local</tspan><tspan x="257.0" dy="16.5">IANA timezone + source</tspan><tspan x="257.0" dy="16.5">prior-turn provenance</tspan></text>
+<rect x="86.0" y="287.5" width="342.0" height="102.6" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="257.0" y="328.1"><tspan x="257.0" dy="0.0">agent_context_v2 temporal envelope</tspan><tspan x="257.0" dy="16.5">bounded neutral facts; opaque expansion IDs</tspan><tspan x="257.0" dy="16.5">never behavioral instructions</tspan></text>
+<rect x="592.0" y="124.0" width="342.0" height="102.6" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="763.0" y="164.5"><tspan x="763.0" dy="0.0">Live source-backed structured schedule</tspan><tspan x="763.0" dy="16.5">durable SQLite + auth + idempotency</tspan><tspan x="763.0" dy="16.5">raw import = evidence ingest only</tspan></text>
+<rect x="592.0" y="268.6" width="342.0" height="121.5" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="763.0" y="310.4"><tspan x="763.0" dy="0.0">Four independent axes</tspan><tspan x="763.0" dy="16.5">authority | maturity | lifecycle | disposition</tspan><tspan x="763.0" dy="16.5">active → dormant → archived</tspan><tspan x="763.0" dy="16.5">scheduled / snoozed / terminal</tspan></text>
+<rect x="592.0" y="432.2" width="342.0" height="121.5" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="763.0" y="473.9"><tspan x="763.0" dy="0.0">Decay hold</tspan><tspan x="763.0" dy="16.5">pending/snoozed protected until</tspan><tspan x="763.0" dy="16.5">decay_not_before_utc</tspan><tspan x="763.0" dy="16.5">read, delivery, repetition ≠ evidence</tspan></text>
+<rect x="592.0" y="595.7" width="342.0" height="102.6" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="763.0" y="636.2"><tspan x="763.0" dy="0.0">Only new eligible signed evidence</tspan><tspan x="763.0" dy="16.5">may reinforce or reactivate</tspan><tspan x="763.0" dy="16.5">dormant/archived record</tspan></text>
+<rect x="1098.0" y="124.0" width="342.0" height="102.6" rx="12" fill="#e1d5e7" stroke="#9673a6" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1269.0" y="164.5"><tspan x="1269.0" dy="0.0">Deterministic due selection</tspan><tspan x="1269.0" dy="16.5">overdue → due; scope-filtered</tspan><tspan x="1269.0" dy="16.5">can run without lexical hit</tspan></text>
+<rect x="1098.0" y="268.6" width="342.0" height="140.4" rx="12" fill="#e1d5e7" stroke="#9673a6" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1269.0" y="311.5"><tspan x="1269.0" dy="0.0">Context priority</tspan><tspan x="1269.0" dy="16.5">1 canonical correction / reviewed facts</tspan><tspan x="1269.0" dy="16.5">2 due provisional notes</tspan><tspan x="1269.0" dy="16.5">3 cue-aware dormant fallback</tspan><tspan x="1269.0" dy="16.5">archived = history/deep read</tspan></text>
+<rect x="1098.0" y="451.0" width="342.0" height="102.6" rx="12" fill="#e1d5e7" stroke="#9673a6" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1269.0" y="491.6"><tspan x="1269.0" dy="0.0">Delivery identity in receipt</tspan><tspan x="1269.0" dy="16.5">optional memory.observe telemetry</tspan><tspan x="1269.0" dy="16.5">does not alter support, lifecycle, or truth</tspan></text>
+<rect x="1604.0" y="124.0" width="342.0" height="121.5" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="165.7"><tspan x="1775.0" dy="0.0">Heartbeat seam</tspan><tspan x="1775.0" dy="16.5">list(due_only=true,</tspan><tspan x="1775.0" dy="16.5">include_upcoming=false, limit=3)</tspan><tspan x="1775.0" dy="16.5">read-only due poll</tspan></text>
+<rect x="1604.0" y="287.5" width="342.0" height="102.6" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="328.1"><tspan x="1775.0" dy="0.0">Operator resolve</tspan><tspan x="1775.0" dy="16.5">acknowledge | snooze | cancel</tspan><tspan x="1775.0" dy="16.5">current revision + idempotency</tspan></text>
+<rect x="1604.0" y="432.2" width="342.0" height="83.8" rx="12" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="471.5"><tspan x="1775.0" dy="0.0">No daemon • no timer thread • no wake-up</tspan><tspan x="1775.0" dy="16.5">no notification • no network call • no action</tspan></text>
+<polygon points="257.0,390.2 262.3,400.9 251.7,400.9" fill="#6c8ebf"/>
+<polygon points="713.3,390.2 718.6,400.9 708.1,400.9" fill="#82b366"/>
+<polygon points="713.3,553.7 718.6,564.5 708.1,564.5" fill="#82b366"/>
+<polygon points="763.0,698.3 768.3,709.1 757.7,709.1" fill="#d6b656"/>
+<polygon points="1440.0,186.4 1450.8,181.2 1450.8,191.7" fill="#9673a6"/>
+<polygon points="1219.3,409.0 1224.6,419.8 1214.1,419.8" fill="#9673a6"/>
+<polygon points="1269.0,553.7 1274.3,564.5 1263.7,564.5" fill="#9673a6"/>
+<polygon points="1946.0,184.8 1956.8,179.5 1956.8,190.0" fill="#d6b656"/>
+<polygon points="1946.0,338.8 1956.8,333.6 1956.8,344.1" fill="#d6b656"/>
+</svg>

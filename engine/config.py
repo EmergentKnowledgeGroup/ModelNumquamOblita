@@ -339,8 +339,8 @@ class RuntimeEfficiencyPolicy:
             raise ValueError("efficiency.fanout_p95_soft_cap must be >= efficiency.fanout_hard_cap")
         if self.context_token_budget <= 0:
             raise ValueError("efficiency.context_token_budget must be > 0")
-        if self.context_token_budget > 32000:
-            raise ValueError("efficiency.context_token_budget must be <= 32000")
+        if self.context_token_budget > 4096:
+            raise ValueError("efficiency.context_token_budget must be <= 4096")
         if self.early_stop_min_evidence < 0:
             raise ValueError("efficiency.early_stop_min_evidence must be >= 0")
         if self.early_stop_min_evidence > 64:
@@ -446,6 +446,21 @@ class ProvisionalMemoryPolicy:
     plan_currentness_days: int = 30
     source_registration_ttl_seconds: int = 604800
     maintenance_max_records: int = 25
+    temporal_enabled: bool = True
+    temporal_timezone: str = ""
+    temporal_context_token_budget: int = 192
+    temporal_context_token_hard_cap: int = 256
+    temporal_due_max_items: int = 3
+    temporal_due_hard_max_items: int = 8
+    temporal_due_summary_max_bytes: int = 160
+    temporal_due_summary_hard_max_bytes: int = 240
+    temporal_active_record_limit: int = 256
+    temporal_future_horizon_years: int = 10
+    temporal_snooze_horizon_years: int = 10
+    temporal_past_due_days: int = 30
+    temporal_grace_days: int = 7
+    temporal_redelivery_hours: int = 24
+    temporal_dormant_fallback_items: int = 2
     policy_version: str = "v0.2"
     policy_source: str = "fresh_standard"
 
@@ -524,7 +539,11 @@ def upgrade_preserved_config() -> NumquamOblitaConfig:
 def active_efficiency_policy(cfg: NumquamOblitaConfig) -> RuntimeEfficiencyPolicy:
     """Return effective efficiency policy, with knob-off rollback to defaults."""
 
-    effective = RuntimeEfficiencyPolicy(**asdict(cfg.efficiency))
+    values = asdict(cfg.efficiency)
+    # Upgrade loading preserves a legacy configured value verbatim, while the
+    # active v0.2.2 renderer still enforces the public 4,096-token hard cap.
+    values["context_token_budget"] = min(int(values["context_token_budget"]), 4096)
+    effective = RuntimeEfficiencyPolicy(**values)
     if not effective.enabled:
         return RuntimeEfficiencyPolicy()
     return effective
@@ -573,7 +592,7 @@ def load_config(path: str | Path | None, *, strict: bool = False, upgrade: bool 
     if not isinstance(data, dict):
         raise TypeError("config payload must be a JSON object")
     merged = _merge_dataclass(cfg, data, strict=strict)
-    _validate_config(merged)
+    _validate_config(merged, preserve_legacy_context_budget=upgrade)
     if data.get("provisional_memory"):
         merged.provisional_memory.policy_source = "custom"
     return merged
@@ -943,6 +962,9 @@ def _validate_provisional_memory_policy(policy: ProvisionalMemoryPolicy) -> None
     _validate_bool("provisional_memory.consolidation_enabled", policy.consolidation_enabled)
     _validate_bool("provisional_memory.maintenance_enabled", policy.maintenance_enabled)
     _validate_bool("provisional_memory.high_risk_proposal_capture_enabled", policy.high_risk_proposal_capture_enabled)
+    _validate_bool("provisional_memory.temporal_enabled", policy.temporal_enabled)
+    if not isinstance(policy.temporal_timezone, str):
+        raise TypeError("provisional_memory.temporal_timezone must be str")
     if str(policy.default_sensitivity) not in {"conservative", "balanced", "eager"}:
         raise ValueError("provisional_memory.default_sensitivity must be one of: conservative, balanced, eager")
     _validate_int("provisional_memory.inactivity_gap_seconds", policy.inactivity_gap_seconds, min_value=1, max_value=86400)
@@ -996,6 +1018,52 @@ def _validate_provisional_memory_policy(policy: ProvisionalMemoryPolicy) -> None
     _validate_int("provisional_memory.plan_currentness_days", policy.plan_currentness_days, min_value=1, max_value=365)
     _validate_int("provisional_memory.source_registration_ttl_seconds", policy.source_registration_ttl_seconds, min_value=60, max_value=2592000)
     _validate_int("provisional_memory.maintenance_max_records", policy.maintenance_max_records, min_value=1, max_value=100)
+    _validate_int(
+        "provisional_memory.temporal_context_token_budget",
+        policy.temporal_context_token_budget,
+        min_value=1,
+        max_value=256,
+    )
+    _validate_int(
+        "provisional_memory.temporal_context_token_hard_cap",
+        policy.temporal_context_token_hard_cap,
+        min_value=1,
+        max_value=256,
+    )
+    if policy.temporal_context_token_budget > policy.temporal_context_token_hard_cap:
+        raise ValueError("provisional_memory.temporal_context_token_budget must be <= temporal_context_token_hard_cap")
+    _validate_int("provisional_memory.temporal_due_max_items", policy.temporal_due_max_items, min_value=1, max_value=8)
+    _validate_int("provisional_memory.temporal_due_hard_max_items", policy.temporal_due_hard_max_items, min_value=1, max_value=8)
+    if policy.temporal_due_max_items > policy.temporal_due_hard_max_items:
+        raise ValueError("provisional_memory.temporal_due_max_items must be <= temporal_due_hard_max_items")
+    _validate_int(
+        "provisional_memory.temporal_due_summary_max_bytes",
+        policy.temporal_due_summary_max_bytes,
+        min_value=1,
+        max_value=240,
+    )
+    _validate_int(
+        "provisional_memory.temporal_due_summary_hard_max_bytes",
+        policy.temporal_due_summary_hard_max_bytes,
+        min_value=1,
+        max_value=240,
+    )
+    if policy.temporal_due_summary_max_bytes > policy.temporal_due_summary_hard_max_bytes:
+        raise ValueError(
+            "provisional_memory.temporal_due_summary_max_bytes must be <= temporal_due_summary_hard_max_bytes"
+        )
+    _validate_int("provisional_memory.temporal_active_record_limit", policy.temporal_active_record_limit, min_value=1, max_value=2000)
+    _validate_int("provisional_memory.temporal_future_horizon_years", policy.temporal_future_horizon_years, min_value=1, max_value=50)
+    _validate_int("provisional_memory.temporal_snooze_horizon_years", policy.temporal_snooze_horizon_years, min_value=1, max_value=50)
+    _validate_int("provisional_memory.temporal_past_due_days", policy.temporal_past_due_days, min_value=0, max_value=365)
+    _validate_int("provisional_memory.temporal_grace_days", policy.temporal_grace_days, min_value=0, max_value=365)
+    _validate_int("provisional_memory.temporal_redelivery_hours", policy.temporal_redelivery_hours, min_value=1, max_value=720)
+    _validate_int(
+        "provisional_memory.temporal_dormant_fallback_items",
+        policy.temporal_dormant_fallback_items,
+        min_value=1,
+        max_value=4,
+    )
     if str(policy.policy_source) not in {"fresh_standard", "upgrade_preserved", "custom"}:
         raise ValueError("provisional_memory.policy_source must be fresh_standard, upgrade_preserved, or custom")
 
@@ -1052,7 +1120,7 @@ def _validate_work_session_scratchpad_policy(policy: WorkSessionScratchpadPolicy
     )
 
 
-def _validate_config(cfg: NumquamOblitaConfig) -> None:
+def _validate_config(cfg: NumquamOblitaConfig, *, preserve_legacy_context_budget: bool = False) -> None:
     """Validate cross-field bounds that must hold after merges."""
 
     _validate_retrieval_config(cfg.retrieval)
@@ -1062,5 +1130,19 @@ def _validate_config(cfg: NumquamOblitaConfig) -> None:
     _validate_history_surfaces_policy(cfg.history_surfaces)
     _validate_continuity_adds_policy(cfg.continuity_adds)
     # Re-hydrate to trigger RuntimeEfficiencyPolicy.__post_init__ validations.
-    cfg.efficiency = RuntimeEfficiencyPolicy(**asdict(cfg.efficiency))
+    # Existing upgrade configs may carry a larger historical request. Preserve
+    # that stored value without making it the active renderer budget.
+    efficiency_values = asdict(cfg.efficiency)
+    legacy_budget = efficiency_values.get("context_token_budget")
+    preserve_budget = (
+        preserve_legacy_context_budget
+        and isinstance(legacy_budget, int)
+        and not isinstance(legacy_budget, bool)
+        and legacy_budget > 4096
+    )
+    if preserve_budget:
+        efficiency_values["context_token_budget"] = 4096
+    cfg.efficiency = RuntimeEfficiencyPolicy(**efficiency_values)
+    if preserve_budget:
+        cfg.efficiency.context_token_budget = legacy_budget
     _validate_work_session_scratchpad_policy(cfg.work_session_scratchpad)

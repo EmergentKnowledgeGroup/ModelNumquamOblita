@@ -74,14 +74,24 @@ def _stdio_trace_log(payload: dict[str, Any]) -> None:
 
 
 _TRACE_SECRET_KEYS = {
-    "authorization", "auth_token", "token", "viewer_token", "operator_token", "admin_token",
-    "password", "api_key", "client_secret", "cookie",
+    "authorization",
+    "auth_token",
+    "token",
+    "viewer_token",
+    "operator_token",
+    "admin_token",
+    "password",
+    "api_key",
+    "client_secret",
+    "cookie",
 }
 _TRACE_SECRET_SUFFIXES = ("_token", "_password", "_api_key", "_client_secret", "_cookie")
 
 
 def _redact_stdio_trace_payload(value: Any, *, key: str = "") -> Any:
-    normalized = key.strip().lower().replace("-", "_")
+    normalized = key.strip().replace("-", "_")
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", normalized)
+    normalized = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", normalized).lower()
     if normalized in _TRACE_SECRET_KEYS or normalized.endswith(_TRACE_SECRET_SUFFIXES):
         return "[REDACTED]"
     if isinstance(value, Mapping):
@@ -616,6 +626,67 @@ class MCPServer:
                 },
                 permission="operator",
                 handler=self._tool_integration_memory_maintain,
+            ),
+            ToolSpec(
+                name="integration.memory.temporal.schedule",
+                description="Schedule a source-backed temporal provisional memory through the integration runtime API.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "request_id": {"type": "string"}, "session_id": {"type": "string"}, "run_id": {"type": "string"},
+                        "principal": {"type": "object"}, "idempotency_key": {"type": "string"}, "temporal_request": {"type": "object"},
+                        "original_expression": {"type": "string"}, "source_content": {"type": "string"},
+                        "source_role": {"type": "string", "enum": ["user", "tool", "external"]},
+                        "source_registration": {"anyOf": [{"type": "object"}, {"type": "string"}]},
+                        "temporal_kind": {"type": "string", "enum": ["reminder", "future_event"]},
+                    },
+                    "required": ["session_id", "run_id", "idempotency_key", "temporal_request", "original_expression", "source_content", "source_role", "source_registration"],
+                    "additionalProperties": False,
+                },
+                permission="operator",
+                handler=self._tool_integration_memory_temporal_schedule,
+            ),
+            ToolSpec(
+                name="integration.memory.temporal.list",
+                description="List authenticated-scope temporal records; due_only=true, include_upcoming=false, limit=3 is the heartbeat seam.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "request_id": {"type": "string"}, "session_id": {"type": "string"}, "run_id": {"type": "string"},
+                        "principal": {"type": "object"}, "due_only": {"type": "boolean"},
+                        "include_upcoming": {"type": "boolean"}, "limit": {"type": "integer", "minimum": 1, "maximum": 8},
+                    },
+                    "required": [], "additionalProperties": False,
+                },
+                permission="viewer",
+                handler=self._tool_integration_memory_temporal_list,
+            ),
+            ToolSpec(
+                name="integration.memory.temporal.get",
+                description="Get one authenticated-scope temporal record.",
+                input_schema={
+                    "type": "object",
+                    "properties": {"request_id": {"type": "string"}, "session_id": {"type": "string"}, "run_id": {"type": "string"}, "principal": {"type": "object"}, "record_id": {"type": "string"}},
+                    "required": ["record_id"], "additionalProperties": False,
+                },
+                permission="viewer",
+                handler=self._tool_integration_memory_temporal_get,
+            ),
+            ToolSpec(
+                name="integration.memory.temporal.resolve",
+                description="Resolve a temporal record by acknowledge, snooze, or cancel with compare-and-swap revision.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "request_id": {"type": "string"}, "session_id": {"type": "string"}, "run_id": {"type": "string"},
+                        "principal": {"type": "object"}, "idempotency_key": {"type": "string"}, "record_id": {"type": "string"},
+                        "action": {"type": "string", "enum": ["acknowledge", "snooze", "cancel"]}, "expected_revision": {"type": "integer"},
+                        "snoozed_until_utc": {"type": "string"},
+                    },
+                    "required": ["idempotency_key", "record_id", "action", "expected_revision"], "additionalProperties": False,
+                },
+                permission="operator",
+                handler=self._tool_integration_memory_temporal_resolve,
             ),
             ToolSpec(
                 name="integration.memory.proposals.list",
@@ -2411,6 +2482,74 @@ class MCPServer:
             path="/api/integration/v1/memory/maintain",
             args=args,
             data=data,
+        )
+
+    def _tool_integration_memory_temporal_schedule(self, args: dict[str, Any]) -> dict[str, Any]:
+        idempotency_key = str(args.get("idempotency_key") or "").strip()
+        temporal_request = args.get("temporal_request")
+        if not idempotency_key or not isinstance(temporal_request, Mapping):
+            raise MCPRequestError(-32602, "idempotency_key and temporal_request are required")
+        registration = args.get("source_registration")
+        if not isinstance(registration, (Mapping, str)):
+            raise MCPRequestError(-32602, "source_registration must be a server-issued object or handle")
+        data: dict[str, Any] = {
+            "temporal_request": dict(temporal_request),
+            "original_expression": str(args.get("original_expression") or ""),
+            "source_content": str(args.get("source_content") or ""),
+            "source_role": str(args.get("source_role") or ""),
+            "source_registration": dict(registration) if isinstance(registration, Mapping) else registration,
+            "temporal_kind": str(args.get("temporal_kind") or "reminder"),
+        }
+        return self._integration_post(
+            path="/api/integration/v1/memory/temporal/schedule",
+            args=args,
+            data=data,
+            idempotency_key=idempotency_key,
+        )
+
+    def _tool_integration_memory_temporal_list(self, args: dict[str, Any]) -> dict[str, Any]:
+        data: dict[str, Any] = {}
+        for key in ("due_only", "include_upcoming"):
+            if key in args:
+                data[key] = args[key]
+        if "limit" in args:
+            limit = args["limit"]
+            if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 8:
+                raise MCPRequestError(-32602, "limit must be an integer from 1 to 8")
+            data["limit"] = limit
+        return self._integration_post(
+            path="/api/integration/v1/memory/temporal/list",
+            args=args,
+            data=data,
+        )
+
+    def _tool_integration_memory_temporal_get(self, args: dict[str, Any]) -> dict[str, Any]:
+        record_id = str(args.get("record_id") or "").strip()
+        if not record_id:
+            raise MCPRequestError(-32602, "record_id is required")
+        return self._integration_post(
+            path="/api/integration/v1/memory/temporal/get",
+            args=args,
+            data={"record_id": record_id},
+        )
+
+    def _tool_integration_memory_temporal_resolve(self, args: dict[str, Any]) -> dict[str, Any]:
+        idempotency_key = str(args.get("idempotency_key") or "").strip()
+        record_id = str(args.get("record_id") or "").strip()
+        if not idempotency_key or not record_id or "expected_revision" not in args:
+            raise MCPRequestError(-32602, "idempotency_key, record_id, and expected_revision are required")
+        data: dict[str, Any] = {
+            "record_id": record_id,
+            "action": str(args.get("action") or ""),
+            "expected_revision": args.get("expected_revision"),
+        }
+        if "snoozed_until_utc" in args:
+            data["snoozed_until_utc"] = str(args.get("snoozed_until_utc") or "")
+        return self._integration_post(
+            path="/api/integration/v1/memory/temporal/resolve",
+            args=args,
+            data=data,
+            idempotency_key=idempotency_key,
         )
 
     def _tool_integration_memory_proposals_list(self, args: dict[str, Any]) -> dict[str, Any]:

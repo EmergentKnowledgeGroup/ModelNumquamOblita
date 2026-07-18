@@ -1,0 +1,12 @@
+{
+  "schema": "mno.blind_llm_gate.temporal_answers.v1",
+  "answers": [
+    {"id":"turn_clock_meaning","decision":"neutral_server_time_facts_only"},
+    {"id":"scheduled_decay_hold","decision":"protect_until_window_end_plus_grace"},
+    {"id":"due_visibility","decision":"context_turn_or_read_only_due_poll"},
+    {"id":"recall_reinforcement","decision":"recall_and_delivery_do_not_reinforce"},
+    {"id":"heartbeat_boundary","decision":"host_poll_only_no_wake_or_action"},
+    {"id":"future_remember_lane","decision":"structured_live_temporal_schedule_not_raw_import"},
+    {"id":"authority_boundary","decision":"due_memory_remains_provisional_below_canonical"}
+  ]
+}

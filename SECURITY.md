@@ -27,3 +27,9 @@ Open a minimal private report with:
 - Inspect logs before sharing them; logs can include local paths and source names.
 - Treat populated WSS sidecars as private runtime data; they are local
   `scratchpad_ephemeral` work-continuity summaries, not public artifacts.
+
+## Temporal data safety
+
+Temporal records, clock receipts, delivery telemetry, resolver metadata, and state events are provisional-store data. Protect them like other local memory data and do not include their text in issue reports, screenshots, or release artifacts. MNO sanitizes original expressions and metadata before persistence; reminder text remains inert quoted data and never becomes an instruction to an LLM.
+
+Temporal reads, context construction, due polls, and the heartbeat seam are read-only. A delivery observation is telemetry only: it cannot change support, maturity, authority, lifecycle, decay anchors, or canonical truth. Schedule and resolution writes require authenticated scope, durable SQLite, an idempotency key, and (for resolution) the current revision. No temporal feature creates a daemon, background wake-up, notification, or unsolicited network action.

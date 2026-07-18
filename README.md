@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2f7d4f?style=for-the-badge"></a>
-  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases/tag/v0.2.1"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
+  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases/tag/v0.2.2"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
   <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge"></a>
   <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=ask"></a>
 </p>
@@ -102,7 +102,7 @@ live signed turn -> observed provisional -> reinforced provisional -> consolidat
 
 Runtime helpers can assist recall, but they do not outrank reviewed truth. Draft proposals stay separate from `review_decisions` until explicit promotion. The built-in work-session scratchpad is project-local helper state that attaches to strict-scope context packages; it is not evidence.
 
-The v0.2 authority order is: **human-reviewed canonical → evidence atom → consolidated provisional → observed/reinforced provisional → helper context**. Repetition can mature provisional memory autonomously, but no reinforcement threshold crosses into canonical truth.
+The v0.2 authority order is: **human-reviewed canonical → evidence atom → consolidated provisional → observed/reinforced provisional → helper context**. New eligible independent evidence can mature provisional memory, but retrieval, delivery, and repetition cannot; no reinforcement threshold crosses into canonical truth.
 
 WSS, short for work-session scratchpad, is live-on for strict project/thread/workstream scoped v2 context packages. It appears as `work_session_context` with trust tier `scratchpad_ephemeral`. It helps an agent resume work, but it cannot prove a memory or bypass review.
 
@@ -307,8 +307,18 @@ Engineer-facing diagrams:
 ## 📦 Release Metadata
 
 - [v0.2.1 Release Notes](docs/RELEASE_NOTES_v0.2.1.md)
+- [v0.2.2 Temporal Agency Notes](docs/RELEASE_NOTES_v0.2.2.md)
+- [Human Changelog](docs/CHANGELOG.md)
 - [Compatibility and Support Matrix](docs/COMPATIBILITY_AND_SUPPORT.md)
 - [License](LICENSE)
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 - [Distribution Notes](DISTRIBUTION.md)
+
+## ⏱️ Temporal agency (v0.2.2 contract)
+
+MNO can provide bounded clock facts and source-backed provisional reminders or future events. It is not a calendar, daemon, notification service, or agent that decides what to do. Each turn can carry server `now_utc`, `now_local`, timezone provenance, and safely known prior-turn timing; future notes are facts with an explicit disposition, not instructions for the model.
+
+Memory has four independent axes: authority, evidentiary maturity, retrieval lifecycle, and temporal disposition. In particular, provisional lifecycle is `active -> dormant -> archived`; a strong explicit cue can surface a dormant item with a penalty, while archived items require explicit history/deep reads. Only new eligible signed evidence can reinforce or reactivate a record. Recall, delivery, acknowledgement, clock passage, and model repetition do not.
+
+The runtime may inject deterministic due provisional notes after canonical facts and before lower-priority dormant fallback. It has no background wake-up or action path. See [LLMS](LLMS.md), [Temporal API](docs/API.md#temporal-context-and-operations), and the [temporal flowchart](docs/visuals/exports/MNO_V0_2_2_TEMPORAL_AGENCY_2026-07-18__p01_temporal-agency-contract.svg).

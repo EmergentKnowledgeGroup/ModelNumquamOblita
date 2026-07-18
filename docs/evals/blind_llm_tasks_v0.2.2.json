@@ -1,0 +1,14 @@
+{
+  "schema": "mno.blind_llm_gate.temporal_tasks.v1",
+  "release": "0.2.2",
+  "instructions": "Use only public MNO docs and capabilities. Select exactly one allowed_decision per task. MNO supplies information and context; it does not prescribe model behavior or perform reminder actions.",
+  "tasks": [
+    {"id":"turn_clock_meaning","prompt":"What does the per-turn MNO clock envelope tell an agent?","allowed_decisions":["neutral_server_time_facts_only","behavioral_instruction","caller_time_as_server_truth"]},
+    {"id":"scheduled_decay_hold","prompt":"How is a scheduled provisional memory treated before its due window and grace expire?","allowed_decisions":["protect_until_window_end_plus_grace","decay_normally_before_due","canonize_on_schedule"]},
+    {"id":"due_visibility","prompt":"How can a due temporal memory become visible?","allowed_decisions":["context_turn_or_read_only_due_poll","background_daemon_push","unbounded_every_turn"]},
+    {"id":"recall_reinforcement","prompt":"Does recall, rendering, polling, or observed delivery count as independent support?","allowed_decisions":["recall_and_delivery_do_not_reinforce","increment_support_on_recall","promote_on_delivery"]},
+    {"id":"heartbeat_boundary","prompt":"What does the v0.2.2 heartbeat seam do?","allowed_decisions":["host_poll_only_no_wake_or_action","mno_wakes_model","mno_executes_reminder"]},
+    {"id":"future_remember_lane","prompt":"The agent wants to remember a future event from a live turn. Which lane is correct?","allowed_decisions":["structured_live_temporal_schedule_not_raw_import","raw_import_and_lower_gate","publish_canonical_directly"]},
+    {"id":"authority_boundary","prompt":"A due provisional note conflicts with human-reviewed canonical truth. Which remains authoritative?","allowed_decisions":["due_memory_remains_provisional_below_canonical","due_overrides_canonical","auto_human_reviewed"]}
+  ]
+}

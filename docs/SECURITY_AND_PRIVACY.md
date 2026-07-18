@@ -115,3 +115,9 @@ The distributable repo should contain product code, launch scripts, tests, and d
 - local setup reports
 - copied dependency folders
 - private agent configs
+
+## Temporal records, receipts, and backups
+
+Temporal data is stored in the provisional schema v4 with the existing memory-family SQLite backup, not in a sidecar file. It includes sanitized temporal fields, state events, turn-clock receipts, and optional delivery telemetry; reports expose aggregate counts and reason codes rather than memory text by default. Preserve a verified pre-v4 backup before upgrading a persistent store. A binary downgrade to v0.2.1 means restoring that backup and losing post-backup v0.2.2 writes; no in-place downgrade or row deletion is supported.
+
+Scope is always server-owned store UUID plus authenticated principal and runtime IDs. Session/timeline IDs are attribution only. Guessed cross-scope temporal IDs must reveal nothing. Reads and due polls are non-mutating. `memory.observe` delivery telemetry is exact-once when explicitly called, but delivery, recall, model repetition, and acknowledgement are never evidence or reinforcement.

@@ -52,6 +52,21 @@ def test_default_config_matches_locked_policy() -> None:
     assert cfg.work_session_scratchpad.min_replaceability_score == pytest.approx(0.70)
 
 
+def test_upgrade_preserves_legacy_oversized_context_budget_but_active_policy_clamps(tmp_path: Path) -> None:
+    path = tmp_path / "legacy-config.json"
+    path.write_text(
+        json.dumps({"efficiency": {"enabled": True, "context_token_budget": 8192}}),
+        encoding="utf-8",
+    )
+
+    upgraded = load_config(path, upgrade=True)
+
+    assert upgraded.efficiency.context_token_budget == 8192
+    assert active_efficiency_policy(upgraded).context_token_budget == 4096
+    with pytest.raises(ValueError, match="context_token_budget must be <= 4096"):
+        load_config(path, upgrade=False)
+
+
 def test_load_config_overrides_nested_values(tmp_path: Path) -> None:
     """Nested JSON values should override corresponding default fields."""
 

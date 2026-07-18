@@ -62,12 +62,12 @@ def _create_v2_store(path, *, secret: bool = False) -> None:
         )
 
 
-def test_v2_to_v3_migration_is_transactional_idempotent_and_has_stable_store_uuid(tmp_path) -> None:
+def test_v2_to_current_migration_is_transactional_idempotent_and_has_stable_store_uuid(tmp_path) -> None:
     path = tmp_path / "legacy.sqlite3"
     _create_v2_store(path)
     store = SqliteProvisionalMemoryStore(path)
     first_uuid = store.store_uuid
-    assert store._schema_version() == 3
+    assert store._schema_version() == 4
     assert store.get_record("legacy-1").independent_support_count == 0
     store.close()
     reopened = SqliteProvisionalMemoryStore(path)
@@ -110,7 +110,7 @@ def test_reviewer_authorized_v2_secret_scrub_requires_verified_backup_and_restor
         legacy_backup_path=backup_path,
     )
     try:
-        assert store._schema_version() == 3
+        assert store._schema_version() == 4
         assert store.get_record("legacy-1").canonical_text == "[REDACTED_LEGACY_SECRET]"
         control = dict(store._conn.execute("SELECT control_key, control_value FROM provisional_control").fetchall())
         assert control["legacy_scrub_authorized_by"] == "reviewer-1"
@@ -126,7 +126,7 @@ def test_reviewer_authorized_v2_secret_scrub_requires_verified_backup_and_restor
         )
 
     reopened = SqliteProvisionalMemoryStore(path)
-    assert reopened._schema_version() == 3
+    assert reopened._schema_version() == 4
     reopened.close()
 
     restored_path = tmp_path / "restored-v2.sqlite3"

@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import sqlite3
 import subprocess
 import sys
 from typing import Any, Sequence
@@ -26,6 +27,20 @@ from engine.memory.content_safety import scrub_content  # noqa: E402
 
 DEFAULT_REPOSITORY = "EmergentKnowledgeGroup/ModelNumquamOblita"
 MAX_LOG_BYTES = 128 * 1024
+TEMPORAL_POLICY_DIAGNOSTICS = {
+    "turn_clock": {"retained_rows_per_scope": 10_000, "retention_years": 10, "hard_cap_per_scope": 100_000},
+    "delivery": {"retained_rows_per_scope": 10_000, "retention_years": 10, "hard_cap_per_scope": 100_000},
+    "state_history": {"terminal_retention_years": 10, "hard_cap_per_scope": 100_000, "active_history": "never_pruned"},
+    "idempotency": {"terminal_retention_days": 30, "nonterminal_max_retention_years": 50},
+    "maintenance": "explicit_only_never_read_driven",
+}
+_TEMPORAL_TABLES = (
+    "provisional_records",
+    "provisional_turn_clock_events",
+    "provisional_temporal_delivery_events",
+    "provisional_temporal_state_events",
+    "provisional_temporal_idempotency",
+)
 
 
 def _validated_timeout(value: Any) -> float:
@@ -123,6 +138,63 @@ def _collect_log(path: Path, *, attachments: Path) -> dict[str, Any]:
     return row
 
 
+def _temporal_diagnostics(store_value: str | Path | None) -> dict[str, Any]:
+    """Read only aggregate temporal diagnostics from an explicitly supplied sidecar.
+
+    The report neither discovers stores nor selects content-bearing columns, so it
+    remains a support surface rather than a memory-export path.
+    """
+
+    result: dict[str, Any] = {
+        "schemas": [
+            "mno.temporal-memory.v1",
+            "mno.turn-clock-event.v1",
+            "mno.temporal-delivery-event.v1",
+            "mno.temporal-state-event.v1",
+        ],
+        "policy": TEMPORAL_POLICY_DIAGNOSTICS,
+        "counts": {},
+        "reason_codes": [],
+    }
+    raw_path = str(store_value or "").strip()
+    if not raw_path:
+        result["reason_codes"].append("TEMPORAL_STORE_NOT_REQUESTED")
+        return result
+    path = Path(raw_path).expanduser().resolve()
+    if not path.is_file():
+        result["reason_codes"].append("TEMPORAL_STORE_NOT_FOUND")
+        return result
+    try:
+        with sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True) as connection:
+            tables = {str(row[0]) for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if any(name not in tables for name in _TEMPORAL_TABLES):
+                result["reason_codes"].append("TEMPORAL_SCHEMA_UNAVAILABLE")
+                return result
+            result["counts"] = {
+                "temporal_record_dispositions": {
+                    str(row[0]): int(row[1])
+                    for row in connection.execute(
+                        "SELECT temporal_disposition,COUNT(*) FROM provisional_records "
+                        "WHERE temporal_disposition != 'none' GROUP BY temporal_disposition"
+                    )
+                },
+                "turn_clock_events": int(connection.execute("SELECT COUNT(*) FROM provisional_turn_clock_events").fetchone()[0]),
+                "delivery_events": int(connection.execute("SELECT COUNT(*) FROM provisional_temporal_delivery_events").fetchone()[0]),
+                "state_events": int(connection.execute("SELECT COUNT(*) FROM provisional_temporal_state_events").fetchone()[0]),
+                "idempotency_rows": int(connection.execute("SELECT COUNT(*) FROM provisional_temporal_idempotency").fetchone()[0]),
+                "state_operations": {
+                    str(row[0]): int(row[1])
+                    for row in connection.execute(
+                        "SELECT operation,COUNT(*) FROM provisional_temporal_state_events GROUP BY operation"
+                    )
+                },
+            }
+            result["reason_codes"].append("TEMPORAL_DIAGNOSTICS_AVAILABLE")
+    except (OSError, sqlite3.Error):
+        result["reason_codes"].append("TEMPORAL_STORE_UNAVAILABLE")
+    return result
+
+
 def _render_issue(ticket: dict[str, Any]) -> str:
     checks = list(ticket.get("checks") or [])
     logs = list(ticket.get("logs") or [])
@@ -134,6 +206,8 @@ def _render_issue(ticket: dict[str, Any]) -> str:
         "## Actual behavior", str(ticket["actual"]), "", "## Environment", "```json",
         json.dumps(ticket["environment"], indent=2), "```", "", "## Checks run",
         *(check_lines or ["- Not requested. Run `mno-report ... --check quick` for the bounded compatibility suite."]), "",
+        "## Temporal diagnostics (redacted aggregates)", "```json",
+        json.dumps(ticket["temporal_diagnostics"], indent=2), "```", "",
         "## Redacted attachments", *(log_lines or ["- None. Attach logs explicitly with `--log PATH`; MNO never sweeps memory/runtime files automatically."]), "",
         "## Agent notes", str(ticket.get("agent_notes") or "Not provided."), "",
         "> Privacy: this report was generated with bounded secret redaction. Review it before submission; do not attach memory stores, WAL/SHM files, WSS data, credentials, or private datasets.", "",
@@ -166,11 +240,13 @@ def build_ticket(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
                 "started_at": datetime.now(timezone.utc).isoformat(),
             })
     logs = [_collect_log(Path(value), attachments=attachments) for value in list(args.log or [])]
+    temporal_diagnostics = _temporal_diagnostics(getattr(args, "temporal_store", ""))
     ticket = scrub_content({
         "schema": "mno.support_ticket.v1", "created_at": datetime.now(timezone.utc).isoformat(),
         "repository": args.repository, "title": args.title, "summary": args.summary, "steps": args.steps,
         "expected": args.expected, "actual": args.actual, "agent_notes": args.agent_notes,
         "environment": environment, "checks": checks, "logs": logs,
+        "temporal_diagnostics": temporal_diagnostics,
     })
     issue_body = _render_issue(ticket)
     _atomic_write(ticket_dir / "ticket.json", json.dumps(ticket, indent=2) + "\n")
@@ -188,6 +264,7 @@ def main() -> int:
     parser.add_argument("--actual", required=True)
     parser.add_argument("--agent-notes", default="")
     parser.add_argument("--log", action="append", default=[], help="Explicit log file to copy in redacted, bounded form; repeatable.")
+    parser.add_argument("--temporal-store", default="", help="Explicit provisional SQLite sidecar for aggregate temporal diagnostics only.")
     parser.add_argument("--check", choices=("none", "quick", "full"), default="quick")
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--output-dir", default="")

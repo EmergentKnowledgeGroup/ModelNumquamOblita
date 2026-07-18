@@ -29,6 +29,7 @@ CANONICAL_DRAWIO = [
     REPO_ROOT / "docs" / "visuals" / "MNO_LAUNCH_RUNTIME_AND_INTEGRATION_2026-04-12.drawio",
     REPO_ROOT / "docs" / "visuals" / "MNO_CURRENT_PIPELINE_2026-04-12.drawio",
     REPO_ROOT / "docs" / "visuals" / "MNO_CURRENT_RUNTIME_MEMORY_AND_DECISION_2026-04-12.drawio",
+    REPO_ROOT / "docs" / "visuals" / "MNO_V0_2_2_TEMPORAL_AGENCY_2026-07-18.drawio",
 ]
 DEFAULT_OUT = REPO_ROOT / "docs" / "visuals" / "exports"
 FONT_FAMILY = "Segoe UI, Inter, Arial, sans-serif"
@@ -851,7 +852,7 @@ def default_inputs(paths: Iterable[str]) -> list[Path]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("drawio", nargs="*", help="draw.io files to export. Defaults to canonical 2026-04-12 visuals.")
+    parser.add_argument("drawio", nargs="*", help="draw.io files to export. Defaults to the canonical visuals.")
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT), help="Output directory for SVG and PNG assets.")
     args = parser.parse_args()
 

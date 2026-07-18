@@ -15,6 +15,7 @@ from .provisional_store import (
     ProvisionalMemoryKind,
     ProvisionalMemoryStatus,
     SqliteProvisionalMemoryStore,
+    TemporalDisposition,
 )
 
 
@@ -84,9 +85,53 @@ def run_maintenance(
     def process(rows, *, apply: bool) -> list[MaintenanceTransition]:
         transitions: list[MaintenanceTransition] = []
         for record in rows:
+            if (
+                record.temporal_disposition in {TemporalDisposition.SCHEDULED, TemporalDisposition.SNOOZED}
+                and record.decay_not_before_utc is not None
+                and server_now >= record.decay_not_before_utc.astimezone(timezone.utc)
+            ):
+                if apply:
+                    store.expire_temporal(
+                        record.record_id,
+                        record.principal_id,
+                        record.runtime_id,
+                        expected_revision=record.temporal_revision,
+                        idempotency_key=(
+                            f"maintenance-expire:{record.record_id}:"
+                            f"{record.decay_not_before_utc.astimezone(timezone.utc).isoformat()}"
+                        ),
+                        now_utc=server_now,
+                    )
+                    disposition = "expired"
+                else:
+                    disposition = "would_expire"
+                transitions.append(MaintenanceTransition(record.record_id, disposition, "temporal_grace_elapsed"))
+                continue
             last = record.last_independent_support_at or record.last_reinforced_at or record.updated_at
+            temporal_protected = False
+            if (
+                record.temporal_disposition in {TemporalDisposition.SCHEDULED, TemporalDisposition.SNOOZED}
+                and record.decay_not_before_utc is not None
+            ):
+                temporal_anchor = record.decay_not_before_utc.astimezone(timezone.utc)
+                if server_now < temporal_anchor:
+                    temporal_protected = True
+                else:
+                    last = max(last.astimezone(timezone.utc), temporal_anchor)
+            elif (
+                record.temporal_disposition is TemporalDisposition.EXPIRED
+                and record.decay_not_before_utc is not None
+            ):
+                last = max(
+                    last.astimezone(timezone.utc),
+                    record.decay_not_before_utc.astimezone(timezone.utc),
+                )
             age = server_now - last.astimezone(timezone.utc)
-            if record.lifecycle is ProvisionalLifecycle.ACTIVE and age >= timedelta(days=policy.dormant_days):
+            if (
+                not temporal_protected
+                and record.lifecycle is ProvisionalLifecycle.ACTIVE
+                and age >= timedelta(days=policy.dormant_days)
+            ):
                 if apply:
                     store.set_lifecycle(record.record_id, ProvisionalLifecycle.DORMANT, reason="inactivity_window")
                     disposition = "dormant"
@@ -94,7 +139,11 @@ def run_maintenance(
                     disposition = "would_dormant"
                 transitions.append(MaintenanceTransition(record.record_id, disposition, "inactivity_window"))
                 continue
-            if record.lifecycle is ProvisionalLifecycle.DORMANT and age >= timedelta(days=policy.archive_days):
+            if (
+                not temporal_protected
+                and record.lifecycle is ProvisionalLifecycle.DORMANT
+                and age >= timedelta(days=policy.archive_days)
+            ):
                 if apply:
                     store.set_lifecycle(record.record_id, ProvisionalLifecycle.ARCHIVED, reason="archive_window")
                     disposition = "archived"
@@ -107,7 +156,11 @@ def run_maintenance(
             required_support, required_sessions = policy.threshold_for(record.kind)
             if record.independent_support_count < required_support or record.distinct_session_count < required_sessions:
                 continue
-            if record.kind is ProvisionalMemoryKind.PLAN and age >= timedelta(days=policy.plan_currentness_days):
+            if (
+                not temporal_protected
+                and record.kind is ProvisionalMemoryKind.PLAN
+                and age >= timedelta(days=policy.plan_currentness_days)
+            ):
                 if apply:
                     store.set_lifecycle(record.record_id, ProvisionalLifecycle.DORMANT, reason="plan_currentness_window")
                     disposition = "historical_plan"
@@ -127,6 +180,7 @@ def run_maintenance(
         cursor = store.maintenance_cursor()
         rows, next_cursor = store.maintenance_candidates(cursor=cursor, limit=int(cap))
         transitions = process(rows, apply=False)
+        temporal_retention = store.maintain_temporal_retention(now=server_now, dry_run=True)
         result: dict[str, object] = {
             "state": "preview",
             "dry_run": True,
@@ -134,6 +188,7 @@ def run_maintenance(
             "processed_count": len(rows),
             "cursor": cursor,
             "next_cursor": next_cursor,
+            "temporal_retention": temporal_retention,
         }
         return result if return_result else transitions
 
@@ -159,6 +214,7 @@ def run_maintenance(
             for item in transitions
         ]
         store.maintenance_complete(durable_run_id, cursor=next_cursor, transitions=serialized)
+        temporal_retention = store.maintain_temporal_retention(now=server_now)
     except Exception:
         store.maintenance_fail(durable_run_id, error_code="MAINTENANCE_FAILED")
         raise
@@ -169,6 +225,7 @@ def run_maintenance(
         "processed_count": len(rows),
         "cursor": cursor,
         "next_cursor": next_cursor,
+        "temporal_retention": temporal_retention,
     }
     return result if return_result else transitions
 

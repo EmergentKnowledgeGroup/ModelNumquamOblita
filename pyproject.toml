@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "modelnumquamoblita"
-version = "0.2.1"
+version = "0.2.2"
 description = "Standalone MNO personal memory runtime"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = ["defusedxml>=0.7.1"]
+dependencies = ["defusedxml>=0.7.1", "tzdata>=2025.2", "tzlocal>=5.4,<6"]
 
 [project.scripts]
 mno-runtime = "tools.run_live_runtime:main"

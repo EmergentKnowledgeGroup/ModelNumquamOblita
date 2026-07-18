@@ -11,6 +11,7 @@ from engine.memory.provisional_store import (
     ProvisionalMemoryEventType,
     ProvisionalMemoryKind,
     SqliteProvisionalMemoryStore,
+    TemporalDisposition,
 )
 
 
@@ -204,4 +205,55 @@ def test_completed_maintenance_runs_are_bounded(tmp_path, monkeypatch) -> None:
             "SELECT run_id FROM provisional_maintenance_runs WHERE status = 'completed' ORDER BY run_id"
         )]
     assert completed_ids == ["run-b", "run-c"]
+    store.close()
+
+
+def test_temporal_horizon_protects_decay_and_age_starts_at_effective_anchor(tmp_path) -> None:
+    observed_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    due_start = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    due_end = due_start + timedelta(days=1)
+    decay_anchor = due_end + timedelta(days=7)
+    store = SqliteProvisionalMemoryStore(tmp_path / "temporal-maintenance.sqlite3", clock=lambda: observed_at)
+    candidate = _candidate(1, session="session")
+    record_id = store.upsert_candidate(candidate, reason="test").record_id
+    store.schedule_temporal(
+        record_id,
+        "principal",
+        "runtime",
+        temporal_kind="future_event",
+        due_window_start_utc=due_start,
+        due_window_end_utc=due_end,
+        timezone_name="UTC",
+        precision="date",
+        original_expression="in six months",
+        decay_not_before_utc=decay_anchor,
+        idempotency_key="schedule-maintenance",
+        expected_revision=0,
+    )
+
+    assert run_maintenance(
+        store,
+        now=observed_at + timedelta(days=100),
+        policy=MaintenancePolicy(max_records=10),
+    ) == []
+    assert store.get_record(record_id).lifecycle is ProvisionalLifecycle.ACTIVE
+
+    assert run_maintenance(
+        store,
+        now=decay_anchor - timedelta(seconds=1),
+        policy=MaintenancePolicy(max_records=10),
+    ) == []
+    expiry = run_maintenance(
+        store,
+        now=decay_anchor,
+        policy=MaintenancePolicy(max_records=10),
+    )
+    assert [(item.record_id, item.disposition) for item in expiry] == [(record_id, "expired")]
+    assert store.get_record(record_id).temporal_disposition is TemporalDisposition.EXPIRED
+    transitions = run_maintenance(
+        store,
+        now=decay_anchor + timedelta(days=90),
+        policy=MaintenancePolicy(max_records=10),
+    )
+    assert [(item.record_id, item.disposition) for item in transitions] == [(record_id, "dormant")]
     store.close()

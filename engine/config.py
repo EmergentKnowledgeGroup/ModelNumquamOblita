@@ -339,8 +339,8 @@ class RuntimeEfficiencyPolicy:
             raise ValueError("efficiency.fanout_p95_soft_cap must be >= efficiency.fanout_hard_cap")
         if self.context_token_budget <= 0:
             raise ValueError("efficiency.context_token_budget must be > 0")
-        if self.context_token_budget > 32000:
-            raise ValueError("efficiency.context_token_budget must be <= 32000")
+        if self.context_token_budget > 4096:
+            raise ValueError("efficiency.context_token_budget must be <= 4096")
         if self.early_stop_min_evidence < 0:
             raise ValueError("efficiency.early_stop_min_evidence must be >= 0")
         if self.early_stop_min_evidence > 64:
@@ -446,6 +446,21 @@ class ProvisionalMemoryPolicy:
     plan_currentness_days: int = 30
     source_registration_ttl_seconds: int = 604800
     maintenance_max_records: int = 25
+    temporal_enabled: bool = True
+    temporal_timezone: str = ""
+    temporal_context_token_budget: int = 192
+    temporal_context_token_hard_cap: int = 256
+    temporal_due_max_items: int = 3
+    temporal_due_hard_max_items: int = 8
+    temporal_due_summary_max_bytes: int = 160
+    temporal_due_summary_hard_max_bytes: int = 240
+    temporal_active_record_limit: int = 256
+    temporal_future_horizon_years: int = 10
+    temporal_snooze_horizon_years: int = 10
+    temporal_past_due_days: int = 30
+    temporal_grace_days: int = 7
+    temporal_redelivery_hours: int = 24
+    temporal_dormant_fallback_items: int = 2
     policy_version: str = "v0.2"
     policy_source: str = "fresh_standard"
 
@@ -943,6 +958,9 @@ def _validate_provisional_memory_policy(policy: ProvisionalMemoryPolicy) -> None
     _validate_bool("provisional_memory.consolidation_enabled", policy.consolidation_enabled)
     _validate_bool("provisional_memory.maintenance_enabled", policy.maintenance_enabled)
     _validate_bool("provisional_memory.high_risk_proposal_capture_enabled", policy.high_risk_proposal_capture_enabled)
+    _validate_bool("provisional_memory.temporal_enabled", policy.temporal_enabled)
+    if not isinstance(policy.temporal_timezone, str):
+        raise TypeError("provisional_memory.temporal_timezone must be str")
     if str(policy.default_sensitivity) not in {"conservative", "balanced", "eager"}:
         raise ValueError("provisional_memory.default_sensitivity must be one of: conservative, balanced, eager")
     _validate_int("provisional_memory.inactivity_gap_seconds", policy.inactivity_gap_seconds, min_value=1, max_value=86400)
@@ -996,6 +1014,52 @@ def _validate_provisional_memory_policy(policy: ProvisionalMemoryPolicy) -> None
     _validate_int("provisional_memory.plan_currentness_days", policy.plan_currentness_days, min_value=1, max_value=365)
     _validate_int("provisional_memory.source_registration_ttl_seconds", policy.source_registration_ttl_seconds, min_value=60, max_value=2592000)
     _validate_int("provisional_memory.maintenance_max_records", policy.maintenance_max_records, min_value=1, max_value=100)
+    _validate_int(
+        "provisional_memory.temporal_context_token_budget",
+        policy.temporal_context_token_budget,
+        min_value=1,
+        max_value=256,
+    )
+    _validate_int(
+        "provisional_memory.temporal_context_token_hard_cap",
+        policy.temporal_context_token_hard_cap,
+        min_value=1,
+        max_value=256,
+    )
+    if policy.temporal_context_token_budget > policy.temporal_context_token_hard_cap:
+        raise ValueError("provisional_memory.temporal_context_token_budget must be <= temporal_context_token_hard_cap")
+    _validate_int("provisional_memory.temporal_due_max_items", policy.temporal_due_max_items, min_value=1, max_value=8)
+    _validate_int("provisional_memory.temporal_due_hard_max_items", policy.temporal_due_hard_max_items, min_value=1, max_value=8)
+    if policy.temporal_due_max_items > policy.temporal_due_hard_max_items:
+        raise ValueError("provisional_memory.temporal_due_max_items must be <= temporal_due_hard_max_items")
+    _validate_int(
+        "provisional_memory.temporal_due_summary_max_bytes",
+        policy.temporal_due_summary_max_bytes,
+        min_value=1,
+        max_value=240,
+    )
+    _validate_int(
+        "provisional_memory.temporal_due_summary_hard_max_bytes",
+        policy.temporal_due_summary_hard_max_bytes,
+        min_value=1,
+        max_value=240,
+    )
+    if policy.temporal_due_summary_max_bytes > policy.temporal_due_summary_hard_max_bytes:
+        raise ValueError(
+            "provisional_memory.temporal_due_summary_max_bytes must be <= temporal_due_summary_hard_max_bytes"
+        )
+    _validate_int("provisional_memory.temporal_active_record_limit", policy.temporal_active_record_limit, min_value=1, max_value=2000)
+    _validate_int("provisional_memory.temporal_future_horizon_years", policy.temporal_future_horizon_years, min_value=1, max_value=50)
+    _validate_int("provisional_memory.temporal_snooze_horizon_years", policy.temporal_snooze_horizon_years, min_value=1, max_value=50)
+    _validate_int("provisional_memory.temporal_past_due_days", policy.temporal_past_due_days, min_value=0, max_value=365)
+    _validate_int("provisional_memory.temporal_grace_days", policy.temporal_grace_days, min_value=0, max_value=365)
+    _validate_int("provisional_memory.temporal_redelivery_hours", policy.temporal_redelivery_hours, min_value=1, max_value=720)
+    _validate_int(
+        "provisional_memory.temporal_dormant_fallback_items",
+        policy.temporal_dormant_fallback_items,
+        min_value=1,
+        max_value=4,
+    )
     if str(policy.policy_source) not in {"fresh_standard", "upgrade_preserved", "custom"}:
         raise ValueError("provisional_memory.policy_source must be fresh_standard, upgrade_preserved, or custom")
 

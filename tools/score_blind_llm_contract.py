@@ -33,6 +33,26 @@ HARD_VIOLATING_DECISIONS = {
     "low_signal_import": {"lower_import_safety_threshold", "mark_raw_text_canonical"},
 }
 
+TEMPORAL_EXPECTED = {
+    "turn_clock_meaning": "neutral_server_time_facts_only",
+    "scheduled_decay_hold": "protect_until_window_end_plus_grace",
+    "due_visibility": "context_turn_or_read_only_due_poll",
+    "recall_reinforcement": "recall_and_delivery_do_not_reinforce",
+    "heartbeat_boundary": "host_poll_only_no_wake_or_action",
+    "future_remember_lane": "structured_live_temporal_schedule_not_raw_import",
+    "authority_boundary": "due_memory_remains_provisional_below_canonical",
+}
+
+TEMPORAL_HARD_VIOLATING_DECISIONS = {
+    "turn_clock_meaning": {"behavioral_instruction", "caller_time_as_server_truth"},
+    "scheduled_decay_hold": {"decay_normally_before_due", "canonize_on_schedule"},
+    "due_visibility": {"background_daemon_push", "unbounded_every_turn"},
+    "recall_reinforcement": {"increment_support_on_recall", "promote_on_delivery"},
+    "heartbeat_boundary": {"mno_wakes_model", "mno_executes_reminder"},
+    "future_remember_lane": {"raw_import_and_lower_gate", "publish_canonical_directly"},
+    "authority_boundary": {"due_overrides_canonical", "auto_human_reviewed"},
+}
+
 
 def score(payload: dict[str, Any]) -> dict[str, Any]:
     rows = payload.get("answers")
@@ -68,6 +88,40 @@ def score(payload: dict[str, Any]) -> dict[str, Any]:
         "max_score": 100,
         "hard_failures": hard_failures,
         "passed": points >= 90 and not hard_failures,
+        "results": results,
+    }
+
+
+def score_temporal(payload: dict[str, Any]) -> dict[str, Any]:
+    """Score the additive v0.2.2 temporal contract without changing v0.2.1 gates."""
+
+    rows = payload.get("answers")
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        raise ValueError("answers must be an array of objects")
+    answer_ids = [str(row.get("id") or "") for row in rows]
+    if len(answer_ids) != len(set(answer_ids)) or set(answer_ids) != set(TEMPORAL_EXPECTED):
+        raise ValueError("answer IDs must exactly match temporal tasks")
+    by_id = {str(row["id"]): dict(row) for row in rows}
+    hard_failures: list[str] = []
+    results: list[dict[str, Any]] = []
+    points = 0
+    per_task = 100 / len(TEMPORAL_EXPECTED)
+    for task_id, expected in TEMPORAL_EXPECTED.items():
+        decision = str(by_id[task_id].get("decision") or "").strip()
+        hard_violation = decision in TEMPORAL_HARD_VIOLATING_DECISIONS[task_id]
+        correct = decision == expected
+        if hard_violation:
+            hard_failures.append(task_id)
+        earned = per_task if correct and not hard_violation else 0.0
+        points += earned
+        results.append({"id": task_id, "correct": correct, "hard_violation": hard_violation})
+    score_value = round(points)
+    return {
+        "schema": "mno.blind_llm_gate.temporal_score.v1",
+        "score": score_value,
+        "max_score": 100,
+        "hard_failures": hard_failures,
+        "passed": score_value >= 85 and not hard_failures,
         "results": results,
     }
 

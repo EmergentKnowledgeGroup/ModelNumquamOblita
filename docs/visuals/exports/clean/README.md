@@ -23,3 +23,5 @@ python tools/export_clean_public_visuals.py
 - [Current Pipeline PNG](mno-current-pipeline-clean.png)
 - [Runtime Memory And Decision SVG](mno-runtime-memory-decision-clean.svg)
 - [Runtime Memory And Decision PNG](mno-runtime-memory-decision-clean.png)
+- [Temporal Agency SVG](mno-temporal-agency-clean.svg)
+- [Temporal Agency PNG](mno-temporal-agency-clean.png)

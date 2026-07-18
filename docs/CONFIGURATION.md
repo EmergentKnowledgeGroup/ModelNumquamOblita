@@ -227,3 +227,11 @@ Atom, provisional, and high-risk proposal stores expose a SQLite backup operatio
 The desktop shell bundles the runtime according to:
 - `app/desktop/runtime-bundle.manifest.json`
 - `app/desktop/package.json`
+
+## Temporal policy
+
+Temporal settings live under `provisional_memory`. The default compact temporal addition is 192 estimated tokens (hard cap 256), with three due items (hard cap eight), 160 UTF-8 bytes per compact due summary (hard cap 240), two dormant fallback items (hard cap four), 256 active temporal records, a 10-year future/snooze horizon, 30 days of past-due creation, seven days of decay grace, and a 24-hour delivery redelivery interval.
+
+Relevant keys are `temporal_enabled`, `temporal_timezone`, `temporal_context_token_budget`, `temporal_due_max_items`, `temporal_due_summary_max_bytes`, `temporal_active_record_limit`, `temporal_future_horizon_years`, `temporal_snooze_horizon_years`, `temporal_past_due_days`, `temporal_grace_days`, `temporal_redelivery_hours`, and `temporal_dormant_fallback_items`. All configured values are bounded by the hard caps validated by the runtime; no item is split to fit a budget.
+
+`temporal_timezone` must be an IANA name. Resolution is configured IANA name, reliable system IANA name, then visible `UTC` fallback. Windows IDs and abbreviations such as `CST` are rejected. Disabling temporal features preserves stored v4 rows; it does not silently delete, canonize, or downgrade them.

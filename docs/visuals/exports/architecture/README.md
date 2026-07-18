@@ -34,6 +34,8 @@ python tools/export_architecture_visuals.py --strict
 - [Data Lineage PNG](mno-architecture-data-lineage.png)
 - [Deployment And Process Model SVG](mno-architecture-deployment-process.svg)
 - [Deployment And Process Model PNG](mno-architecture-deployment-process.png)
+- [Temporal Agency SVG](mno-architecture-temporal-agency.svg)
+- [Temporal Agency PNG](mno-architecture-temporal-agency.png)
 
 ## Diagram Layers
 

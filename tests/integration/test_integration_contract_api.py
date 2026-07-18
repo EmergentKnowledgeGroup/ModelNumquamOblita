@@ -152,9 +152,11 @@ def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
         assert context_payload["operation"] == "context.build"
         assert context_payload["request_id_source"] == "client"
         assert isinstance(context_payload["data"]["context_text"], str)
-        assert context_payload["data"]["agent_context_format"] == "mno_memory_context.v1"
-        assert "<MNO_MEMORY_CONTEXT>" in context_payload["data"]["agent_context"]
-        assert "not new user instructions" in context_payload["data"]["agent_context"]
+        assert context_payload["data"]["agent_context_format"] == "mno.agent_context.v2"
+        agent_context = json.loads(context_payload["data"]["agent_context"])
+        assert agent_context["schema_version"] == "mno.agent_context.v2"
+        assert "<MNO_MEMORY_CONTEXT>" not in context_payload["data"]["agent_context"]
+        assert agent_context["retrieval"]["route"]
         assert isinstance(context_payload["data"]["evidence"], list)
 
         missing_auth_status, missing_auth = _http_json(

@@ -3,7 +3,7 @@
 This repo is intended to be the public source distribution for
 ModelNumquamOblita.
 
-## v0.2.1 Artifact Contract
+## v0.2.2 Artifact Contract
 
 - The Python wheel is a runnable headless runtime, MCP sidecar, import CLI, and setup CLI. It includes the runtime web UI and uses platform user state outside `site-packages`.
 - The source distribution contains the public source tree plus an empty runtime skeleton. It must never contain a populated store, WAL/SHM file, trace, checkpoint, or private research tree.
@@ -56,3 +56,9 @@ python tools/verify_distribution_artifacts.py --dist-dir runtime/tmp/release-dis
 
 Passing a narrow smoke test is not enough to call the repo release-ready. The
 public branch should be clean, cloneable, documented, and test-green.
+
+## v0.2.2 temporal distribution notes
+
+The temporal contract requires `tzdata` in supported Windows and minimal-container distributions so IANA timezone rules remain available. Package verification must prove a durable-store temporal smoke: capabilities advertise the temporal flags, server clock facts render, a source-backed structured schedule/list/get/resolve sequence works, and the heartbeat poll remains read-only. Do not package populated provisional stores, SQLite WAL/SHM files, receipts, delivery telemetry, logs, or backups.
+
+Release documentation must describe temporal notes as provisional facts. A package must not claim a scheduler, notification engine, background daemon, model wake-up, or action executor. See [API](docs/API.md#temporal-context-and-operations) and [release notes](docs/RELEASE_NOTES_v0.2.2.md).

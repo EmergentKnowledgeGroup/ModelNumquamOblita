@@ -288,6 +288,7 @@ def diagrams() -> list[Diagram]:
         runtime_integration(),
         current_pipeline(),
         memory_decision(),
+        temporal_agency(),
     ]
 
 
@@ -409,6 +410,33 @@ def memory_decision() -> Diagram:
         Node("rule", "Decision rule\nretrieval, replay, and summary never create independent support; WSS helps continuity, not memory proof", 310, 780, 860, 92, "govern")
     ]
     return Diagram("mno-runtime-memory-decision-clean", "Runtime Memory And Decision Flow", 1480, 920, lanes, nodes, edges, notes)
+
+
+def temporal_agency() -> Diagram:
+    lanes = [
+        Lane("Facts", 50, 95, 355, 625, "lane_runtime"),
+        Lane("Provisional Note", 490, 95, 355, 625, "lane_review"),
+        Lane("Read Path", 930, 95, 355, 625, "lane_integration"),
+    ]
+    nodes = [
+        Node("clock", "Each turn: server clock facts\nUTC/local time, IANA timezone, prior-turn provenance", 85, 175, 285, 100, "runtime"),
+        Node("neutral", "Neutral context only\nfacts and opaque IDs, never instructions", 85, 420, 285, 90, "runtime"),
+        Node("create", "Live structured schedule\nsource-backed, authenticated, durable; raw import cannot schedule", 525, 150, 285, 110, "review"),
+        Node("axes", "Four separate labels\nauthority • maturity • lifecycle • temporal state\nactive → dormant → archived", 525, 365, 285, 120, "review"),
+        Node("evidence", "Only new signed evidence\nmay reinforce/reactivate\nrecall and delivery do not", 525, 570, 285, 85, "govern"),
+        Node("priority", "Bounded due context\ncanonical corrections first, due provisional notes next, cue-aware dormant fallback last", 965, 150, 285, 120, "integration"),
+        Node("poll", "Optional heartbeat poll\ndue_only=true, upcoming=false, limit=3\nread-only", 965, 400, 285, 100, "integration"),
+        Node("no_action", "Never a daemon, wake-up, notification, or action runner", 405, 790, 520, 82, "govern"),
+    ]
+    edges = [
+        Edge("clock", "neutral", "#6c8ebf", source_side="bottom", target_side="top"),
+        Edge("create", "axes", "#82b366", source_side="bottom", target_side="top"),
+        Edge("axes", "evidence", "#b85450", source_side="bottom", target_side="top"),
+        Edge("axes", "priority", "#9673b9"),
+        Edge("priority", "poll", "#9673b9", source_side="bottom", target_side="top"),
+    ]
+    notes = [Node("rule", "Temporal facts help a host decide what to do. MNO itself does not decide or act.", 310, 930, 730, 70, "govern")]
+    return Diagram("mno-temporal-agency-clean", "Temporal Agency, Plain View", 1340, 1040, lanes, nodes, edges, notes)
 
 
 def main() -> int:

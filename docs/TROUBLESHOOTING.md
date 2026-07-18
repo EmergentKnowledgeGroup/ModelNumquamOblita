@@ -91,3 +91,13 @@ If the source is mixed or fragmented:
 - point import at one folder instead of hand-picking many files
 - inspect the resulting store with the desktop app or runtime memory views
 - rebuild episode cards after import instead of assuming draft cards already exist
+
+## Temporal scheduling is unavailable
+
+Call `capabilities.get` and inspect the temporal operations' `available` and `reason_codes`. Temporal scheduling requires provisional memory, signed handles, authenticated operator/admin scope, and a durable SQLite provisional store. An in-memory runtime deliberately returns `TEMPORAL_DURABLE_STORE_REQUIRED` for schedule/state writes while still allowing current clock facts; disabled provisional memory returns `TEMPORAL_MEMORY_DISABLED`.
+
+Use an IANA timezone such as `America/Chicago`, not a Windows timezone name or `CST`. A DST gap returns `TEMPORAL_LOCAL_TIME_GAP`; an ambiguous DST fold requires `fold=0|1` or a numeric UTC offset and otherwise returns `TEMPORAL_LOCAL_TIME_AMBIGUOUS`. Use structured time input, not free-form natural language.
+
+## A due note repeats or does not appear
+
+The heartbeat poll is read-only and does not mark delivery. A note can repeat until an explicit signed `memory.observe` delivery callback records telemetry; absent callback is not treated as delivered. Acknowledged, cancelled, and expired notes are suppressed. Due selection is scope-filtered and deterministic; canonical corrections remain ahead of provisional due notes. A dormant item needs an explicit memory/history request, strong cue, or active-result miss, while archived material requires deep/history access.

@@ -101,6 +101,14 @@ The design goal is not to maximize the number of signals. The goal is to recover
 
 Authority families are ordered: `human_reviewed_canonical` → `evidence_atom` → `provisional`. Within the provisional family, consolidated artifacts outrank direct observations for retrieval, while `observed → reinforced → consolidated` remains the separate maturity axis. No model-autonomous transition crosses into evidence or canonical authority. STM and WSS sit outside this order as scoped helper context, not evidence.
 
+## Temporal agency boundary
+
+The runtime can include a small per-turn envelope of server-clock facts: UTC/local time, IANA timezone provenance, safely known prior-turn timing, and bounded source-backed provisional future notes. This envelope is declarative data, not a behavioral prompt. MNO does not become a scheduler, calendar, daemon, notification system, model wake-up service, or action executor.
+
+Temporal records keep four separate labels: authority, evidentiary maturity, retrieval lifecycle, and temporal disposition. The ordinary recall lifecycle is `active -> dormant -> archived`; a strong explicit cue may return dormant material with a penalty, while archived material needs an explicit history/deep read. Only new eligible signed evidence can reinforce/reactivate a record. Recall, context injection, delivery, acknowledgement, snooze, clock passage, and model repetition cannot.
+
+Due selection is deterministic and does not need a lexical retrieval hit. Canonical corrections remain authoritative first; due provisional notes follow in their own bounded budget; dormant fallback is lower priority. The only host heartbeat seam is a read-only bounded due poll, so no background action occurs.
+
 The support-ticket loop is deliberately outside memory truth: it reads no store automatically, accepts only explicitly named bounded logs, redacts secret-like content, and requires a separate explicit action before GitHub submission.
 
 Canonical WSS details live in [Work-Session Scratchpad](../WORK_SESSION_SCRATCHPAD.md).
@@ -119,6 +127,8 @@ Canonical WSS details live in [Work-Session Scratchpad](../WORK_SESSION_SCRATCHP
 
 ![Memory Trust Boundaries](../visuals/exports/architecture/mno-architecture-memory-trust-boundaries.svg)
 
+![Temporal Agency](../visuals/exports/architecture/mno-architecture-temporal-agency.svg)
+
 - [Clean Public Diagram Exports](../visuals/exports/clean/README.md)
 - [Architecture Diagram Exports](../visuals/exports/architecture/README.md)
 - [Rendered SVG/PNG Export Index](../visuals/exports/README.md)
@@ -130,4 +140,6 @@ Canonical WSS details live in [Work-Session Scratchpad](../WORK_SESSION_SCRATCHP
 - [Current Pipeline Draw.io](../visuals/MNO_CURRENT_PIPELINE_2026-04-12.drawio)
 - [Current Runtime Memory And Decision Visual Spec](../visuals/MNO_CURRENT_RUNTIME_MEMORY_AND_DECISION_VISUAL_SPEC_2026-04-12.md)
 - [Current Runtime Memory And Decision Draw.io](../visuals/MNO_CURRENT_RUNTIME_MEMORY_AND_DECISION_2026-04-12.drawio)
+- [Temporal Agency Visual Spec](../visuals/MNO_V0_2_2_TEMPORAL_AGENCY_VISUAL_SPEC_2026-07-18.md)
+- [Temporal Agency Draw.io](../visuals/MNO_V0_2_2_TEMPORAL_AGENCY_2026-07-18.drawio)
 - [Response To "Why Long-Term Memory Remains Unsolved"](MNO_RESPONSE_TO_WHY_LONG_TERM_MEMORY_REMAINS_UNSOLVED_2026-04-12.md)

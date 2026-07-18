@@ -515,6 +515,7 @@ def diagrams() -> list[Diagram]:
         integration_contract(),
         data_lineage(),
         deployment_process(),
+        temporal_agency(),
     ]
 
 
@@ -944,6 +945,54 @@ def deployment_process() -> Diagram:
         "The local process layout for setup, import/build/review, runtime launch, MCP, adapters, and governed outputs.",
         1960,
         1100,
+        lanes,
+        nodes,
+        edges,
+        notes,
+        [],
+        common_legend(),
+    )
+
+
+def temporal_agency() -> Diagram:
+    lanes = [
+        Lane("Clock And Turn Provenance", 45, 125, 300, 660, "lane_runtime", "server snapshot and receipt facts"),
+        Lane("Durable Provisional State", 405, 125, 370, 660, "lane_memory", "independent axes and protected decay"),
+        Lane("Retrieval And Context", 840, 125, 385, 660, "lane_integration", "bounded neutral fact delivery"),
+        Lane("Host And Operator", 1290, 125, 330, 660, "lane_govern", "explicit calls only; no autonomous action"),
+    ]
+    nodes = [
+        Node("clock", "Server time snapshot\nnow_utc, now_local, IANA timezone/source", 80, 190, 230, 86, "runtime"),
+        Node("turns", "Turn-clock receipts\nprior user/assistant provenance; missing stays unavailable", 80, 390, 230, 92, "evidence"),
+        Node("envelope", "agent_context_v2 temporal envelope\nbounded neutral facts and opaque expansion IDs", 80, 595, 230, 92, "integration"),
+        Node("schedule", "Structured live schedule\nsource-backed, durable SQLite, auth + idempotency\nraw import cannot schedule", 445, 175, 290, 105, "memory"),
+        Node("axes", "Independent record axes\nauthority | maturity | lifecycle | disposition\nactive → dormant → archived", 445, 370, 290, 110, "memory"),
+        Node("decay", "Decay hold\npending/snoozed protected until decay_not_before_utc\nreads and delivery do not reinforce", 445, 590, 290, 95, "memory"),
+        Node("due", "Deterministic due selection\noverdue before due; scope-filtered; no lexical hit required", 885, 185, 295, 95, "runtime"),
+        Node("priority", "Injection arbitration\ncanonical correction → ordinary reviewed/evidence → due provisional → dormant fallback", 885, 390, 295, 110, "review"),
+        Node("fallback", "Dormant/archived boundary\ndormant needs strong cue/history/miss and penalty; archived = deep/history", 885, 600, 295, 95, "decision"),
+        Node("heartbeat", "Read-only heartbeat\nlist(due_only=true, include_upcoming=false, limit=3)", 1330, 190, 250, 95, "integration"),
+        Node("resolve", "Explicit operator resolve\nacknowledge / snooze / cancel\nrevision + idempotency", 1330, 410, 250, 95, "govern"),
+        Node("invariant", "No daemon, timer thread, wake-up, notification, network call, or action", 1330, 625, 250, 78, "govern"),
+    ]
+    edges = [
+        Edge("clock", "turns", "#5f78c8", source_side="bottom", target_side="top"),
+        Edge("turns", "envelope", "#4f83bd", source_side="bottom", target_side="top"),
+        Edge("schedule", "axes", "#398f83", source_side="bottom", target_side="top"),
+        Edge("axes", "decay", "#398f83", source_side="bottom", target_side="top"),
+        Edge("axes", "due", "#8b5fbf"),
+        Edge("due", "priority", "#5f78c8", source_side="bottom", target_side="top"),
+        Edge("priority", "fallback", "#7869c6", source_side="bottom", target_side="top"),
+        Edge("due", "heartbeat", "#8b5fbf"),
+        Edge("priority", "resolve", "#bb5b54"),
+    ]
+    notes = [Node("rule", "Evidence rule: only new eligible signed observations may reinforce/reactivate. Retrieval, rendering, delivery, acknowledgement, snooze, clock passage, and repetition cannot.", 315, 870, 1045, 76, "note", 16, True)]
+    return Diagram(
+        "mno-architecture-temporal-agency",
+        "MNO Architecture - Temporal Agency",
+        "How server-clock facts, provisional temporal state, deterministic due selection, and explicit host calls coexist without autonomous behavior.",
+        1670,
+        1010,
         lanes,
         nodes,
         edges,

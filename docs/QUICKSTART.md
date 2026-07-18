@@ -197,3 +197,11 @@ See [Compatibility and Support](COMPATIBILITY_AND_SUPPORT.md) for supported host
 - [Agent Integration](AGENT_INTEGRATION.md)
 - [MCP Integration](MCP_INTEGRATION.md)
 - [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md)
+
+## Temporal facts and due notes
+
+On a fresh or upgraded durable provisional store, MNO exposes a compact server-clock envelope by default. It reports UTC/local time, the resolved IANA timezone and source, and prior-turn timing only when a durable receipt exists. It does not infer a timezone from conversation content, and it never uses a caller timestamp as production time.
+
+Scheduling is optional and uses a source-backed live write path. First call `capabilities`, then register/retain the server-issued source handle, then submit a structured temporal request through the API or MCP. Use `local_datetime` plus an IANA timezone, `local_date`, an explicit window, a structured relative duration, or a structured calendar offset; MNO does not parse free-form date prose. Read [Temporal API](API.md#temporal-context-and-operations) before wiring a client.
+
+The polling shape `{due_only: true, include_upcoming: false, limit: 3}` is a read-only heartbeat seam. It is not a timer, daemon, model wake-up, notification, or action runner. Raw corpus import cannot create scheduled notes; only live structured writeback can.

@@ -7,6 +7,8 @@ from pathlib import Path
 
 from tools import report_issue
 from tools.report_issue import build_ticket
+from engine.contracts import SourceRef
+from engine.memory.provisional_store import ProvisionalMemoryCandidate, ProvisionalMemoryKind, SqliteProvisionalMemoryStore
 
 
 def _args(tmp_path: Path, **overrides):
@@ -81,3 +83,34 @@ def test_submit_timeout_is_structured_and_uses_validated_timeout(monkeypatch, tm
     monkeypatch.setattr(report_issue.subprocess, "run", _timeout)
     assert report_issue.main() == 2
     assert json.loads(capsys.readouterr().out)["error"] == "GITHUB_SUBMISSION_TIMEOUT"
+
+
+def test_temporal_report_diagnostics_are_aggregate_only_and_never_include_memory_text(tmp_path: Path) -> None:
+    store_path = tmp_path / "private.provisional.sqlite3"
+    store = SqliteProvisionalMemoryStore(store_path)
+    record_id = store.upsert_candidate(
+        ProvisionalMemoryCandidate(
+            kind=ProvisionalMemoryKind.EVENT_NOTE,
+            canonical_text="do not expose this private reminder text",
+            source_refs=[SourceRef(source_id="source", message_id="message")], source_role="user", session_id="session",
+        ), reason="test",
+    ).record_id
+    store.schedule_temporal(
+        record_id, "principal", "runtime", temporal_kind="reminder",
+        due_window_start_utc="2026-07-18T12:00:00+00:00", due_window_end_utc="2026-07-18T13:00:00+00:00",
+        timezone_name="UTC", precision="exact", original_expression="also private", idempotency_key="report-test", expected_revision=0,
+    )
+    store.close()
+    ticket_dir, ticket = build_ticket(_args(tmp_path / "out", temporal_store=str(store_path)))
+    diagnostics = ticket["temporal_diagnostics"]
+    assert diagnostics["counts"]["state_events"] == 1
+    assert diagnostics["reason_codes"] == ["TEMPORAL_DIAGNOSTICS_AVAILABLE"]
+    rendered = (ticket_dir / "ticket.json").read_text(encoding="utf-8")
+    assert "do not expose this private reminder text" not in rendered
+    assert "also private" not in rendered
+
+
+def test_temporal_report_does_not_discover_a_store_without_explicit_opt_in(tmp_path: Path) -> None:
+    _ticket_dir, ticket = build_ticket(_args(tmp_path))
+    assert ticket["temporal_diagnostics"]["counts"] == {}
+    assert ticket["temporal_diagnostics"]["reason_codes"] == ["TEMPORAL_STORE_NOT_REQUESTED"]

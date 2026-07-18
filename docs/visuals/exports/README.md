@@ -1,6 +1,6 @@
 # Rendered Visual Exports
 
-These files are generated from the canonical `2026-04-12` draw.io sources in `docs/visuals`.
+These files are generated from the canonical `2026-04-12` draw.io sources plus the v0.2.2 temporal-agency source in `docs/visuals`.
 
 The current exports identify WSS as built-in strict active-scope work-continuity helper
 state. It appears as `scratchpad_ephemeral` context for runtime context packages,
@@ -21,6 +21,11 @@ python tools/export_drawio_visuals.py
 ```
 
 Each page is exported as both SVG and PNG. Use SVG for docs and web pages when possible; use PNG for previews, social posts, slides, or places where SVG rendering is unreliable.
+
+## v0.2.2 Temporal Agency
+
+- [Temporal Agency Contract SVG](MNO_V0_2_2_TEMPORAL_AGENCY_2026-07-18__p01_temporal-agency-contract.svg)
+- [Temporal Agency Contract PNG](MNO_V0_2_2_TEMPORAL_AGENCY_2026-07-18__p01_temporal-agency-contract.png)
 
 ## Launch Pipeline
 

@@ -1,6 +1,6 @@
 # Compatibility and Support
 
-This is the public support contract for MNO v0.2.1.
+This is the public support contract for MNO v0.2.2.
 
 ## Supported surfaces
 
@@ -11,7 +11,7 @@ This is the public support contract for MNO v0.2.1.
 | Exported integration bundles | POSIX shell, PowerShell, or Command Prompt with installed MNO commands | Relocatable launchers; no embedded checkout or automatic install |
 | WSL integration | WSL with Linux Python/Node executables | Windows `.cmd` files are rejected inside WSL; WSL is optional, not a Windows prerequisite |
 
-ARM64 desktop installers are not claimed by v0.2.1. Source Python may work on additional architectures, but that is not release support until the exact artifact/host combination is gated.
+ARM64 desktop installers are not claimed by v0.2.2. Source Python may work on additional architectures, but that is not release support until the exact artifact/host combination is gated.
 
 ## Interpreter rule
 
@@ -37,3 +37,9 @@ An integration must call capabilities and obey effective availability. Tool expo
 Python and desktop manifests deny populated stores, WAL/SHM files, WSS data, checkpoints, reports, traces, caches, and live runtime directories. The CI release artifact job builds the exact wheel and sdist, checks manifests, installs the wheel without a source checkout, launches claimed CLI help surfaces, and records SHA-256 digests.
 
 See [Distribution Notes](../DISTRIBUTION.md), [Quickstart](QUICKSTART.md), and [Security and Privacy](SECURITY_AND_PRIVACY.md).
+
+## v0.2.2 additive temporal compatibility
+
+Temporal support is additive to `integration.v1` and MCP parity. Clients discover `temporal_context_v1`, `temporal_memory_v1`, `temporal_due_poll`, and `agent_context_v2` through capabilities rather than assuming a version string grants access. Existing response fields remain additive.
+
+Fresh installs and v0.2.1 upgrades expose compact server-clock facts by default. Scheduling and due injection follow provisional-memory enablement. When that feature is disabled, clock facts remain available and temporal-memory operations fail with a clear disabled reason. Generic HTTP and MCP clients need no vendor-specific executable: the heartbeat is only a bounded read poll, never a daemon or host action.

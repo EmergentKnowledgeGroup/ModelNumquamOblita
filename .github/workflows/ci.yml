@@ -67,7 +67,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Verify v0.2.1 metadata is aligned
+      - name: Verify v0.2.2 metadata is aligned
         shell: python
         run: |
           import json
@@ -79,7 +79,7 @@ jobs:
           desktop = json.loads((root / "app/desktop/package.json").read_text(encoding="utf-8"))
           lock = json.loads((root / "app/desktop/package-lock.json").read_text(encoding="utf-8"))
           manifest = json.loads((root / "app/desktop/runtime-bundle.manifest.json").read_text(encoding="utf-8"))
-          expected = "0.2.1"
+          expected = "0.2.2"
           assert project["project"]["version"] == expected
           assert desktop["version"] == expected
           assert lock["version"] == expected
@@ -116,6 +116,6 @@ jobs:
           pathlib.Path("dist/SHA256SUMS.json").write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
       - uses: actions/upload-artifact@v4
         with:
-          name: modelnumquamoblita-v0.2.1-python
+          name: modelnumquamoblita-v0.2.2-python
           path: dist/*
           if-no-files-found: error

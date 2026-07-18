@@ -7,11 +7,17 @@ The canonical flowchart set in this repo is the `2026-04-12` pair:
 - `MNO_CURRENT_PIPELINE_VISUAL_SPEC_2026-04-12.md` + `MNO_CURRENT_PIPELINE_2026-04-12.drawio`
 - `MNO_CURRENT_RUNTIME_MEMORY_AND_DECISION_VISUAL_SPEC_2026-04-12.md` + `MNO_CURRENT_RUNTIME_MEMORY_AND_DECISION_2026-04-12.drawio`
 
+The v0.2.2 temporal contract adds the current canonical package:
+
+- `MNO_V0_2_2_TEMPORAL_AGENCY_VISUAL_SPEC_2026-07-18.md` + `MNO_V0_2_2_TEMPORAL_AGENCY_2026-07-18.drawio`
+
 Older dated files are historical snapshots and should not replace the `2026-04-12` files unless a newer dated set is created. They are not current user-facing WSS/live-runtime diagrams.
 
 Canonical WSS behavior is documented in `docs/WORK_SESSION_SCRATCHPAD.md`. Diagrams should show it as strict active-scope `scratchpad_ephemeral` work-continuity context, not reviewed truth or evidence.
 
 For v0.2, diagrams must also keep authority and maturity separate: `human_reviewed_canonical` outranks `evidence_atom`, then `provisional_consolidated`, then `provisional_observed`. `observed -> reinforced -> consolidated` is provisional maturity, never a promotion to canonical truth. Raw import creates evidence atoms; signed live `memory.observe` creates provisional records; explicit reviewer `review_apply` can materialize a `human_reviewed=false` evidence atom. STM and WSS remain non-evidence helper state.
+
+For v0.2.2, authority, maturity, retrieval lifecycle, and temporal disposition are four independent axes. The retrieval lifecycle is `active -> dormant -> archived`; dormant fallback is cue-aware and lower priority, and only new eligible signed evidence can reactivate. Per-turn clock/due context is neutral facts only. A due poll must never be drawn as a daemon, timer, wake-up, notification, or action path.
 
 Rendered SVG/PNG exports live in `docs/visuals/exports/`.
 

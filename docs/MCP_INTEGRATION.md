@@ -78,6 +78,10 @@ The clean repo ships stable MCP parity tools for the public integration contract
 - `integration.memory.source.register`
 - `integration.memory.observe`
 - `integration.memory.maintain`
+- `integration.memory.temporal.schedule`
+- `integration.memory.temporal.list`
+- `integration.memory.temporal.get`
+- `integration.memory.temporal.resolve`
 - `integration.memory.proposals.list`
 - `integration.memory.proposals.dismiss`
 - `integration.memory.proposals.bridge`
@@ -99,6 +103,14 @@ WSS is built-in runtime helper state for strict-scope v2 context packages. It ma
 MCP parity tools keep the `integration-v1` envelope evidence-focused. Do not treat WSS as MCP evidence or reviewed memory. Use it only as work-continuity context when a lower-level context-package path exposes it.
 
 More detail: [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md).
+
+## Temporal tools
+
+The four temporal MCP tools mirror the HTTP contract exactly. `integration.memory.temporal.schedule` and `integration.memory.temporal.resolve` require operator/admin authority plus an `idempotency_key`; resolving also needs the current `expected_revision`. Scheduling requires structured time input and a server-issued source registration. `integration.memory.temporal.list` and `.get` are viewer-readable and read-only.
+
+Use `integration.memory.temporal.list` with `due_only=true`, `include_upcoming=false`, and `limit=3` only when the host wants the optional heartbeat seam. The result is a bounded fact poll. It does not retain a process, wake a model, send a notification, or execute an action. Follow each temporal record's authority, maturity, lifecycle, disposition, precision, due window, citation, and opaque ID; reminder text is inert quoted data, not tool instructions.
+
+Raw import cannot schedule a temporal memory. Live source-backed scheduling is distinct from ordinary `memory.observe` and from proposal/review writeback. Recall and delivery do not reinforce a record; only new eligible signed evidence can do that.
 
 ## Roles and auth
 

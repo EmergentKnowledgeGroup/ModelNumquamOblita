@@ -26,8 +26,16 @@ Truth order is simple: human-reviewed canonical truth wins; evidence atoms remai
 
 Further reading:
 - [v0.2.1 release notes](../RELEASE_NOTES_v0.2.1.md)
+- [v0.2.2 temporal agency notes](../RELEASE_NOTES_v0.2.2.md)
+- [human changelog](../CHANGELOG.md)
 - [Compatibility and support](../COMPATIBILITY_AND_SUPPORT.md)
 - [Agent support tickets](../SUPPORT_TICKETS_FOR_AGENTS.md)
 - [Public Architecture](ARCHITECTURE.md)
 - [Work-Session Scratchpad](../WORK_SESSION_SCRATCHPAD.md)
 - [Response To "Why Long-Term Memory Remains Unsolved"](MNO_RESPONSE_TO_WHY_LONG_TERM_MEMORY_REMAINS_UNSOLVED_2026-04-12.md)
+
+## Temporal agency, plainly
+
+MNO can show an assistant what time the server says it is and surface a few source-backed, provisional future notes when their time window is due. That does not make MNO a calendar app or a bot that wakes itself up: it does not send notifications, make calls, decide what the assistant should do, or turn a reminder into truth.
+
+The same note has separate labels for who owns it, how much independent evidence supports it, how normally available it is for recall, and whether it is scheduled/snoozed/resolved. Provisional recall can fade from active to dormant to archived. A strong direct cue can bring a dormant note back with a warning; only new signed evidence can reactivate it. Seeing a note again, delivering it, or repeating it does not make it more trustworthy.

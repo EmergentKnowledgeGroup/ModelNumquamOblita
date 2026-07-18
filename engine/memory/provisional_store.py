@@ -18,8 +18,14 @@ from ..contracts import SourceRef, contract_to_dict, source_ref_from_dict
 from .content_safety import SecretDetectedError, assert_safe_content, scrub_content
 
 _TOKEN_RE = re.compile(r"[a-z0-9']+")
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _MAX_COMPLETED_MAINTENANCE_RUNS = 256
+_TEMPORAL_RETAINED_EVENT_ROWS = 10_000
+_TEMPORAL_EVENT_HARD_CAP = 100_000
+_TEMPORAL_EVENT_RETENTION_DAYS = 3652
+_TEMPORAL_STATE_RETENTION_DAYS = 3652
+_TEMPORAL_TERMINAL_IDEMPOTENCY_DAYS = 30
+_TEMPORAL_NONTERMINAL_IDEMPOTENCY_DAYS = 18_263
 
 
 def _now_utc() -> datetime:
@@ -102,6 +108,17 @@ class ProvisionalLifecycle(str, Enum):
     ACTIVE = "active"
     DORMANT = "dormant"
     ARCHIVED = "archived"
+
+
+class TemporalDisposition(str, Enum):
+    """Explicit temporal command state; eligibility is deliberately read-time only."""
+
+    NONE = "none"
+    SCHEDULED = "scheduled"
+    SNOOZED = "snoozed"
+    ACKNOWLEDGED = "acknowledged"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
 
 
 class SourceRole(str, Enum):
@@ -202,6 +219,22 @@ class ProvisionalMemoryRecord:
     last_independent_support_at: Optional[datetime] = None
     policy_version: str = "v0.2"
     claim_key: str = ""
+    # v0.2.2 fields default to inert values so ordinary v0.2 records remain
+    # ordinary provisional memories after a v3 -> v4 upgrade.
+    store_uuid: str = ""
+    principal_id: str = ""
+    runtime_id: str = ""
+    temporal_kind: str = ""
+    temporal_disposition: TemporalDisposition = TemporalDisposition.NONE
+    temporal_revision: int = 0
+    due_window_start_utc: Optional[datetime] = None
+    due_window_end_utc: Optional[datetime] = None
+    temporal_timezone: str = ""
+    temporal_precision: str = ""
+    original_expression: str = ""
+    temporal_resolution_metadata: dict[str, object] = field(default_factory=dict)
+    decay_not_before_utc: Optional[datetime] = None
+    snoozed_until_utc: Optional[datetime] = None
 
     def __post_init__(self) -> None:
         if not self.record_id.strip():
@@ -591,10 +624,21 @@ class InMemoryProvisionalMemoryStore:
             },
         )
 
-    def search(self, query: str, *, limit: int = 10) -> list[ProvisionalSearchHit]:
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        include_dormant: bool = False,
+        dormant_only: bool = False,
+    ) -> list[ProvisionalSearchHit]:
         hits: list[ProvisionalSearchHit] = []
         for record in self._records.values():
-            if record.status not in _LIVE_STATUSES:
+            if dormant_only and record.lifecycle is not ProvisionalLifecycle.DORMANT:
+                continue
+            if not dormant_only and record.status not in _LIVE_STATUSES and not (
+                include_dormant and record.lifecycle is ProvisionalLifecycle.DORMANT
+            ):
                 continue
             score, matched = _score_record(record, query)
             if score <= 0.0 and matched == []:
@@ -670,6 +714,21 @@ class SqliteProvisionalMemoryStore:
                 self.db_path,
                 Path(legacy_backup_path),
             )
+        elif legacy_version in {2, 3}:
+            backup_target = (
+                Path(legacy_backup_path)
+                if legacy_backup_path is not None
+                else self.db_path.with_name(f"{self.db_path.name}.pre-v4.sqlite3")
+            )
+            if backup_target.exists():
+                backup_target = backup_target.with_name(
+                    f"{backup_target.stem}-{uuid.uuid4().hex[:8]}{backup_target.suffix}"
+                )
+            verified_backup = self._backup_and_verify_pre_v4_store(
+                self.db_path,
+                backup_target,
+                expected_version=legacy_version,
+            )
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._clock = clock or _now_utc
@@ -680,6 +739,7 @@ class SqliteProvisionalMemoryStore:
             scrub_legacy_secrets=scrub_legacy_secrets and legacy_secret_detected,
             scrub_authorized_by=normalized_reviewer or None,
             verified_backup=verified_backup,
+            pre_v4_backup=verified_backup,
         )
 
     @staticmethod
@@ -770,6 +830,54 @@ class SqliteProvisionalMemoryStore:
             pass
         return target
 
+    @classmethod
+    def _backup_and_verify_pre_v4_store(
+        cls,
+        source_path: Path,
+        target_path: Path,
+        *,
+        expected_version: int,
+    ) -> Path:
+        """Create and verify the mandatory pre-v4 backup before any write connection."""
+
+        source = source_path.expanduser().resolve()
+        target = target_path.expanduser().resolve()
+        if source == target:
+            raise ValueError("pre-v4 backup target must differ from the live store")
+        if target.exists():
+            raise FileExistsError("pre-v4 backup target already exists")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with cls._read_only_connection(source) as source_conn:
+            tables = {
+                str(row[0])
+                for row in source_conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            }
+            count_tables = [
+                name
+                for name in ("provisional_records", "provisional_events", "provisional_evidence_units")
+                if name in tables
+            ]
+            source_counts = {
+                name: int(source_conn.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0])
+                for name in count_tables
+            }
+            with sqlite3.connect(str(target)) as destination:
+                source_conn.backup(destination)
+        try:
+            os.chmod(target, 0o600)
+        except OSError:
+            pass
+        with sqlite3.connect(str(target)) as backup:
+            backup_version = int(backup.execute("PRAGMA user_version").fetchone()[0])
+            integrity = str(backup.execute("PRAGMA integrity_check").fetchone()[0])
+            backup_counts = {
+                name: int(backup.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0])
+                for name in source_counts
+            }
+        if backup_version != int(expected_version) or integrity.lower() != "ok" or backup_counts != source_counts:
+            raise RuntimeError("PRE_V4_BACKUP_VERIFICATION_FAILED")
+        return target
+
     def _schema_version(self) -> int:
         with self._lock:
             row = self._conn.execute("PRAGMA user_version").fetchone()
@@ -781,9 +889,10 @@ class SqliteProvisionalMemoryStore:
         scrub_legacy_secrets: bool = False,
         scrub_authorized_by: str | None = None,
         verified_backup: Path | None = None,
+        pre_v4_backup: Path | None = None,
     ) -> None:
         version = self._schema_version()
-        if version not in {0, 2, _SCHEMA_VERSION}:
+        if version not in {0, 2, 3, _SCHEMA_VERSION}:
             raise RuntimeError(f"unsupported provisional schema version: {version}")
         if version == _SCHEMA_VERSION:
             self._ensure_maintenance_schema()
@@ -794,6 +903,11 @@ class SqliteProvisionalMemoryStore:
                 scrub_authorized_by=scrub_authorized_by,
                 verified_backup=verified_backup,
             )
+            self._migrate_v3_to_v4(pre_v4_backup=pre_v4_backup)
+            self._ensure_maintenance_schema()
+            return
+        if version == 3:
+            self._migrate_v3_to_v4(pre_v4_backup=pre_v4_backup)
             self._ensure_maintenance_schema()
             return
         with self._lock, self._conn:
@@ -828,7 +942,21 @@ class SqliteProvisionalMemoryStore:
                     distinct_session_count INTEGER NOT NULL DEFAULT 0,
                     last_independent_support_at TEXT,
                     policy_version TEXT NOT NULL DEFAULT 'v0.2',
-                    claim_key TEXT NOT NULL DEFAULT ''
+                    claim_key TEXT NOT NULL DEFAULT '',
+                    store_uuid TEXT NOT NULL DEFAULT '',
+                    principal_id TEXT NOT NULL DEFAULT '',
+                    runtime_id TEXT NOT NULL DEFAULT '',
+                    temporal_kind TEXT NOT NULL DEFAULT '',
+                    temporal_disposition TEXT NOT NULL DEFAULT 'none',
+                    temporal_revision INTEGER NOT NULL DEFAULT 0,
+                    due_window_start_utc TEXT,
+                    due_window_end_utc TEXT,
+                    temporal_timezone TEXT NOT NULL DEFAULT '',
+                    temporal_precision TEXT NOT NULL DEFAULT '',
+                    original_expression TEXT NOT NULL DEFAULT '',
+                    temporal_resolution_json TEXT NOT NULL DEFAULT '{}',
+                    decay_not_before_utc TEXT,
+                    snoozed_until_utc TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS provisional_events (
@@ -845,6 +973,8 @@ class SqliteProvisionalMemoryStore:
                 CREATE INDEX IF NOT EXISTS idx_provisional_status ON provisional_records(status);
                 CREATE INDEX IF NOT EXISTS idx_provisional_updated_at ON provisional_records(updated_at);
                 CREATE INDEX IF NOT EXISTS idx_provisional_events_record ON provisional_events(record_id);
+                CREATE INDEX IF NOT EXISTS idx_provisional_temporal_scope_due
+                    ON provisional_records(store_uuid, principal_id, runtime_id, temporal_disposition, due_window_start_utc, created_at, record_id);
                 CREATE TABLE IF NOT EXISTS provisional_evidence_units (
                     evidence_fingerprint TEXT PRIMARY KEY,
                     record_id TEXT NOT NULL,
@@ -882,6 +1012,66 @@ class SqliteProvisionalMemoryStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_provisional_maintenance_running
                     ON provisional_maintenance_runs(status, lease_expires_at_utc);
+                CREATE TABLE IF NOT EXISTS provisional_temporal_state_events (
+                    event_id TEXT PRIMARY KEY,
+                    store_uuid TEXT NOT NULL,
+                    principal_id TEXT NOT NULL,
+                    runtime_id TEXT NOT NULL,
+                    record_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    prior_disposition TEXT NOT NULL,
+                    new_disposition TEXT NOT NULL,
+                    prior_revision INTEGER NOT NULL,
+                    new_revision INTEGER NOT NULL,
+                    observed_at_utc TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    payload_digest TEXT NOT NULL,
+                    result_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_temporal_state_events_scope_record
+                    ON provisional_temporal_state_events(store_uuid, principal_id, runtime_id, record_id, new_revision);
+                CREATE TABLE IF NOT EXISTS provisional_turn_clock_events (
+                    event_id TEXT PRIMARY KEY,
+                    store_uuid TEXT NOT NULL,
+                    principal_id TEXT NOT NULL,
+                    runtime_id TEXT NOT NULL,
+                    timeline_id TEXT,
+                    role TEXT NOT NULL,
+                    event_kind TEXT NOT NULL,
+                    observed_at_utc TEXT NOT NULL,
+                    provenance_status TEXT NOT NULL,
+                    signed_registration_issued_at_utc TEXT,
+                    idempotency_key TEXT NOT NULL,
+                    payload_digest TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_turn_clock_scope_role
+                    ON provisional_turn_clock_events(store_uuid, principal_id, runtime_id, role, observed_at_utc DESC, event_id DESC);
+                CREATE TABLE IF NOT EXISTS provisional_temporal_delivery_events (
+                    store_uuid TEXT NOT NULL,
+                    principal_id TEXT NOT NULL,
+                    runtime_id TEXT NOT NULL,
+                    delivery_id TEXT NOT NULL,
+                    record_id TEXT NOT NULL,
+                    receipt_identity TEXT NOT NULL,
+                    observed_at_utc TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    payload_digest TEXT NOT NULL,
+                    PRIMARY KEY(store_uuid, principal_id, runtime_id, delivery_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_temporal_delivery_record
+                    ON provisional_temporal_delivery_events(store_uuid, principal_id, runtime_id, record_id, observed_at_utc DESC);
+                CREATE TABLE IF NOT EXISTS provisional_temporal_idempotency (
+                    store_uuid TEXT NOT NULL,
+                    principal_id TEXT NOT NULL,
+                    runtime_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    payload_digest TEXT NOT NULL,
+                    result_json TEXT NOT NULL,
+                    record_id TEXT,
+                    created_at_utc TEXT NOT NULL,
+                    PRIMARY KEY(store_uuid, principal_id, runtime_id, operation, idempotency_key)
+                );
                 """
             )
             self._conn.execute(
@@ -910,6 +1100,74 @@ class SqliteProvisionalMemoryStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_provisional_maintenance_running
                     ON provisional_maintenance_runs(status, lease_expires_at_utc);
+                CREATE TABLE IF NOT EXISTS provisional_temporal_state_events (
+                    event_id TEXT PRIMARY KEY,
+                    store_uuid TEXT NOT NULL,
+                    principal_id TEXT NOT NULL,
+                    runtime_id TEXT NOT NULL,
+                    record_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    prior_disposition TEXT NOT NULL,
+                    new_disposition TEXT NOT NULL,
+                    prior_revision INTEGER NOT NULL,
+                    new_revision INTEGER NOT NULL,
+                    observed_at_utc TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    payload_digest TEXT NOT NULL,
+                    result_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_temporal_state_events_scope_record
+                    ON provisional_temporal_state_events(store_uuid, principal_id, runtime_id, record_id, new_revision);
+                CREATE INDEX IF NOT EXISTS idx_temporal_state_events_scope_timestamp
+                    ON provisional_temporal_state_events(store_uuid, principal_id, runtime_id, observed_at_utc, event_id);
+                CREATE TABLE IF NOT EXISTS provisional_turn_clock_events (
+                    event_id TEXT PRIMARY KEY,
+                    store_uuid TEXT NOT NULL,
+                    principal_id TEXT NOT NULL,
+                    runtime_id TEXT NOT NULL,
+                    timeline_id TEXT,
+                    role TEXT NOT NULL,
+                    event_kind TEXT NOT NULL,
+                    observed_at_utc TEXT NOT NULL,
+                    provenance_status TEXT NOT NULL,
+                    signed_registration_issued_at_utc TEXT,
+                    idempotency_key TEXT NOT NULL,
+                    payload_digest TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_turn_clock_scope_role
+                    ON provisional_turn_clock_events(store_uuid, principal_id, runtime_id, role, observed_at_utc DESC, event_id DESC);
+                CREATE INDEX IF NOT EXISTS idx_turn_clock_scope_timestamp
+                    ON provisional_turn_clock_events(store_uuid, principal_id, runtime_id, observed_at_utc, event_id);
+                CREATE TABLE IF NOT EXISTS provisional_temporal_delivery_events (
+                    store_uuid TEXT NOT NULL,
+                    principal_id TEXT NOT NULL,
+                    runtime_id TEXT NOT NULL,
+                    delivery_id TEXT NOT NULL,
+                    record_id TEXT NOT NULL,
+                    receipt_identity TEXT NOT NULL,
+                    observed_at_utc TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    payload_digest TEXT NOT NULL,
+                    PRIMARY KEY(store_uuid, principal_id, runtime_id, delivery_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_temporal_delivery_record
+                    ON provisional_temporal_delivery_events(store_uuid, principal_id, runtime_id, record_id, observed_at_utc DESC);
+                CREATE INDEX IF NOT EXISTS idx_temporal_delivery_scope_timestamp
+                    ON provisional_temporal_delivery_events(store_uuid, principal_id, runtime_id, observed_at_utc, delivery_id);
+                CREATE TABLE IF NOT EXISTS provisional_temporal_idempotency (
+                    store_uuid TEXT NOT NULL,
+                    principal_id TEXT NOT NULL,
+                    runtime_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    payload_digest TEXT NOT NULL,
+                    result_json TEXT NOT NULL,
+                    record_id TEXT,
+                    created_at_utc TEXT NOT NULL,
+                    PRIMARY KEY(store_uuid, principal_id, runtime_id, operation, idempotency_key)
+                );
+                CREATE INDEX IF NOT EXISTS idx_temporal_idempotency_scope_record_created
+                    ON provisional_temporal_idempotency(store_uuid, principal_id, runtime_id, record_id, created_at_utc);
                 """
             )
 
@@ -1109,6 +1367,85 @@ class SqliteProvisionalMemoryStore:
                 self._conn.rollback()
                 raise
 
+    def _migrate_v3_to_v4(self, *, pre_v4_backup: Path | None) -> None:
+        """Transactional, repeat-safe temporal schema upgrade; version flips last."""
+        if pre_v4_backup is None or not pre_v4_backup.is_file():
+            raise ValueError("PRE_V4_BACKUP_REQUIRED")
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                existing_columns = {
+                    str(item[1]) for item in self._conn.execute("PRAGMA table_info(provisional_records)").fetchall()
+                }
+                for column, declaration in (
+                    ("store_uuid", "TEXT NOT NULL DEFAULT ''"),
+                    ("principal_id", "TEXT NOT NULL DEFAULT ''"),
+                    ("runtime_id", "TEXT NOT NULL DEFAULT ''"),
+                    ("temporal_kind", "TEXT NOT NULL DEFAULT ''"),
+                    ("temporal_disposition", "TEXT NOT NULL DEFAULT 'none'"),
+                    ("temporal_revision", "INTEGER NOT NULL DEFAULT 0"),
+                    ("due_window_start_utc", "TEXT"),
+                    ("due_window_end_utc", "TEXT"),
+                    ("temporal_timezone", "TEXT NOT NULL DEFAULT ''"),
+                    ("temporal_precision", "TEXT NOT NULL DEFAULT ''"),
+                    ("original_expression", "TEXT NOT NULL DEFAULT ''"),
+                    ("temporal_resolution_json", "TEXT NOT NULL DEFAULT '{}'"),
+                    ("decay_not_before_utc", "TEXT"),
+                    ("snoozed_until_utc", "TEXT"),
+                ):
+                    if column not in existing_columns:
+                        self._conn.execute(f"ALTER TABLE provisional_records ADD COLUMN {column} {declaration}")
+                self._execute_schema_script(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_provisional_temporal_scope_due
+                        ON provisional_records(store_uuid, principal_id, runtime_id, temporal_disposition, due_window_start_utc, created_at, record_id);
+                    CREATE TABLE IF NOT EXISTS provisional_temporal_state_events (
+                        event_id TEXT PRIMARY KEY, store_uuid TEXT NOT NULL, principal_id TEXT NOT NULL, runtime_id TEXT NOT NULL,
+                        record_id TEXT NOT NULL, operation TEXT NOT NULL, prior_disposition TEXT NOT NULL, new_disposition TEXT NOT NULL,
+                        prior_revision INTEGER NOT NULL, new_revision INTEGER NOT NULL, observed_at_utc TEXT NOT NULL,
+                        idempotency_key TEXT NOT NULL, payload_digest TEXT NOT NULL, result_json TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_temporal_state_events_scope_record
+                        ON provisional_temporal_state_events(store_uuid, principal_id, runtime_id, record_id, new_revision);
+                    CREATE TABLE IF NOT EXISTS provisional_turn_clock_events (
+                        event_id TEXT PRIMARY KEY, store_uuid TEXT NOT NULL, principal_id TEXT NOT NULL, runtime_id TEXT NOT NULL,
+                        timeline_id TEXT, role TEXT NOT NULL, event_kind TEXT NOT NULL, observed_at_utc TEXT NOT NULL,
+                        provenance_status TEXT NOT NULL, signed_registration_issued_at_utc TEXT, idempotency_key TEXT NOT NULL, payload_digest TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_turn_clock_scope_role
+                        ON provisional_turn_clock_events(store_uuid, principal_id, runtime_id, role, observed_at_utc DESC, event_id DESC);
+                    CREATE TABLE IF NOT EXISTS provisional_temporal_delivery_events (
+                        store_uuid TEXT NOT NULL, principal_id TEXT NOT NULL, runtime_id TEXT NOT NULL, delivery_id TEXT NOT NULL,
+                        record_id TEXT NOT NULL, receipt_identity TEXT NOT NULL, observed_at_utc TEXT NOT NULL,
+                        idempotency_key TEXT NOT NULL, payload_digest TEXT NOT NULL,
+                        PRIMARY KEY(store_uuid, principal_id, runtime_id, delivery_id)
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_temporal_delivery_record
+                        ON provisional_temporal_delivery_events(store_uuid, principal_id, runtime_id, record_id, observed_at_utc DESC);
+                    CREATE TABLE IF NOT EXISTS provisional_temporal_idempotency (
+                        store_uuid TEXT NOT NULL, principal_id TEXT NOT NULL, runtime_id TEXT NOT NULL, operation TEXT NOT NULL,
+                        idempotency_key TEXT NOT NULL, payload_digest TEXT NOT NULL, result_json TEXT NOT NULL, record_id TEXT,
+                        created_at_utc TEXT NOT NULL,
+                        PRIMARY KEY(store_uuid, principal_id, runtime_id, operation, idempotency_key)
+                    );
+                    """
+                )
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO provisional_control(control_key, control_value) VALUES ('v4_pre_upgrade_backup', ?)",
+                    (str(pre_v4_backup.resolve()),),
+                )
+                self._conn.execute("PRAGMA user_version=4")
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def _execute_schema_script(self, script: str) -> None:
+        """Execute DDL without sqlite3.executescript's implicit transaction commit."""
+        for statement in script.split(";"):
+            if statement.strip():
+                self._conn.execute(statement)
+
     def maintenance_candidates(
         self, *, cursor: dict[str, str], limit: int
     ) -> tuple[list[ProvisionalMemoryRecord], dict[str, str]]:
@@ -1256,6 +1593,22 @@ class SqliteProvisionalMemoryStore:
             last_independent_support_at=(datetime.fromisoformat(str(row["last_independent_support_at"])) if "last_independent_support_at" in row.keys() and row["last_independent_support_at"] else None),
             policy_version=str(row["policy_version"]) if "policy_version" in row.keys() else "v0.2",
             claim_key=str(row["claim_key"]) if "claim_key" in row.keys() else str(row["dedupe_key"]),
+            store_uuid=str(row["store_uuid"]) if "store_uuid" in row.keys() else "",
+            principal_id=str(row["principal_id"]) if "principal_id" in row.keys() else "",
+            runtime_id=str(row["runtime_id"]) if "runtime_id" in row.keys() else "",
+            temporal_kind=str(row["temporal_kind"]) if "temporal_kind" in row.keys() else "",
+            temporal_disposition=TemporalDisposition(
+                str(row["temporal_disposition"]) if "temporal_disposition" in row.keys() else "none"
+            ),
+            temporal_revision=int(row["temporal_revision"]) if "temporal_revision" in row.keys() else 0,
+            due_window_start_utc=(datetime.fromisoformat(str(row["due_window_start_utc"])) if "due_window_start_utc" in row.keys() and row["due_window_start_utc"] else None),
+            due_window_end_utc=(datetime.fromisoformat(str(row["due_window_end_utc"])) if "due_window_end_utc" in row.keys() and row["due_window_end_utc"] else None),
+            temporal_timezone=str(row["temporal_timezone"]) if "temporal_timezone" in row.keys() else "",
+            temporal_precision=str(row["temporal_precision"]) if "temporal_precision" in row.keys() else "",
+            original_expression=str(row["original_expression"]) if "original_expression" in row.keys() else "",
+            temporal_resolution_metadata=(json.loads(row["temporal_resolution_json"] or "{}") if "temporal_resolution_json" in row.keys() else {}),
+            decay_not_before_utc=(datetime.fromisoformat(str(row["decay_not_before_utc"])) if "decay_not_before_utc" in row.keys() and row["decay_not_before_utc"] else None),
+            snoozed_until_utc=(datetime.fromisoformat(str(row["snoozed_until_utc"])) if "snoozed_until_utc" in row.keys() and row["snoozed_until_utc"] else None),
         )
 
     @staticmethod
@@ -1329,6 +1682,597 @@ class SqliteProvisionalMemoryStore:
                     self._serialize_metadata(event.metadata),
                 ),
             )
+
+    @staticmethod
+    def _temporal_timestamp(value: datetime | str, *, field_name: str) -> datetime:
+        parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
+        if not isinstance(parsed, datetime) or parsed.tzinfo is None:
+            raise ValueError(f"{field_name} must be an offset-aware timestamp")
+        return parsed.astimezone(timezone.utc)
+
+    def _temporal_scope(self, *, principal_id: str, runtime_id: str, store_uuid: str | None = None) -> tuple[str, str, str]:
+        owner = str(principal_id or "").strip()
+        runtime = str(runtime_id or "").strip()
+        supplied_store = str(store_uuid or self.store_uuid).strip()
+        if not owner or not runtime or supplied_store != self.store_uuid:
+            raise ValueError("TEMPORAL_SCOPE_REQUIRED")
+        return supplied_store, owner, runtime
+
+    @staticmethod
+    def _temporal_payload_digest(payload: dict[str, object]) -> str:
+        assert_safe_content(payload)
+        encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        return sha256(encoded.encode("utf-8")).hexdigest()
+
+    def _temporal_idempotency_replay(
+        self, *, scope: tuple[str, str, str], operation: str, idempotency_key: str, payload_digest: str
+    ) -> dict[str, object] | None:
+        key = str(idempotency_key or "").strip()
+        if not key:
+            raise ValueError("TEMPORAL_IDEMPOTENCY_KEY_REQUIRED")
+        row = self._conn.execute(
+            """SELECT payload_digest, result_json FROM provisional_temporal_idempotency
+               WHERE store_uuid=? AND principal_id=? AND runtime_id=? AND operation=? AND idempotency_key=?""",
+            (*scope, operation, key),
+        ).fetchone()
+        if row is None:
+            return None
+        if str(row["payload_digest"]) != payload_digest:
+            raise ValueError("TEMPORAL_IDEMPOTENCY_CONFLICT")
+        result = json.loads(str(row["result_json"]))
+        return {str(key): value for key, value in result.items()} if isinstance(result, dict) else {"result": result}
+
+    def _store_temporal_idempotency(
+        self,
+        *,
+        scope: tuple[str, str, str],
+        operation: str,
+        idempotency_key: str,
+        payload_digest: str,
+        result: dict[str, object],
+        record_id: str | None,
+        now: datetime,
+    ) -> None:
+        assert_safe_content(result)
+        self._conn.execute(
+            """INSERT INTO provisional_temporal_idempotency
+               (store_uuid,principal_id,runtime_id,operation,idempotency_key,payload_digest,result_json,record_id,created_at_utc)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
+            (*scope, operation, str(idempotency_key).strip(), payload_digest,
+             json.dumps(result, ensure_ascii=True, sort_keys=True, separators=(",", ":")), record_id, now.isoformat()),
+        )
+
+    def _temporal_event_cap_available(self, *, scope: tuple[str, str, str], table: str, error_code: str) -> None:
+        """Fail closed at the durable per-scope event cap; pruning is maintenance-only."""
+
+        row = self._conn.execute(
+            f"SELECT COUNT(*) AS count FROM {table} WHERE store_uuid=? AND principal_id=? AND runtime_id=?", scope
+        ).fetchone()
+        if int(row["count"] if row is not None else 0) >= _TEMPORAL_EVENT_HARD_CAP:
+            raise ValueError(error_code)
+
+    def _temporal_state_event_cap_available(self, *, scope: tuple[str, str, str]) -> None:
+        """Never evict active record history to make room for a state mutation."""
+
+        total_row = self._conn.execute(
+            "SELECT COUNT(*) AS count FROM provisional_temporal_state_events WHERE store_uuid=? AND principal_id=? AND runtime_id=?",
+            scope,
+        ).fetchone()
+        if int(total_row["count"] if total_row is not None else 0) < _TEMPORAL_EVENT_HARD_CAP:
+            return
+        active_row = self._conn.execute(
+            """SELECT COUNT(*) AS count
+               FROM provisional_temporal_state_events AS event
+               JOIN provisional_records AS record ON record.record_id = event.record_id
+               WHERE event.store_uuid=? AND event.principal_id=? AND event.runtime_id=?
+                 AND record.store_uuid=? AND record.principal_id=? AND record.runtime_id=?
+                 AND record.temporal_disposition IN ('scheduled', 'snoozed')""",
+            (*scope, *scope),
+        ).fetchone()
+        # A full state table cannot be made writable by a normal write.  The active
+        # count is intentionally inspected so the protected case remains explicit.
+        if int(active_row["count"] if active_row is not None else 0) >= _TEMPORAL_EVENT_HARD_CAP:
+            raise ValueError("TEMPORAL_STATE_EVENT_CAP_REACHED")
+        raise ValueError("TEMPORAL_STATE_EVENT_CAP_REACHED")
+
+    def maintain_temporal_retention(
+        self,
+        *,
+        now: datetime | str | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, int]:
+        """Explicitly prune temporal telemetry/history only; reads never call this.
+
+        The method deliberately leaves provisional records and evidence untouched.
+        Rows are selected and deleted in the specification's stable timestamp/id
+        order so repeated maintenance passes are deterministic.
+        """
+
+        server_now = self._temporal_timestamp(now, field_name="now") if now is not None else self._clock().astimezone(timezone.utc)
+        event_cutoff = (server_now - timedelta(days=_TEMPORAL_EVENT_RETENTION_DAYS)).isoformat()
+        state_cutoff = (server_now - timedelta(days=_TEMPORAL_STATE_RETENTION_DAYS)).isoformat()
+        terminal_idempotency_cutoff = (server_now - timedelta(days=_TEMPORAL_TERMINAL_IDEMPOTENCY_DAYS)).isoformat()
+        nonterminal_idempotency_cutoff = (server_now - timedelta(days=_TEMPORAL_NONTERMINAL_IDEMPOTENCY_DAYS)).isoformat()
+        deleted: dict[str, int] = {
+            "turn_clock_events": 0,
+            "delivery_events": 0,
+            "state_events": 0,
+            "idempotency_rows": 0,
+        }
+
+        def bounded_ids(table: str, id_column: str, scope: tuple[str, str, str]) -> list[tuple[str, str, str, str]]:
+            rows = self._conn.execute(
+                f"SELECT {id_column},observed_at_utc FROM {table} "
+                "WHERE store_uuid=? AND principal_id=? AND runtime_id=? "
+                f"ORDER BY observed_at_utc DESC,{id_column} DESC",
+                scope,
+            ).fetchall()
+            keep = {
+                str(row[id_column])
+                for row in rows[:_TEMPORAL_RETAINED_EVENT_ROWS]
+                if str(row["observed_at_utc"]) > event_cutoff
+            }
+            return [(*scope, str(row[id_column])) for row in reversed(rows) if str(row[id_column]) not in keep]
+
+        with self._write_transaction(immediate=True):
+            scopes = [tuple(str(row[key]) for key in ("store_uuid", "principal_id", "runtime_id")) for row in self._conn.execute(
+                """SELECT store_uuid,principal_id,runtime_id FROM provisional_turn_clock_events
+                   UNION SELECT store_uuid,principal_id,runtime_id FROM provisional_temporal_delivery_events"""
+            ).fetchall()]
+            turn_ids: list[tuple[str, str, str, str]] = []
+            delivery_ids: list[tuple[str, str, str, str]] = []
+            for scope in scopes:
+                turn_ids.extend(bounded_ids("provisional_turn_clock_events", "event_id", scope))
+                delivery_ids.extend(bounded_ids("provisional_temporal_delivery_events", "delivery_id", scope))
+            state_rows = self._conn.execute(
+                """SELECT event.event_id
+                   FROM provisional_temporal_state_events AS event
+                   JOIN provisional_records AS record ON record.record_id = event.record_id
+                   WHERE record.temporal_disposition IN ('acknowledged', 'cancelled', 'expired')
+                     AND record.store_uuid = event.store_uuid
+                     AND record.principal_id = event.principal_id
+                     AND record.runtime_id = event.runtime_id
+                     AND (SELECT MAX(terminal.observed_at_utc)
+                          FROM provisional_temporal_state_events AS terminal
+                          WHERE terminal.record_id = record.record_id
+                            AND terminal.store_uuid = record.store_uuid
+                            AND terminal.principal_id = record.principal_id
+                            AND terminal.runtime_id = record.runtime_id
+                            AND terminal.new_disposition IN ('acknowledged', 'cancelled', 'expired')) <= ?
+                   ORDER BY event.observed_at_utc ASC,event.event_id ASC""",
+                (state_cutoff,),
+            ).fetchall()
+            idem_rows = self._conn.execute(
+                """SELECT idem.store_uuid,idem.principal_id,idem.runtime_id,idem.operation,idem.idempotency_key
+                   FROM provisional_temporal_idempotency AS idem
+                   LEFT JOIN provisional_records AS record ON record.record_id = idem.record_id
+                   WHERE (
+                       record.temporal_disposition IN ('acknowledged', 'cancelled', 'expired')
+                       AND (SELECT MAX(terminal.observed_at_utc)
+                            FROM provisional_temporal_state_events AS terminal
+                            WHERE terminal.record_id = record.record_id
+                              AND terminal.store_uuid = record.store_uuid
+                              AND terminal.principal_id = record.principal_id
+                              AND terminal.runtime_id = record.runtime_id
+                              AND terminal.new_disposition IN ('acknowledged', 'cancelled', 'expired')) <= ?
+                   ) OR (
+                       (record.record_id IS NULL OR record.temporal_disposition NOT IN ('acknowledged', 'cancelled', 'expired'))
+                       AND COALESCE(record.created_at, idem.created_at_utc) <= ?
+                   )
+                   ORDER BY idem.created_at_utc ASC,idem.operation ASC,idem.idempotency_key ASC""",
+                (terminal_idempotency_cutoff, nonterminal_idempotency_cutoff),
+            ).fetchall()
+            deleted.update({
+                "turn_clock_events": len(turn_ids),
+                "delivery_events": len(delivery_ids),
+                "state_events": len(state_rows),
+                "idempotency_rows": len(idem_rows),
+            })
+            if not dry_run:
+                self._conn.executemany(
+                    "DELETE FROM provisional_turn_clock_events WHERE store_uuid=? AND principal_id=? AND runtime_id=? AND event_id=?",
+                    turn_ids,
+                )
+                self._conn.executemany(
+                    "DELETE FROM provisional_temporal_delivery_events WHERE store_uuid=? AND principal_id=? AND runtime_id=? AND delivery_id=?",
+                    delivery_ids,
+                )
+                self._conn.executemany(
+                    "DELETE FROM provisional_temporal_state_events WHERE event_id=?",
+                    [(str(row["event_id"]),) for row in state_rows],
+                )
+                self._conn.executemany(
+                    """DELETE FROM provisional_temporal_idempotency
+                       WHERE store_uuid=? AND principal_id=? AND runtime_id=? AND operation=? AND idempotency_key=?""",
+                    [tuple(row) for row in idem_rows],
+                )
+        return deleted
+
+    @staticmethod
+    def _effective_temporal_window(record: ProvisionalMemoryRecord) -> tuple[datetime, datetime]:
+        if record.due_window_start_utc is None or record.due_window_end_utc is None:
+            raise ValueError("TEMPORAL_WINDOW_UNAVAILABLE")
+        start = record.snoozed_until_utc or record.due_window_start_utc
+        duration = record.due_window_end_utc - record.due_window_start_utc
+        end = start + duration
+        return start, end
+
+    def _temporal_projection(self, record: ProvisionalMemoryRecord, *, now: datetime) -> dict[str, object]:
+        start, end = self._effective_temporal_window(record)
+        if record.temporal_disposition not in {TemporalDisposition.SCHEDULED, TemporalDisposition.SNOOZED}:
+            eligibility = "suppressed"
+        elif now < start:
+            eligibility = "pending"
+        elif now < end:
+            eligibility = "due"
+        else:
+            eligibility = "overdue"
+        return {
+            "record": record,
+            "eligibility": eligibility,
+            "effective_window_start_utc": start,
+            "effective_window_end_utc": end,
+        }
+
+    def schedule_temporal(
+        self,
+        record_id: str,
+        principal_id: str,
+        runtime_id: str,
+        *,
+        temporal_kind: str,
+        due_window_start_utc: datetime | str,
+        due_window_end_utc: datetime | str,
+        timezone_name: str,
+        precision: str,
+        original_expression: str,
+        idempotency_key: str,
+        expected_revision: int = 0,
+        resolution_metadata: dict[str, object] | None = None,
+        decay_not_before_utc: datetime | str | None = None,
+        store_uuid: str | None = None,
+    ) -> dict[str, object]:
+        """Attach the one permitted initial temporal state to an existing provisional record."""
+        scope = self._temporal_scope(principal_id=principal_id, runtime_id=runtime_id, store_uuid=store_uuid)
+        kind = str(temporal_kind or "").strip().lower()
+        if kind not in {"reminder", "future_event"}:
+            raise ValueError("TEMPORAL_KIND_INVALID")
+        start = self._temporal_timestamp(due_window_start_utc, field_name="due_window_start_utc")
+        end = self._temporal_timestamp(due_window_end_utc, field_name="due_window_end_utc")
+        if end <= start:
+            raise ValueError("TEMPORAL_WINDOW_INVALID")
+        zone, precision_text, expression = str(timezone_name or "").strip(), str(precision or "").strip(), str(original_expression or "").strip()
+        if not zone or precision_text not in {"exact", "date", "month", "approximate"} or not expression:
+            raise ValueError("TEMPORAL_SCHEDULE_INVALID")
+        resolution = dict(resolution_metadata or {})
+        decay = self._temporal_timestamp(decay_not_before_utc, field_name="decay_not_before_utc") if decay_not_before_utc else end
+        payload = {
+            "record_id": str(record_id), "temporal_kind": kind, "start": start.isoformat(), "end": end.isoformat(),
+            "timezone": zone, "precision": precision_text, "original_expression": expression,
+            "resolution_metadata": resolution, "decay_not_before_utc": decay.isoformat(), "expected_revision": int(expected_revision),
+        }
+        digest = self._temporal_payload_digest(payload)
+        now = self._clock().astimezone(timezone.utc)
+        with self._write_transaction(immediate=True):
+            replay = self._temporal_idempotency_replay(scope=scope, operation="schedule", idempotency_key=idempotency_key, payload_digest=digest)
+            if replay is not None:
+                return replay
+            row = self._conn.execute("SELECT * FROM provisional_records WHERE record_id=?", (str(record_id),)).fetchone()
+            if row is None:
+                raise KeyError(f"unknown provisional record: {record_id}")
+            record = self._row_to_record(row)
+            if record.temporal_disposition is not TemporalDisposition.NONE or int(expected_revision) != record.temporal_revision:
+                raise ValueError("TEMPORAL_REVISION_CONFLICT")
+            if record.store_uuid and (record.store_uuid, record.principal_id, record.runtime_id) != scope:
+                raise KeyError(f"unknown provisional record: {record_id}")
+            self._temporal_state_event_cap_available(scope=scope)
+            revision = record.temporal_revision + 1
+            result = {"record_id": record.record_id, "disposition": TemporalDisposition.SCHEDULED.value, "revision": revision, "replayed": False}
+            self._conn.execute(
+                """UPDATE provisional_records SET store_uuid=?,principal_id=?,runtime_id=?,temporal_kind=?,temporal_disposition=?,temporal_revision=?,
+                   due_window_start_utc=?,due_window_end_utc=?,temporal_timezone=?,temporal_precision=?,original_expression=?,temporal_resolution_json=?,
+                   decay_not_before_utc=?,snoozed_until_utc=NULL,updated_at=? WHERE record_id=?""",
+                (*scope, kind, TemporalDisposition.SCHEDULED.value, revision, start.isoformat(), end.isoformat(), zone, precision_text, expression,
+                 json.dumps(resolution, ensure_ascii=True, sort_keys=True, separators=(",", ":")), decay.isoformat(), now.isoformat(), record.record_id),
+            )
+            self._conn.execute(
+                """INSERT INTO provisional_temporal_state_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (f"tse_{uuid.uuid4().hex}", *scope, record.record_id, "schedule", record.temporal_disposition.value,
+                 TemporalDisposition.SCHEDULED.value, record.temporal_revision, revision, now.isoformat(), str(idempotency_key).strip(), digest,
+                 json.dumps(result, ensure_ascii=True, sort_keys=True, separators=(",", ":"))),
+            )
+            self._store_temporal_idempotency(scope=scope, operation="schedule", idempotency_key=idempotency_key,
+                                             payload_digest=digest, result=result, record_id=record.record_id, now=now)
+        return result
+
+    def get_temporal(self, record_id: str, principal_id: str, runtime_id: str, *, store_uuid: str | None = None, now_utc: datetime | str | None = None) -> dict[str, object]:
+        scope = self._temporal_scope(principal_id=principal_id, runtime_id=runtime_id, store_uuid=store_uuid)
+        now = self._temporal_timestamp(now_utc, field_name="now_utc") if now_utc is not None else self._clock().astimezone(timezone.utc)
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM provisional_records WHERE record_id=? AND store_uuid=? AND principal_id=? AND runtime_id=?", (str(record_id), *scope)).fetchone()
+        if row is None:
+            raise KeyError(f"unknown temporal record: {record_id}")
+        return self._temporal_projection(self._row_to_record(row), now=now)
+
+    def list_temporal(self, principal_id: str, runtime_id: str, *, store_uuid: str | None = None, due_only: bool = False,
+                      include_upcoming: bool = True, include_suppressed: bool = False, limit: int = 10,
+                      now_utc: datetime | str | None = None) -> list[dict[str, object]]:
+        if not 1 <= int(limit) <= 2_000:
+            raise ValueError("TEMPORAL_LIMIT_INVALID")
+        scope = self._temporal_scope(principal_id=principal_id, runtime_id=runtime_id, store_uuid=store_uuid)
+        now = self._temporal_timestamp(now_utc, field_name="now_utc") if now_utc is not None else self._clock().astimezone(timezone.utc)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM provisional_records WHERE store_uuid=? AND principal_id=? AND runtime_id=? AND temporal_disposition != 'none'",
+                scope,
+            ).fetchall()
+        projections = [self._temporal_projection(self._row_to_record(row), now=now) for row in rows]
+        if not include_suppressed:
+            projections = [item for item in projections if item["eligibility"] != "suppressed"]
+        if due_only:
+            projections = [item for item in projections if item["eligibility"] in {"due", "overdue"}]
+        elif not include_upcoming:
+            projections = [item for item in projections if item["eligibility"] != "pending"]
+        rank = {"overdue": 0, "due": 1, "pending": 2, "suppressed": 3}
+        projections.sort(key=lambda item: (rank[str(item["eligibility"])], item["effective_window_start_utc"], item["record"].created_at, item["record"].record_id))
+        return projections[: int(limit)]
+
+    def resolve_temporal(self, record_id: str, principal_id: str, runtime_id: str, *, action: str, expected_revision: int,
+                         idempotency_key: str, snoozed_until_utc: datetime | str | None = None,
+                         store_uuid: str | None = None) -> dict[str, object]:
+        scope = self._temporal_scope(principal_id=principal_id, runtime_id=runtime_id, store_uuid=store_uuid)
+        operation = str(action or "").strip().lower()
+        target = {"acknowledge": TemporalDisposition.ACKNOWLEDGED, "cancel": TemporalDisposition.CANCELLED, "snooze": TemporalDisposition.SNOOZED}.get(operation)
+        if target is None:
+            raise ValueError("TEMPORAL_ACTION_INVALID")
+        snooze = self._temporal_timestamp(snoozed_until_utc, field_name="snoozed_until_utc") if snoozed_until_utc is not None else None
+        if target is TemporalDisposition.SNOOZED and snooze is None:
+            raise ValueError("TEMPORAL_SNOOZE_REQUIRED")
+        if target is not TemporalDisposition.SNOOZED and snooze is not None:
+            raise ValueError("TEMPORAL_SNOOZE_UNEXPECTED")
+        payload = {"record_id": str(record_id), "action": operation, "expected_revision": int(expected_revision), "snoozed_until_utc": snooze.isoformat() if snooze else None}
+        digest = self._temporal_payload_digest(payload)
+        now = self._clock().astimezone(timezone.utc)
+        with self._write_transaction(immediate=True):
+            replay = self._temporal_idempotency_replay(scope=scope, operation="resolve", idempotency_key=idempotency_key, payload_digest=digest)
+            if replay is not None:
+                return replay
+            row = self._conn.execute("SELECT * FROM provisional_records WHERE record_id=? AND store_uuid=? AND principal_id=? AND runtime_id=?", (str(record_id), *scope)).fetchone()
+            if row is None:
+                raise KeyError(f"unknown temporal record: {record_id}")
+            record = self._row_to_record(row)
+            if record.temporal_disposition not in {TemporalDisposition.SCHEDULED, TemporalDisposition.SNOOZED} or record.temporal_revision != int(expected_revision):
+                raise ValueError("TEMPORAL_REVISION_CONFLICT")
+            self._temporal_state_event_cap_available(scope=scope)
+            revision = record.temporal_revision + 1
+            decay = record.decay_not_before_utc
+            if snooze is not None:
+                _, current_effective_end = self._effective_temporal_window(record)
+                duration = record.due_window_end_utc - record.due_window_start_utc
+                grace = max(timedelta(0), (decay or current_effective_end) - current_effective_end)
+                decay = snooze + duration + grace
+            result = {"record_id": record.record_id, "disposition": target.value, "revision": revision, "replayed": False}
+            self._conn.execute(
+                "UPDATE provisional_records SET temporal_disposition=?,temporal_revision=?,snoozed_until_utc=?,decay_not_before_utc=?,updated_at=? WHERE record_id=?",
+                (target.value, revision, snooze.isoformat() if snooze else record.snoozed_until_utc.isoformat() if record.snoozed_until_utc else None,
+                 decay.isoformat() if decay else None, now.isoformat(), record.record_id),
+            )
+            self._conn.execute("INSERT INTO provisional_temporal_state_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (f"tse_{uuid.uuid4().hex}", *scope, record.record_id, operation, record.temporal_disposition.value, target.value,
+                 record.temporal_revision, revision, now.isoformat(), str(idempotency_key).strip(), digest,
+                 json.dumps(result, ensure_ascii=True, sort_keys=True, separators=(",", ":"))))
+            self._store_temporal_idempotency(scope=scope, operation="resolve", idempotency_key=idempotency_key,
+                                             payload_digest=digest, result=result, record_id=record.record_id, now=now)
+        return result
+
+    def expire_temporal(
+        self,
+        record_id: str,
+        principal_id: str,
+        runtime_id: str,
+        *,
+        expected_revision: int,
+        idempotency_key: str,
+        now_utc: datetime | str | None = None,
+        store_uuid: str | None = None,
+    ) -> dict[str, object]:
+        """Maintenance-only terminal transition after the protected grace anchor."""
+
+        scope = self._temporal_scope(
+            principal_id=principal_id,
+            runtime_id=runtime_id,
+            store_uuid=store_uuid,
+        )
+        now = (
+            self._temporal_timestamp(now_utc, field_name="now_utc")
+            if now_utc is not None
+            else self._clock().astimezone(timezone.utc)
+        )
+        payload = {
+            "record_id": str(record_id),
+            "action": "expire",
+            "expected_revision": int(expected_revision),
+        }
+        digest = self._temporal_payload_digest(payload)
+        with self._write_transaction(immediate=True):
+            replay = self._temporal_idempotency_replay(
+                scope=scope,
+                operation="expire",
+                idempotency_key=idempotency_key,
+                payload_digest=digest,
+            )
+            if replay is not None:
+                return replay
+            row = self._conn.execute(
+                "SELECT * FROM provisional_records WHERE record_id=? AND store_uuid=? AND principal_id=? AND runtime_id=?",
+                (str(record_id), *scope),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown temporal record: {record_id}")
+            record = self._row_to_record(row)
+            if (
+                record.temporal_disposition not in {TemporalDisposition.SCHEDULED, TemporalDisposition.SNOOZED}
+                or record.temporal_revision != int(expected_revision)
+            ):
+                raise ValueError("TEMPORAL_REVISION_CONFLICT")
+            if record.decay_not_before_utc is None or now < record.decay_not_before_utc.astimezone(timezone.utc):
+                raise ValueError("TEMPORAL_EXPIRY_NOT_ELIGIBLE")
+            self._temporal_state_event_cap_available(scope=scope)
+            revision = record.temporal_revision + 1
+            result = {
+                "record_id": record.record_id,
+                "disposition": TemporalDisposition.EXPIRED.value,
+                "revision": revision,
+                "replayed": False,
+            }
+            self._conn.execute(
+                "UPDATE provisional_records SET temporal_disposition=?,temporal_revision=?,updated_at=? WHERE record_id=?",
+                (TemporalDisposition.EXPIRED.value, revision, now.isoformat(), record.record_id),
+            )
+            self._conn.execute(
+                "INSERT INTO provisional_temporal_state_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    f"tse_{uuid.uuid4().hex}",
+                    *scope,
+                    record.record_id,
+                    "expire",
+                    record.temporal_disposition.value,
+                    TemporalDisposition.EXPIRED.value,
+                    record.temporal_revision,
+                    revision,
+                    now.isoformat(),
+                    str(idempotency_key).strip(),
+                    digest,
+                    json.dumps(result, ensure_ascii=True, sort_keys=True, separators=(",", ":")),
+                ),
+            )
+            self._store_temporal_idempotency(
+                scope=scope,
+                operation="expire",
+                idempotency_key=idempotency_key,
+                payload_digest=digest,
+                result=result,
+                record_id=record.record_id,
+                now=now,
+            )
+        return result
+
+    def record_turn_clock_event(self, principal_id: str, runtime_id: str, *, event_id: str, role: str, event_kind: str,
+                                idempotency_key: str, timeline_id: str | None = None, provenance_status: str = "server_receipt",
+                                signed_registration_issued_at_utc: datetime | str | None = None,
+                                store_uuid: str | None = None) -> dict[str, object]:
+        """Record only server-receipt clock facts; caller times are provenance, never the production clock."""
+        scope = self._temporal_scope(principal_id=principal_id, runtime_id=runtime_id, store_uuid=store_uuid)
+        normalized_id, normalized_role, normalized_kind = str(event_id or "").strip(), str(role or "").strip().lower(), str(event_kind or "").strip().lower()
+        if not normalized_id or normalized_role not in {"user", "assistant"} or normalized_kind not in {"server_receipt", "server_completion_receipt"}:
+            raise ValueError("TEMPORAL_TURN_EVENT_INVALID")
+        issued = self._temporal_timestamp(signed_registration_issued_at_utc, field_name="signed_registration_issued_at_utc") if signed_registration_issued_at_utc else None
+        payload = {"event_id": normalized_id, "role": normalized_role, "event_kind": normalized_kind, "timeline_id": str(timeline_id or ""),
+                   "provenance_status": str(provenance_status or "").strip(), "signed_registration_issued_at_utc": issued.isoformat() if issued else None}
+        digest = self._temporal_payload_digest(payload)
+        now = self._clock().astimezone(timezone.utc)
+        with self._write_transaction(immediate=True):
+            replay = self._temporal_idempotency_replay(scope=scope, operation="turn_clock", idempotency_key=idempotency_key, payload_digest=digest)
+            if replay is not None:
+                return replay
+            collision = self._conn.execute("SELECT payload_digest FROM provisional_turn_clock_events WHERE event_id=?", (normalized_id,)).fetchone()
+            if collision is not None and str(collision["payload_digest"]) != digest:
+                raise ValueError("TEMPORAL_TURN_EVENT_CONFLICT")
+            result = {"event_id": normalized_id, "observed_at_utc": now.isoformat(), "replayed": collision is not None}
+            if collision is None:
+                self._temporal_event_cap_available(
+                    scope=scope,
+                    table="provisional_turn_clock_events",
+                    error_code="TEMPORAL_TURN_EVENT_CAP_REACHED",
+                )
+                self._conn.execute("INSERT INTO provisional_turn_clock_events VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (normalized_id, *scope, str(timeline_id or "") or None, normalized_role, normalized_kind, now.isoformat(),
+                     str(provenance_status or "").strip(), issued.isoformat() if issued else None, str(idempotency_key).strip(), digest))
+            self._store_temporal_idempotency(scope=scope, operation="turn_clock", idempotency_key=idempotency_key,
+                                             payload_digest=digest, result=result, record_id=None, now=now)
+        return result
+
+    def latest_turn_clock_events(self, principal_id: str, runtime_id: str, *, store_uuid: str | None = None) -> dict[str, dict[str, object] | None]:
+        scope = self._temporal_scope(principal_id=principal_id, runtime_id=runtime_id, store_uuid=store_uuid)
+        result: dict[str, dict[str, object] | None] = {"user": None, "assistant": None}
+        with self._lock:
+            for role in result:
+                row = self._conn.execute(
+                    """SELECT event_id,timeline_id,role,event_kind,observed_at_utc,provenance_status,signed_registration_issued_at_utc
+                       FROM provisional_turn_clock_events WHERE store_uuid=? AND principal_id=? AND runtime_id=? AND role=?
+                       ORDER BY observed_at_utc DESC,event_id DESC LIMIT 1""", (*scope, role)
+                ).fetchone()
+                if row is not None:
+                    result[role] = {key: row[key] for key in row.keys()}
+        return result
+
+    def record_delivery_event(self, record_id: str, principal_id: str, runtime_id: str, *, delivery_id: str, receipt_identity: str,
+                              idempotency_key: str, payload_digest: str, store_uuid: str | None = None) -> dict[str, object]:
+        scope = self._temporal_scope(principal_id=principal_id, runtime_id=runtime_id, store_uuid=store_uuid)
+        delivery, receipt, external_digest = str(delivery_id or "").strip(), str(receipt_identity or "").strip(), str(payload_digest or "").strip()
+        if not delivery or not receipt or not re.fullmatch(r"[0-9a-f]{64}", external_digest):
+            raise ValueError("TEMPORAL_DELIVERY_INVALID")
+        payload = {"record_id": str(record_id), "delivery_id": delivery, "receipt_identity": receipt, "payload_digest": external_digest}
+        digest = self._temporal_payload_digest(payload)
+        now = self._clock().astimezone(timezone.utc)
+        with self._write_transaction(immediate=True):
+            replay = self._temporal_idempotency_replay(scope=scope, operation="delivery", idempotency_key=idempotency_key, payload_digest=digest)
+            if replay is not None:
+                return replay
+            record = self._conn.execute("SELECT record_id FROM provisional_records WHERE record_id=? AND store_uuid=? AND principal_id=? AND runtime_id=?", (str(record_id), *scope)).fetchone()
+            if record is None:
+                raise KeyError(f"unknown temporal record: {record_id}")
+            existing = self._conn.execute("SELECT receipt_identity,payload_digest FROM provisional_temporal_delivery_events WHERE store_uuid=? AND principal_id=? AND runtime_id=? AND delivery_id=?", (*scope, delivery)).fetchone()
+            if existing is not None and (str(existing["receipt_identity"]) != receipt or str(existing["payload_digest"]) != external_digest):
+                raise ValueError("TEMPORAL_DELIVERY_CONFLICT")
+            result = {"delivery_id": delivery, "record_id": str(record_id), "observed_at_utc": now.isoformat(), "replayed": existing is not None}
+            if existing is None:
+                self._temporal_event_cap_available(
+                    scope=scope,
+                    table="provisional_temporal_delivery_events",
+                    error_code="TEMPORAL_DELIVERY_EVENT_CAP_REACHED",
+                )
+                self._conn.execute("INSERT INTO provisional_temporal_delivery_events VALUES(?,?,?,?,?,?,?,?,?)",
+                    (*scope, delivery, str(record_id), receipt, now.isoformat(), str(idempotency_key).strip(), external_digest))
+            self._store_temporal_idempotency(scope=scope, operation="delivery", idempotency_key=idempotency_key,
+                                             payload_digest=digest, result=result, record_id=str(record_id), now=now)
+        return result
+
+    def latest_delivery_event(
+        self,
+        record_id: str,
+        principal_id: str,
+        runtime_id: str,
+        *,
+        store_uuid: str | None = None,
+    ) -> dict[str, object] | None:
+        """Return scoped access telemetry without mutating reminder or evidence state."""
+
+        scope = self._temporal_scope(principal_id=principal_id, runtime_id=runtime_id, store_uuid=store_uuid)
+        with self._lock:
+            row = self._conn.execute(
+                """SELECT delivery_id,record_id,receipt_identity,observed_at_utc
+                   FROM provisional_temporal_delivery_events
+                   WHERE store_uuid=? AND principal_id=? AND runtime_id=? AND record_id=?
+                   ORDER BY observed_at_utc DESC,delivery_id DESC LIMIT 1""",
+                (*scope, str(record_id)),
+            ).fetchone()
+        return {str(key): row[key] for key in row.keys()} if row is not None else None
+
+    def temporal_diagnostics(self, principal_id: str, runtime_id: str, *, store_uuid: str | None = None) -> dict[str, int]:
+        """Aggregate-only temporal read; it deliberately exposes no reminder text."""
+        scope = self._temporal_scope(principal_id=principal_id, runtime_id=runtime_id, store_uuid=store_uuid)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT temporal_disposition,COUNT(*) AS count FROM provisional_records WHERE store_uuid=? AND principal_id=? AND runtime_id=? GROUP BY temporal_disposition", scope
+            ).fetchall()
+            deliveries = self._conn.execute("SELECT COUNT(*) FROM provisional_temporal_delivery_events WHERE store_uuid=? AND principal_id=? AND runtime_id=?", scope).fetchone()[0]
+            turns = self._conn.execute("SELECT COUNT(*) FROM provisional_turn_clock_events WHERE store_uuid=? AND principal_id=? AND runtime_id=?", scope).fetchone()[0]
+        result = {f"{item.value}_count": 0 for item in TemporalDisposition}
+        result.update({f"{str(row['temporal_disposition'])}_count": int(row["count"]) for row in rows})
+        result["delivery_count"] = int(deliveries)
+        result["turn_clock_event_count"] = int(turns)
+        return result
 
     def get_record(self, record_id: str) -> ProvisionalMemoryRecord:
         with self._lock:
@@ -1442,8 +2386,9 @@ class SqliteProvisionalMemoryStore:
                 INSERT INTO provisional_records (
                     record_id, kind, canonical_text, source_refs_json, source_role, session_id, confidence,
                     salience, stability, reinforcement_count, status, supersedes_record_id,
-                    superseded_by_record_id, conflict_with_json, created_at, updated_at, last_reinforced_at, metadata_json, dedupe_key
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    superseded_by_record_id, conflict_with_json, created_at, updated_at, last_reinforced_at,
+                    metadata_json, dedupe_key, claim_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.record_id,
@@ -1465,6 +2410,7 @@ class SqliteProvisionalMemoryStore:
                     record.last_reinforced_at.isoformat() if record.last_reinforced_at else None,
                     self._serialize_metadata(record.metadata),
                     candidate.dedupe_key,
+                    record.claim_key,
                 ),
             )
             self._append_event(
@@ -1788,8 +2734,9 @@ class SqliteProvisionalMemoryStore:
                 INSERT INTO provisional_records (
                     record_id, kind, canonical_text, source_refs_json, source_role, session_id, confidence,
                     salience, stability, reinforcement_count, status, supersedes_record_id,
-                    superseded_by_record_id, conflict_with_json, created_at, updated_at, last_reinforced_at, metadata_json, dedupe_key
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    superseded_by_record_id, conflict_with_json, created_at, updated_at, last_reinforced_at,
+                    metadata_json, dedupe_key, claim_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     replacement.record_id,
@@ -1811,6 +2758,7 @@ class SqliteProvisionalMemoryStore:
                     replacement.last_reinforced_at.isoformat() if replacement.last_reinforced_at else None,
                     self._serialize_metadata(replacement.metadata),
                     replacement_candidate.dedupe_key,
+                    replacement.claim_key,
                 ),
             )
             if replacement.conflict_with_record_ids:
@@ -1902,19 +2850,33 @@ class SqliteProvisionalMemoryStore:
             )
         return event
 
-    def search(self, query: str, *, limit: int = 10) -> list[ProvisionalSearchHit]:
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        include_dormant: bool = False,
+        dormant_only: bool = False,
+    ) -> list[ProvisionalSearchHit]:
+        statuses = (
+            (ProvisionalMemoryStatus.DORMANT.value,)
+            if dormant_only
+            else (
+                ProvisionalMemoryStatus.ACTIVE.value,
+                ProvisionalMemoryStatus.CONFLICTED.value,
+                *([ProvisionalMemoryStatus.DORMANT.value] if include_dormant else []),
+            )
+        )
+        placeholders = ", ".join("?" for _ in statuses)
         with self._lock:
             rows = self._conn.execute(
-                """
+                f"""
                 SELECT *
                 FROM provisional_records
-                WHERE status IN (?, ?)
+                WHERE status IN ({placeholders})
                 ORDER BY updated_at DESC, record_id ASC
                 """,
-                (
-                    ProvisionalMemoryStatus.ACTIVE.value,
-                    ProvisionalMemoryStatus.CONFLICTED.value,
-                ),
+                statuses,
             ).fetchall()
         hits: list[ProvisionalSearchHit] = []
         for row in rows:
@@ -1922,6 +2884,10 @@ class SqliteProvisionalMemoryStore:
             score, matched = _score_record(record, query)
             if score <= 0.0 and matched == []:
                 continue
+            if record.lifecycle is ProvisionalLifecycle.DORMANT:
+                score *= 0.55
+            if record.lifecycle is ProvisionalLifecycle.DORMANT:
+                score *= 0.55
             hits.append(ProvisionalSearchHit(record=record, score=score, matched_terms=matched))
         hits.sort(key=lambda hit: (-hit.score, hit.record.created_at.isoformat(), hit.record.record_id))
         return hits[: max(1, int(limit))]
@@ -2000,5 +2966,6 @@ __all__ = [
     "ProvisionalSearchHit",
     "SourceRole",
     "SqliteProvisionalMemoryStore",
+    "TemporalDisposition",
     "source_role_eligible",
 ]

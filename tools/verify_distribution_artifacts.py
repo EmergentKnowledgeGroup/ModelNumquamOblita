@@ -155,7 +155,7 @@ print(json.dumps(payload))
         text=True,
     )
     payload = json.loads(result.stdout.strip().splitlines()[-1])
-    if payload["version"] != "0.2.1":
+    if payload["version"] != "0.2.2":
         raise AssertionError(f"installed wheel reports wrong release version: {payload}")
     if not payload["ui"] or not payload["guide"]:
         raise AssertionError(f"installed wheel assets unavailable: {payload}")

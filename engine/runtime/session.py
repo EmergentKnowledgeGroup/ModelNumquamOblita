@@ -10,7 +10,7 @@ import hashlib
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -75,6 +75,7 @@ from .scratchpad import (
 )
 from ..memory.content_safety import SecretDetectedError, assert_safe_content
 from .integration_handles import IntegrationHandleError, IntegrationHandleSigner, normalized_content_digest
+from .temporal import build_temporal_context, resolve_temporal_window
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9']+")
 _QUOTE_RE = re.compile(r"['\"]([^'\"]{2,120})['\"]")
@@ -782,8 +783,10 @@ class RuntimeSession:
         project_root: str | Path | None = None,
         runtime_state_root: str | Path | None = None,
         config_path: str | Path | None = None,
+        server_clock=None,
     ) -> None:
         self.retriever = retriever
+        self._server_clock = server_clock or _utc_now
         self.config = config or getattr(retriever, "config", None) or default_config()
         self.config_path = Path(config_path).expanduser().resolve() if config_path else None
         if config is not None and hasattr(self.retriever, "config"):
@@ -1035,8 +1038,32 @@ class RuntimeSession:
                 if db_path.suffix
                 else db_path.parent / f"{db_path.name}.provisional.sqlite3"
             )
-            return SqliteProvisionalMemoryStore(sidecar_path)
+            return SqliteProvisionalMemoryStore(sidecar_path, clock=self._server_now)
         return InMemoryProvisionalMemoryStore()
+
+    def _server_now(self) -> datetime:
+        now = self._server_clock()
+        if not isinstance(now, datetime):
+            raise TypeError("server_clock must return datetime")
+        return (now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc))
+
+    def _temporal_scope(self, principal_id: str | None = None) -> tuple[str, str]:
+        return (str(principal_id or "local-owner").strip() or "local-owner", self._runtime_store_fingerprint())
+
+    def _temporal_sqlite_store(self) -> SqliteProvisionalMemoryStore:
+        store = self._provisional_store
+        if not isinstance(store, SqliteProvisionalMemoryStore):
+            raise RuntimeError("TEMPORAL_DURABLE_STORE_REQUIRED")
+        return store
+
+    def _record_builtin_turn_clock(self, *, turn_id: str, role: str, session_id: str) -> None:
+        store = self._provisional_store
+        if not isinstance(store, SqliteProvisionalMemoryStore):
+            return
+        owner, runtime_id = self._temporal_scope()
+        kind = "server_receipt" if role == "user" else "server_completion_receipt"
+        store.record_turn_clock_event(owner, runtime_id, event_id=f"{turn_id}:{role}", role=role, event_kind=kind,
+                                     timeline_id=session_id, provenance_status=kind, idempotency_key=f"{turn_id}:{role}")
 
     def _build_proposal_store(self) -> InMemoryProposalStore | SqliteProposalStore:
         store = getattr(self.retriever, "store", None)
@@ -1114,6 +1141,234 @@ class RuntimeSession:
             "config_path": str(self.config_path) if self.config_path is not None else "",
         }
 
+    @staticmethod
+    def _compact_temporal_summary(text: str, *, max_bytes: int) -> str:
+        value = str(text or "").strip()
+        if value and len(value.encode("utf-8")) <= max_bytes:
+            return value
+        # A whole neutral replacement is safer than truncating a reminder string.
+        replacement = "[provisional temporal memory]"
+        return replacement if len(replacement.encode("utf-8")) <= max_bytes else ""
+
+    def _temporal_context_facts(self, *, principal_id: str | None = None) -> dict[str, Any]:
+        """Read-only v1 facts. No context build may acknowledge, deliver, or mutate a row."""
+        now = self._server_now()
+        policy = self._provisional_policy
+        owner, runtime_id = self._temporal_scope(principal_id)
+        store = self._provisional_store
+        previous_user = previous_assistant = None
+        due_rows: list[dict[str, Any]] = []
+        pending_rows: list[dict[str, Any]] = []
+        if isinstance(store, SqliteProvisionalMemoryStore) and bool(getattr(policy, "temporal_enabled", True)):
+            events = store.latest_turn_clock_events(owner, runtime_id)
+            for role, target in (("user", "previous_user"), ("assistant", "previous_assistant")):
+                row = events.get(role)
+                if row:
+                    parsed = datetime.fromisoformat(str(row["observed_at_utc"]))
+                    if target == "previous_user":
+                        previous_user = parsed
+                    else:
+                        previous_assistant = parsed
+            due_rows = store.list_temporal(owner, runtime_id, due_only=True, include_upcoming=False,
+                                           limit=int(policy.temporal_due_hard_max_items), now_utc=now)
+            redelivery_cutoff = now - timedelta(hours=int(policy.temporal_redelivery_hours))
+            due_rows = [
+                row
+                for row in due_rows
+                if (
+                    (latest := store.latest_delivery_event(row["record"].record_id, owner, runtime_id)) is None
+                    or datetime.fromisoformat(str(latest["observed_at_utc"])) <= redelivery_cutoff
+                )
+            ]
+            pending_rows = store.list_temporal(owner, runtime_id, due_only=False, include_upcoming=True,
+                                               limit=2_000, now_utc=now)
+        facts = build_temporal_context(
+            now_utc=now,
+            timezone_name=str(getattr(policy, "temporal_timezone", "") or ""),
+            previous_user_utc=previous_user,
+            previous_assistant_utc=previous_assistant,
+        )
+        if isinstance(store, SqliteProvisionalMemoryStore):
+            events = store.latest_turn_clock_events(owner, runtime_id)
+            for role, key in (("user", "previous_user_turn"), ("assistant", "previous_assistant_turn")):
+                event = events.get(role)
+                if event is not None:
+                    facts[key]["provenance"] = str(event.get("provenance_status") or event.get("event_kind") or "server_receipt")
+                    if str(event.get("provenance_status") or "") == "external_callback_receipt":
+                        facts[key]["delayed_or_unknown"] = True
+        byte_cap = int(policy.temporal_due_summary_max_bytes)
+        token_cap = int(policy.temporal_context_token_budget)
+        item_cap = int(policy.temporal_due_max_items)
+        selected: list[dict[str, Any]] = []
+        for row in due_rows:
+            record = row["record"]
+            candidate = {
+                "record_id": record.record_id,
+                "authority": record.authority_tier.value,
+                "lifecycle": record.lifecycle.value,
+                "precision": record.temporal_precision,
+                "disposition": record.temporal_disposition.value,
+                "eligibility": row["eligibility"],
+                "due_window_start_utc": row["effective_window_start_utc"].isoformat(),
+                "due_window_end_utc": row["effective_window_end_utc"].isoformat(),
+                "summary": self._compact_temporal_summary(record.canonical_text, max_bytes=byte_cap),
+                "content_semantics": "quoted_memory_data",
+                "behavioral_directive": False,
+                # Exact identities only.  The integration renderer may use these
+                # to associate an already-selected canonical correction without
+                # inventing a semantic conflict or changing either record.
+                "source_citations": [
+                    f"{ref.source_id}#{ref.message_id}"
+                    for ref in list(record.source_refs)
+                    if str(ref.source_id or "").strip() and str(ref.message_id or "").strip()
+                ],
+                "claim_key": str(record.claim_key or ""),
+                "conflict_with_ids": list(record.conflict_with_record_ids),
+            }
+            if len(selected) >= item_cap or estimate_context_tokens({"due": [*selected, candidate]}) > token_cap:
+                break
+            selected.append(candidate)
+        pending = [row for row in pending_rows if row["eligibility"] == "pending"]
+        facts["due"] = selected
+        facts["upcoming"] = {
+            "count": len(pending),
+            "next_window_start_utc": pending[0]["effective_window_start_utc"].isoformat() if pending else None,
+        }
+        facts["budget"] = {"token_budget": token_cap, "due_max_items": item_cap, "summary_max_bytes": byte_cap}
+        return facts
+
+    def schedule_temporal_memory(
+        self,
+        *,
+        temporal_request: dict[str, Any],
+        original_expression: str,
+        source_content: str,
+        source_role: str = "user",
+        session_id: str = "default",
+        run_id: str = "builtin",
+        principal_id: str | None = None,
+        source_registration: str = "",
+        builtin_source: bool = False,
+        temporal_kind: str = "reminder",
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        store = self._temporal_sqlite_store()
+        if not self._provisional_memory_enabled or not bool(getattr(self._provisional_policy, "temporal_enabled", True)):
+            raise RuntimeError("TEMPORAL_MEMORY_DISABLED")
+        owner, runtime_id = self._temporal_scope(principal_id)
+        now = self._server_now()
+        assert_safe_content([original_expression, source_content, temporal_request])
+        window = resolve_temporal_window(temporal_request, now_utc=now, default_timezone=str(self._provisional_policy.temporal_timezone or "UTC"))
+        if window.start_utc > now + timedelta(days=365 * int(self._provisional_policy.temporal_future_horizon_years)):
+            raise ValueError("TEMPORAL_FUTURE_HORIZON")
+        if window.start_utc < now - timedelta(days=int(self._provisional_policy.temporal_past_due_days)):
+            raise ValueError("TEMPORAL_PAST_DUE_HORIZON")
+        active = store.list_temporal(owner, runtime_id, include_upcoming=True, limit=2_000, now_utc=now)
+        if len(active) >= int(self._provisional_policy.temporal_active_record_limit):
+            raise ValueError("TEMPORAL_ACTIVE_QUOTA")
+        role = str(source_role or "").strip().lower()
+        registration: EvidenceRegistration | None = None
+        if source_registration:
+            signer = self._integration_handle_signer
+            if signer is None:
+                raise RuntimeError("TEMPORAL_SOURCE_REGISTRATION_REQUIRED")
+            verified = signer.verify(source_registration, expected_kind="source_registration")
+            self._validate_handle_binding(verified, session_id=session_id, run_id=run_id, principal_id=owner)
+            if verified.get("source_role") != role or verified.get("content_digest") != normalized_content_digest(source_content):
+                raise IntegrationHandleError("SOURCE_REGISTRATION_MISMATCH")
+            registration = EvidenceRegistration(str(verified["source_id"]), str(verified["message_id"]), role,
+                                               str(verified["content_digest"]), str(session_id), str(verified["registration_identity"]))
+        elif builtin_source and owner == "local-owner" and role == "user":
+            message_key = hashlib.sha256(
+                f"{store.store_uuid}|{owner}|{runtime_id}|{idempotency_key}".encode("utf-8")
+            ).hexdigest()[:24]
+            registration = store.register_source(source_id=f"builtin:{runtime_id}", message_id=f"temporal:{message_key}",
+                                                 source_role="user", content=source_content, session_id=session_id)
+        else:
+            raise RuntimeError("TEMPORAL_SOURCE_REGISTRATION_REQUIRED")
+        candidate = ProvisionalMemoryCandidate(
+            kind=ProvisionalMemoryKind.EVENT_NOTE, canonical_text=str(source_content),
+            source_refs=[SourceRef(source_id=registration.source_id, message_id=registration.message_id)], source_role=role,
+            session_id=str(session_id), source_id=registration.source_id, message_id=registration.message_id, content=str(source_content),
+        )
+        runtime_request_digest = store._temporal_payload_digest(
+            {
+                "temporal_request": dict(temporal_request),
+                "original_expression": str(original_expression),
+                "source_content": str(source_content),
+                "source_role": role,
+                "session_id": str(session_id),
+                "temporal_kind": str(temporal_kind),
+            }
+        )
+        store_scope = store._temporal_scope(principal_id=owner, runtime_id=runtime_id)
+        with store._write_transaction(immediate=True):
+            runtime_replay = store._temporal_idempotency_replay(
+                scope=store_scope,
+                operation="runtime_schedule",
+                idempotency_key=idempotency_key,
+                payload_digest=runtime_request_digest,
+            )
+            if runtime_replay is not None:
+                return runtime_replay
+            observed = store.observe_candidate(candidate, reason="temporal_schedule_source", registration=registration)
+            result = store.schedule_temporal(
+                observed.record_id, owner, runtime_id, temporal_kind=temporal_kind, due_window_start_utc=window.start_utc,
+                due_window_end_utc=window.end_utc, timezone_name=window.timezone, precision=window.precision,
+                original_expression=original_expression, resolution_metadata={"resolution_kind": window.resolution_kind},
+                decay_not_before_utc=window.end_utc + timedelta(days=int(self._provisional_policy.temporal_grace_days)),
+                idempotency_key=idempotency_key, expected_revision=0,
+            )
+            store._store_temporal_idempotency(
+                scope=store_scope,
+                operation="runtime_schedule",
+                idempotency_key=idempotency_key,
+                payload_digest=runtime_request_digest,
+                result=result,
+                record_id=observed.record_id,
+                now=now,
+            )
+            return result
+
+    def list_temporal_memory(self, *, principal_id: str | None = None, due_only: bool = False, include_upcoming: bool = True,
+                             limit: int = 3) -> list[dict[str, Any]]:
+        store = self._temporal_sqlite_store()
+        owner, runtime_id = self._temporal_scope(principal_id)
+        return store.list_temporal(owner, runtime_id, due_only=due_only, include_upcoming=include_upcoming, limit=limit, now_utc=self._server_now())
+
+    def get_temporal_memory(self, record_id: str, *, principal_id: str | None = None) -> dict[str, Any]:
+        store = self._temporal_sqlite_store()
+        owner, runtime_id = self._temporal_scope(principal_id)
+        return store.get_temporal(record_id, owner, runtime_id, now_utc=self._server_now())
+
+    def resolve_temporal_memory(self, record_id: str, *, action: str, expected_revision: int, idempotency_key: str,
+                                snoozed_until_utc: datetime | str | None = None, principal_id: str | None = None) -> dict[str, Any]:
+        store = self._temporal_sqlite_store()
+        owner, runtime_id = self._temporal_scope(principal_id)
+        if str(action or "").strip().lower() == "snooze":
+            if isinstance(snoozed_until_utc, datetime):
+                snooze = snoozed_until_utc
+            else:
+                raw_snooze = str(snoozed_until_utc or "").strip()
+                if raw_snooze.endswith("Z"):
+                    raw_snooze = f"{raw_snooze[:-1]}+00:00"
+                try:
+                    snooze = datetime.fromisoformat(raw_snooze)
+                except ValueError as exc:
+                    raise ValueError("TEMPORAL_SNOOZE_INVALID") from exc
+            if snooze.tzinfo is None or snooze.utcoffset() is None:
+                raise ValueError("TEMPORAL_SNOOZE_TIMEZONE_REQUIRED")
+            snooze = snooze.astimezone(timezone.utc)
+            now = self._server_now()
+            if snooze <= now:
+                raise ValueError("TEMPORAL_SNOOZE_MUST_BE_FUTURE")
+            horizon = now + timedelta(days=365 * int(self._provisional_policy.temporal_snooze_horizon_years))
+            if snooze > horizon:
+                raise ValueError("TEMPORAL_SNOOZE_HORIZON")
+            snoozed_until_utc = snooze
+        return store.resolve_temporal(record_id, owner, runtime_id, action=action, expected_revision=expected_revision,
+                                      idempotency_key=idempotency_key, snoozed_until_utc=snoozed_until_utc)
+
     def issue_integration_source_registration(
         self,
         *,
@@ -1165,12 +1420,46 @@ class RuntimeSession:
         session_id: str,
         run_id: str,
         principal_id: str,
+        temporal_record_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         signer = self._integration_handle_signer
         if signer is None:
             raise RuntimeError("signed retrieval receipts require a SQLite runtime")
+        temporal_delivery_ids: list[dict[str, str]] = []
+        store = self._provisional_store
+        if isinstance(store, SqliteProvisionalMemoryStore):
+            owner, runtime_id = self._temporal_scope(principal_id)
+            if temporal_record_ids is None:
+                selected_ids = [
+                    row["record"].record_id
+                    for row in store.list_temporal(
+                        owner,
+                        runtime_id,
+                        due_only=True,
+                        include_upcoming=False,
+                        limit=int(self._provisional_policy.temporal_due_max_items),
+                        now_utc=self._server_now(),
+                    )
+                ]
+            else:
+                selected_ids = [
+                    str(record_id).strip()
+                    for record_id in temporal_record_ids[: int(self._provisional_policy.temporal_due_hard_max_items)]
+                    if str(record_id).strip()
+                ]
+                # Re-check scope and due eligibility before signing.  This is a
+                # read-only authorization check, not a delivery observation.
+                selected_ids = [
+                    record_id
+                    for record_id in selected_ids
+                    if store.get_temporal(record_id, owner, runtime_id, now_utc=self._server_now())["eligibility"]
+                    in {"due", "overdue"}
+                ]
+            for record_id in selected_ids:
+                temporal_delivery_ids.append({"record_id": record_id, "delivery_id": f"tdel_{uuid4().hex}"})
         payload = {
             "retrieved_evidence_ids": [str(item) for item in retrieved_evidence_ids[:64] if str(item).strip()],
+            "temporal_delivery_ids": temporal_delivery_ids,
             "session_id": str(session_id),
             "run_id": str(run_id),
             "principal_id": str(principal_id),
@@ -1223,7 +1512,7 @@ class RuntimeSession:
             )
         retrieved_ids = list((receipt_payload or {}).get("retrieved_evidence_ids") or [])
         results: list[dict[str, Any]] = []
-        now = _utc_now()
+        now = self._server_now()
         for index, raw in enumerate(messages):
             role = str(raw.get("role") or "").strip().lower()
             content = str(raw.get("content") or "")
@@ -1266,6 +1555,19 @@ class RuntimeSession:
                     message_id = f"receipt:{receipt_identity}:{index}"
             else:
                 raise ValueError(f"unsupported source role: {role}")
+            clock_role = "assistant" if role == "assistant" else "user"
+            clock_kind = "server_completion_receipt" if clock_role == "assistant" else "server_receipt"
+            owner, runtime_id = self._temporal_scope(principal_id)
+            store.record_turn_clock_event(
+                owner,
+                runtime_id,
+                event_id=f"external:{run_id}:{index}:{clock_role}",
+                role=clock_role,
+                event_kind=clock_kind,
+                timeline_id=str(session_id),
+                provenance_status="external_callback_receipt",
+                idempotency_key=f"external:{run_id}:{index}:{clock_role}",
+            )
             candidate, drop_reason = self._provisional_candidate_with_reason(
                 text=content,
                 source_role=role,
@@ -1298,6 +1600,40 @@ class RuntimeSession:
                 }
             )
 
+        temporal_deliveries: list[dict[str, Any]] = []
+        if receipt_payload is not None:
+            receipt_identity = hashlib.sha256(str(retrieval_receipt).encode("utf-8")).hexdigest()
+            owner, runtime_id = self._temporal_scope(principal_id)
+            for item in list(receipt_payload.get("temporal_delivery_ids") or [])[: int(self._provisional_policy.temporal_due_hard_max_items)]:
+                if not isinstance(item, dict):
+                    continue
+                record_id = str(item.get("record_id") or "").strip()
+                delivery_id = str(item.get("delivery_id") or "").strip()
+                if not record_id or not delivery_id:
+                    continue
+                callback_digest = hashlib.sha256(
+                    json.dumps(
+                        {
+                            "delivery_id": delivery_id,
+                            "receipt_identity": receipt_identity,
+                            "record_id": record_id,
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
+                temporal_deliveries.append(
+                    store.record_delivery_event(
+                        record_id,
+                        owner,
+                        runtime_id,
+                        delivery_id=delivery_id,
+                        receipt_identity=receipt_identity,
+                        idempotency_key=f"observe:{run_id}:{delivery_id}",
+                        payload_digest=callback_digest,
+                    )
+                )
+
         transitions = self.maintain_provisional_memory(max_records=int(self._provisional_policy.maintenance_max_records))
         boundary_replayed = False
         if boundary:
@@ -1317,6 +1653,7 @@ class RuntimeSession:
             "accepted_support_count": sum(int(item.get("support_delta") or 0) for item in results),
             "maintenance": transitions,
             "boundary_replayed": boundary_replayed,
+            "temporal_deliveries": temporal_deliveries,
             "writeback_required": str(remember_intent or "none").strip().lower() == "user_explicit",
         }
 
@@ -1372,6 +1709,34 @@ class RuntimeSession:
             {"record_id": item.record_id, "disposition": item.disposition, "reason": item.reason}
             for item in list(transitions)
         ]
+
+    def observe_temporal_delivery(
+        self,
+        *,
+        retrieval_receipt: str,
+        delivery_id: str,
+        session_id: str,
+        run_id: str,
+        principal_id: str | None = None,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        store = self._temporal_sqlite_store()
+        signer = self._integration_handle_signer
+        if signer is None:
+            raise RuntimeError("TEMPORAL_DURABLE_STORE_REQUIRED")
+        owner, runtime_id = self._temporal_scope(principal_id)
+        payload = signer.verify(retrieval_receipt, expected_kind="retrieval_receipt")
+        self._validate_handle_binding(payload, session_id=session_id, run_id=run_id, principal_id=owner)
+        matched = next((item for item in list(payload.get("temporal_delivery_ids") or []) if str(item.get("delivery_id") or "") == str(delivery_id)), None)
+        if not matched:
+            raise KeyError("unknown temporal delivery")
+        receipt_identity = hashlib.sha256(str(retrieval_receipt).encode("utf-8")).hexdigest()
+        callback_digest = hashlib.sha256(
+            json.dumps({"delivery_id": str(delivery_id), "receipt_identity": receipt_identity}, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        return store.record_delivery_event(str(matched["record_id"]), owner, runtime_id, delivery_id=str(delivery_id),
+                                           receipt_identity=receipt_identity, idempotency_key=idempotency_key,
+                                           payload_digest=callback_digest)
 
     def set_provisional_sensitivity(
         self,
@@ -1465,10 +1830,24 @@ class RuntimeSession:
                 self._memory_capture_dropped_reason_counts.get(normalized, 0) + 1
             )
 
-    def search_provisional_memory(self, query: str, *, limit: int = 5) -> list[ProvisionalSearchHit]:
+    def search_provisional_memory(
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        include_dormant: bool = False,
+        dormant_only: bool = False,
+    ) -> list[ProvisionalSearchHit]:
         if self._provisional_store is None:
             return []
-        return list(self._provisional_store.search(str(query or ""), limit=max(1, int(limit))))
+        return list(
+            self._provisional_store.search(
+                str(query or ""),
+                limit=max(1, int(limit)),
+                include_dormant=include_dormant,
+                dormant_only=dormant_only,
+            )
+        )
 
     def list_provisional_records(
         self,
@@ -1836,6 +2215,17 @@ class RuntimeSession:
             "input_record_ids": list(record.input_record_ids),
             "claim_key": str(record.claim_key or ""),
             "policy_version": str(record.policy_version or ""),
+            "temporal_kind": str(record.temporal_kind or ""),
+            "temporal_disposition": str(getattr(record.temporal_disposition, "value", record.temporal_disposition) or "none"),
+            "temporal_revision": int(record.temporal_revision),
+            "due_window_start_utc": record.due_window_start_utc.isoformat() if record.due_window_start_utc else None,
+            "due_window_end_utc": record.due_window_end_utc.isoformat() if record.due_window_end_utc else None,
+            "temporal_timezone": str(record.temporal_timezone or ""),
+            "temporal_precision": str(record.temporal_precision or ""),
+            "original_expression": str(record.original_expression or ""),
+            "temporal_resolution_metadata": dict(record.temporal_resolution_metadata or {}),
+            "decay_not_before_utc": record.decay_not_before_utc.isoformat() if record.decay_not_before_utc else None,
+            "snoozed_until_utc": record.snoozed_until_utc.isoformat() if record.snoozed_until_utc else None,
             "supersedes_record_id": str(record.supersedes_record_id or "") or None,
             "superseded_by_record_id": str(record.superseded_by_record_id or "") or None,
             "conflict_with_record_ids": list(record.conflict_with_record_ids),
@@ -2571,6 +2961,7 @@ class RuntimeSession:
         self._handle_soft_close_state(session=session, upcoming_text=text)
         memory_pref = self._normalize_memory_preference(memory_preference)
         turn_id = f"turn_{uuid4().hex}"
+        self._record_builtin_turn_clock(turn_id=turn_id, role="user", session_id=session.session_id)
         started = time.perf_counter()
         front_desk = self._route_turn(text=text, high_risk=high_risk, memory_preference=memory_pref)
         override_resolution = self._resolve_retrieval_override(
@@ -2846,6 +3237,7 @@ class RuntimeSession:
                 with self._lock:
                     session.soft_close_hint_at = trace.timestamp
                     session.soft_close_hint_text = text if self._looks_like_soft_close_hint(text) else response_text
+        self._record_builtin_turn_clock(turn_id=turn_id, role="assistant", session_id=session.session_id)
         return trace
 
     def list_turns(self) -> list[TurnTrace]:
@@ -2917,6 +3309,7 @@ class RuntimeSession:
         include_work_session_diagnostics: bool = False,
         work_session_scope: dict[str, Any] | None = None,
         explicit_resume: bool = False,
+        principal_id: str | None = None,
     ) -> dict[str, Any]:
         text = str(message or "").strip()
         if not text:
@@ -2937,6 +3330,7 @@ class RuntimeSession:
                 include_work_session_diagnostics=include_work_session_diagnostics,
                 work_session_scope=work_session_scope,
                 explicit_resume=explicit_resume,
+                principal_id=principal_id,
             )
 
         preview = self.preview_route(
@@ -2958,6 +3352,7 @@ class RuntimeSession:
         return {
             "package_version": "v1",
             "message": text,
+            "temporal_context": self._temporal_context_facts(principal_id=principal_id),
             "preview": preview,
             "working_set": {
                 "session_id": session.session_id,
@@ -2997,6 +3392,7 @@ class RuntimeSession:
         include_work_session_diagnostics: bool,
         work_session_scope: dict[str, Any] | None,
         explicit_resume: bool,
+        principal_id: str | None,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         text = str(message or "").strip()
@@ -3231,6 +3627,7 @@ class RuntimeSession:
         package = {
             "package_version": "v2",
             "message": text,
+            "temporal_context": self._temporal_context_facts(principal_id=principal_id),
             "retrieval_query": requested_retrieval_query,
             "retrieval_override": contract_to_dict(override_resolution.audit),
             "preview": preview,
@@ -5158,6 +5555,30 @@ class RuntimeSession:
         if self._provisional_store is None or not self._provisional_retrieval_enabled:
             return MemoryPack(), [], 0, 0.0
         hits = self.search_provisional_memory(query_text, limit=4)
+        normalized_query = " ".join(str(query_text or "").strip().lower().split())
+        explicit_recall = bool(
+            re.search(r"\b(?:remember|recall|history|last time|previously|what did)\b", normalized_query)
+        )
+        if explicit_recall or not hits:
+            dormant_cap = int(getattr(self._provisional_policy, "temporal_dormant_fallback_items", 2))
+            dormant_hits = self.search_provisional_memory(
+                query_text,
+                limit=dormant_cap,
+                dormant_only=True,
+            )
+            dormant_hits = [
+                hit
+                for hit in dormant_hits
+                if (
+                    len(hit.matched_terms) >= 2
+                    or (
+                        explicit_recall
+                        and bool(hit.matched_terms)
+                    )
+                )
+            ]
+            active_ids = {hit.record.record_id for hit in hits}
+            hits.extend(hit for hit in dormant_hits if hit.record.record_id not in active_ids)
         if not hits:
             return MemoryPack(), [], 0, 0.0
         core_items: list[MemoryPackItem] = []

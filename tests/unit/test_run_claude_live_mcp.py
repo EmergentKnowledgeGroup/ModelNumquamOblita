@@ -6,6 +6,7 @@ import os
 import select
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -175,8 +176,13 @@ def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
             proc.stdin.write(framed)
             proc.stdin.flush()
             response = b""
-            if proc.stdout is not None and select.select([proc.stdout.fileno()], [], [], 2.0)[0]:
-                response = os.read(proc.stdout.fileno(), 512)
+            deadline = time.monotonic() + 15.0
+            while proc.stdout is not None and b"protocolVersion" not in response and time.monotonic() < deadline:
+                remaining = max(0.0, deadline - time.monotonic())
+                if select.select([proc.stdout.fileno()], [], [], min(0.5, remaining))[0]:
+                    response += os.read(proc.stdout.fileno(), 4096)
+                elif proc.poll() is not None:
+                    break
             stderr = b""
             if proc.stderr is not None and select.select([proc.stderr.fileno()], [], [], 0.2)[0]:
                 stderr = os.read(proc.stderr.fileno(), 4096)

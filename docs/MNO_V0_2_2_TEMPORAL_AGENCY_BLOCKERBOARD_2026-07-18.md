@@ -1,8 +1,8 @@
 # MNO v0.2.2 Temporal Agency Blockerboard
 
-**Board status:** RELEASE CANDIDATE GREEN
+**Board status:** RELEASE GREEN
 **Spec status:** LOCKED
-**Release status:** NOT YET RELEASE-GREEN
+**Release status:** PUBLISHED AND PUBLICLY VERIFIED
 
 Normative links: [locked spec](MNO_V0_2_2_TEMPORAL_AGENCY_SPEC_2026-07-18.md) · [execution checklist](MNO_V0_2_2_TEMPORAL_AGENCY_EXECUTION_CHECKLIST_2026-07-18.md)
 
@@ -20,8 +20,8 @@ Normative links: [locked spec](MNO_V0_2_2_TEMPORAL_AGENCY_SPEC_2026-07-18.md) ·
 | B-010 | Docs and flowcharts / documentation owner | CLEARED | Canonical/public/LLM docs, draw.io source, strict architecture export, clean export, schema, and blind-agent checks passed. | Do not stage or publish until sources and exports agree. |
 | B-011 | Full DEV QA/package / release owner | CLEARED | Release slice passed 289 tests plus desktop 63/63; wheel/sdist and isolated install verified. Unrelated dirty experiments were excluded. | Keep CLEAN untouched and release v0.2.1 current. |
 | B-012 | CLEAN staging equivalence / release owner | CLEARED | Exact 66-file ledger byte-matched DEV to CLEAN; full CLEAN Python suite, desktop 63/63, strict visuals, diff scope, and scans passed. | Remove only staged v0.2.2 delta from CLEAN and restage from ledger. |
-| B-013 | PR review and CI / release owner | BLOCKED | Ready PR, required checks, actionable review threads, and `pr-review-ci-loop` green. | Leave PR open or close without merge; no tag/release. |
-| B-014 | Merge/tag/release/public smoke / release owner | BLOCKED | Merged/closed PR, `v0.2.2` tag/release/artifacts/checksums, public fresh clone, post-merge checkpoint. | If already merged, publish a corrective patch or withdraw broken artifacts; never rewrite public history. |
+| B-013 | PR review and CI / release owner | CLEARED | PR #14 passed the complete Python 3.12-3.14 Linux/macOS/Windows matrix, all desktop jobs, artifact proof, CodeRabbit re-review, and all actionable threads before merge. | Leave PR open or close without merge; no tag/release. |
+| B-014 | Merge/tag/release/public smoke / release owner | CLEARED | PR #14 merged/closed at `1fc1a4a`; annotated `v0.2.2` and the public GitHub release include CI-built wheel/sdist/checksums; fresh tag clone, release-wheel install, CLI/import, and temporal-context smoke passed; post-merge checkpoint recorded. | If already merged, publish a corrective patch or withdraw broken artifacts; never rewrite public history. |
 
 ## Scope ledger rules
 

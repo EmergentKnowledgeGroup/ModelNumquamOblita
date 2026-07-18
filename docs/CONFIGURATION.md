@@ -234,4 +234,6 @@ Temporal settings live under `provisional_memory`. The default compact temporal 
 
 Relevant keys are `temporal_enabled`, `temporal_timezone`, `temporal_context_token_budget`, `temporal_due_max_items`, `temporal_due_summary_max_bytes`, `temporal_active_record_limit`, `temporal_future_horizon_years`, `temporal_snooze_horizon_years`, `temporal_past_due_days`, `temporal_grace_days`, `temporal_redelivery_hours`, and `temporal_dormant_fallback_items`. All configured values are bounded by the hard caps validated by the runtime; no item is split to fit a budget.
 
+The complete agent-context envelope uses `efficiency.context_token_budget` (2,800 by default, 4,096 hard at render time). Fresh/custom v0.2.2 configuration rejects a larger value. Upgrade loading preserves an existing larger legacy value verbatim for configuration compatibility, but the active renderer still clamps it to 4,096; preservation never expands the per-turn context.
+
 `temporal_timezone` must be an IANA name. Resolution is configured IANA name, reliable system IANA name, then visible `UTC` fallback. Windows IDs and abbreviations such as `CST` are rejected. Disabling temporal features preserves stored v4 rows; it does not silently delete, canonize, or downgrade them.

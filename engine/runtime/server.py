@@ -7429,7 +7429,15 @@ def _integration_operation_capability(
         "requires_auth": True,
         "required_roles": sorted(required_roles),
         "required_capability": required_capability,
-        "idempotent": name in {"writeback.propose", "writeback.resolve", "health.get", "capabilities.get"},
+        "idempotent": name
+        in {
+            "writeback.propose",
+            "writeback.resolve",
+            "memory.temporal.schedule",
+            "memory.temporal.resolve",
+            "health.get",
+            "capabilities.get",
+        },
     }
 
 

@@ -283,6 +283,21 @@ def test_runtime_temporal_active_quota_is_scope_bounded(tmp_path) -> None:
                 source_content="second reminder",
                 idempotency_key="quota-second",
             )
+        other_registration = runtime.issue_integration_source_registration(
+            content="other principal reminder",
+            source_role="user",
+            session_id="default",
+            run_id="builtin",
+            principal_id="principal-other",
+        )
+        other_scope = runtime.schedule_temporal_memory(
+            **base,
+            source_content="other principal reminder",
+            principal_id="principal-other",
+            source_registration=other_registration["handle"],
+            idempotency_key="quota-other-principal",
+        )
+        assert other_scope["record_id"]
     finally:
         runtime.close()
         atom_store.close()

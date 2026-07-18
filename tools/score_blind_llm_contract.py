@@ -108,6 +108,9 @@ def score_temporal(payload: dict[str, Any]) -> dict[str, Any]:
     per_task = 100 / len(TEMPORAL_EXPECTED)
     for task_id, expected in TEMPORAL_EXPECTED.items():
         decision = str(by_id[task_id].get("decision") or "").strip()
+        allowed_decisions = {expected} | TEMPORAL_HARD_VIOLATING_DECISIONS[task_id]
+        if decision not in allowed_decisions:
+            raise ValueError(f"unsupported decision for temporal task: {task_id}")
         hard_violation = decision in TEMPORAL_HARD_VIOLATING_DECISIONS[task_id]
         correct = decision == expected
         if hard_violation:
@@ -126,12 +129,21 @@ def score_temporal(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def score_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Dispatch a public answer envelope to its versioned contract scorer."""
+
+    schema = str(payload.get("schema") or "").strip()
+    if schema == "mno.blind_llm_gate.temporal_answers.v1":
+        return score_temporal(payload)
+    return score(payload)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Score a blind client's MNO public-contract decisions.")
     parser.add_argument("answers")
     parser.add_argument("--output", default="")
     args = parser.parse_args()
-    result = score(json.loads(Path(args.answers).read_text(encoding="utf-8")))
+    result = score_payload(json.loads(Path(args.answers).read_text(encoding="utf-8")))
     rendered = json.dumps(result, indent=2) + "\n"
     if args.output:
         output = Path(args.output)

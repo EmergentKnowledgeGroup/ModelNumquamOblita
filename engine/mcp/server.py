@@ -89,7 +89,9 @@ _TRACE_SECRET_SUFFIXES = ("_token", "_password", "_api_key", "_client_secret", "
 
 
 def _redact_stdio_trace_payload(value: Any, *, key: str = "") -> Any:
-    normalized = key.strip().lower().replace("-", "_")
+    normalized = key.strip().replace("-", "_")
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", normalized)
+    normalized = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", normalized).lower()
     if normalized in _TRACE_SECRET_KEYS or normalized.endswith(_TRACE_SECRET_SUFFIXES):
         return "[REDACTED]"
     if isinstance(value, Mapping):
@@ -2507,9 +2509,14 @@ class MCPServer:
 
     def _tool_integration_memory_temporal_list(self, args: dict[str, Any]) -> dict[str, Any]:
         data: dict[str, Any] = {}
-        for key in ("due_only", "include_upcoming", "limit"):
+        for key in ("due_only", "include_upcoming"):
             if key in args:
                 data[key] = args[key]
+        if "limit" in args:
+            limit = args["limit"]
+            if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 8:
+                raise MCPRequestError(-32602, "limit must be an integer from 1 to 8")
+            data["limit"] = limit
         return self._integration_post(
             path="/api/integration/v1/memory/temporal/list",
             args=args,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from engine.config import default_config
 from engine.continuity import ContinuityStore
 from engine.contracts import SourceRef
@@ -102,6 +104,29 @@ def test_active_results_prevent_dormant_displacement(tmp_path) -> None:
         assert active_id in ids
         assert dormant_id not in ids
         assert pack.core[0].lifecycle == "active"
+    finally:
+        runtime.close()
+        atom_store.close()
+
+
+def test_sqlite_dormant_search_applies_the_single_documented_penalty(tmp_path) -> None:
+    config = default_config()
+    atom_store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(atom_store, config=config),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=config,
+        enable_writeback=False,
+    )
+    try:
+        store = runtime._provisional_store
+        record_id = store.upsert_candidate(_candidate("aurora launch november", "score"), reason="test").record_id  # type: ignore[union-attr]
+        active_score = store.search("aurora launch november")[0].score  # type: ignore[union-attr]
+        store.set_lifecycle(record_id, ProvisionalLifecycle.DORMANT, reason="test")  # type: ignore[union-attr]
+        dormant_score = store.search("aurora launch november", dormant_only=True)[0].score  # type: ignore[union-attr]
+
+        assert dormant_score == pytest.approx(active_score * 0.55)
     finally:
         runtime.close()
         atom_store.close()

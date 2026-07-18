@@ -829,6 +829,8 @@ def test_integration_mcp_parity_and_domain_error_passthrough() -> None:
         assert capability_rows["writeback.propose"]["available"] is False
         assert "role_not_authorized" in capability_rows["writeback.propose"]["reason_codes"]
         assert capability_rows["writeback.resolve"]["policy_state"] == "human_review_required"
+        assert capability_rows["memory.temporal.schedule"]["idempotent"] is True
+        assert capability_rows["memory.temporal.resolve"]["idempotent"] is True
         support_ticket = dict(dict(http_payload.get("data") or {}).get("support_ticket") or {})
         assert support_ticket["command"] == "mno-report"
         assert support_ticket["explicit_logs_only"] is True

@@ -425,7 +425,7 @@ def temporal_agency() -> Diagram:
         Node("axes", "Four separate labels\nauthority • maturity • lifecycle • temporal state\nactive → dormant → archived", 525, 365, 285, 120, "review"),
         Node("evidence", "Only new signed evidence\nmay reinforce/reactivate\nrecall and delivery do not", 525, 570, 285, 85, "govern"),
         Node("priority", "Bounded due context\ncanonical corrections first, due provisional notes next, cue-aware dormant fallback last", 965, 150, 285, 120, "integration"),
-        Node("poll", "Optional heartbeat poll\ndue_only=true, upcoming=false, limit=3\nread-only", 965, 400, 285, 100, "integration"),
+        Node("poll", "Optional heartbeat poll\ndue_only=true, include_upcoming=false, limit=3\nread-only", 965, 400, 285, 100, "integration"),
         Node("no_action", "Never a daemon, wake-up, notification, or action runner", 405, 790, 520, 82, "govern"),
     ]
     edges = [

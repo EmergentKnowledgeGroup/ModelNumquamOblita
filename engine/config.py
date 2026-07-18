@@ -539,7 +539,11 @@ def upgrade_preserved_config() -> NumquamOblitaConfig:
 def active_efficiency_policy(cfg: NumquamOblitaConfig) -> RuntimeEfficiencyPolicy:
     """Return effective efficiency policy, with knob-off rollback to defaults."""
 
-    effective = RuntimeEfficiencyPolicy(**asdict(cfg.efficiency))
+    values = asdict(cfg.efficiency)
+    # Upgrade loading preserves a legacy configured value verbatim, while the
+    # active v0.2.2 renderer still enforces the public 4,096-token hard cap.
+    values["context_token_budget"] = min(int(values["context_token_budget"]), 4096)
+    effective = RuntimeEfficiencyPolicy(**values)
     if not effective.enabled:
         return RuntimeEfficiencyPolicy()
     return effective
@@ -588,7 +592,7 @@ def load_config(path: str | Path | None, *, strict: bool = False, upgrade: bool 
     if not isinstance(data, dict):
         raise TypeError("config payload must be a JSON object")
     merged = _merge_dataclass(cfg, data, strict=strict)
-    _validate_config(merged)
+    _validate_config(merged, preserve_legacy_context_budget=upgrade)
     if data.get("provisional_memory"):
         merged.provisional_memory.policy_source = "custom"
     return merged
@@ -1116,7 +1120,7 @@ def _validate_work_session_scratchpad_policy(policy: WorkSessionScratchpadPolicy
     )
 
 
-def _validate_config(cfg: NumquamOblitaConfig) -> None:
+def _validate_config(cfg: NumquamOblitaConfig, *, preserve_legacy_context_budget: bool = False) -> None:
     """Validate cross-field bounds that must hold after merges."""
 
     _validate_retrieval_config(cfg.retrieval)
@@ -1126,5 +1130,19 @@ def _validate_config(cfg: NumquamOblitaConfig) -> None:
     _validate_history_surfaces_policy(cfg.history_surfaces)
     _validate_continuity_adds_policy(cfg.continuity_adds)
     # Re-hydrate to trigger RuntimeEfficiencyPolicy.__post_init__ validations.
-    cfg.efficiency = RuntimeEfficiencyPolicy(**asdict(cfg.efficiency))
+    # Existing upgrade configs may carry a larger historical request. Preserve
+    # that stored value without making it the active renderer budget.
+    efficiency_values = asdict(cfg.efficiency)
+    legacy_budget = efficiency_values.get("context_token_budget")
+    preserve_budget = (
+        preserve_legacy_context_budget
+        and isinstance(legacy_budget, int)
+        and not isinstance(legacy_budget, bool)
+        and legacy_budget > 4096
+    )
+    if preserve_budget:
+        efficiency_values["context_token_budget"] = 4096
+    cfg.efficiency = RuntimeEfficiencyPolicy(**efficiency_values)
+    if preserve_budget:
+        cfg.efficiency.context_token_budget = legacy_budget
     _validate_work_session_scratchpad_policy(cfg.work_session_scratchpad)

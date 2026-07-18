@@ -2886,8 +2886,6 @@ class SqliteProvisionalMemoryStore:
                 continue
             if record.lifecycle is ProvisionalLifecycle.DORMANT:
                 score *= 0.55
-            if record.lifecycle is ProvisionalLifecycle.DORMANT:
-                score *= 0.55
             hits.append(ProvisionalSearchHit(record=record, score=score, matched_terms=matched))
         hits.sort(key=lambda hit: (-hit.score, hit.record.created_at.isoformat(), hit.record.record_id))
         return hits[: max(1, int(limit))]

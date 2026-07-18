@@ -852,7 +852,7 @@ def default_inputs(paths: Iterable[str]) -> list[Path]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("drawio", nargs="*", help="draw.io files to export. Defaults to canonical 2026-04-12 visuals.")
+    parser.add_argument("drawio", nargs="*", help="draw.io files to export. Defaults to the canonical visuals.")
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT), help="Output directory for SVG and PNG assets.")
     args = parser.parse_args()
 

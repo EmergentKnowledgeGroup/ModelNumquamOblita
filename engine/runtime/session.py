@@ -1159,7 +1159,8 @@ class RuntimeSession:
         previous_user = previous_assistant = None
         due_rows: list[dict[str, Any]] = []
         pending_rows: list[dict[str, Any]] = []
-        if isinstance(store, SqliteProvisionalMemoryStore) and bool(getattr(policy, "temporal_enabled", True)):
+        events: dict[str, dict[str, Any]] = {}
+        if isinstance(store, SqliteProvisionalMemoryStore):
             events = store.latest_turn_clock_events(owner, runtime_id)
             for role, target in (("user", "previous_user"), ("assistant", "previous_assistant")):
                 row = events.get(role)
@@ -1169,19 +1170,20 @@ class RuntimeSession:
                         previous_user = parsed
                     else:
                         previous_assistant = parsed
-            due_rows = store.list_temporal(owner, runtime_id, due_only=True, include_upcoming=False,
-                                           limit=int(policy.temporal_due_hard_max_items), now_utc=now)
-            redelivery_cutoff = now - timedelta(hours=int(policy.temporal_redelivery_hours))
-            due_rows = [
-                row
-                for row in due_rows
-                if (
-                    (latest := store.latest_delivery_event(row["record"].record_id, owner, runtime_id)) is None
-                    or datetime.fromisoformat(str(latest["observed_at_utc"])) <= redelivery_cutoff
-                )
-            ]
-            pending_rows = store.list_temporal(owner, runtime_id, due_only=False, include_upcoming=True,
-                                               limit=2_000, now_utc=now)
+            if bool(getattr(policy, "temporal_enabled", True)):
+                due_rows = store.list_temporal(owner, runtime_id, due_only=True, include_upcoming=False,
+                                               limit=int(policy.temporal_due_hard_max_items), now_utc=now)
+                redelivery_cutoff = now - timedelta(hours=int(policy.temporal_redelivery_hours))
+                due_rows = [
+                    row
+                    for row in due_rows
+                    if (
+                        (latest := store.latest_delivery_event(row["record"].record_id, owner, runtime_id)) is None
+                        or datetime.fromisoformat(str(latest["observed_at_utc"])) <= redelivery_cutoff
+                    )
+                ]
+                pending_rows = store.list_temporal(owner, runtime_id, due_only=False, include_upcoming=True,
+                                                   limit=2_000, now_utc=now)
         facts = build_temporal_context(
             now_utc=now,
             timezone_name=str(getattr(policy, "temporal_timezone", "") or ""),
@@ -1189,7 +1191,6 @@ class RuntimeSession:
             previous_assistant_utc=previous_assistant,
         )
         if isinstance(store, SqliteProvisionalMemoryStore):
-            events = store.latest_turn_clock_events(owner, runtime_id)
             for role, key in (("user", "previous_user_turn"), ("assistant", "previous_assistant_turn")):
                 event = events.get(role)
                 if event is not None:

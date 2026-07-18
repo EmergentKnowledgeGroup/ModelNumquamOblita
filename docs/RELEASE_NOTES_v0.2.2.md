@@ -1,6 +1,6 @@
 # MNO v0.2.2 Release Notes
 
-**Status:** Released 2026-07-18.
+**Release target:** v0.2.2 on 2026-07-18. Publication remains gated by the blockerboard until merge, tag, release, and public smoke are complete.
 
 ## Human changelog
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -221,6 +222,53 @@ def test_run_live_runtime_normal_mode_writes_and_releases_runtime_lock(tmp_path:
     while time.time() < deadline and lock_path.exists():
         time.sleep(0.1)
     assert not lock_path.exists(), "runtime lock was not released after runtime exit"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="CTRL_BREAK process-group contract is Windows-specific")
+def test_run_live_runtime_ctrl_break_stops_and_releases_lock(tmp_path: Path) -> None:
+    state_root = tmp_path / "runtime_state"
+    state_root.mkdir(parents=True)
+    sqlite_path = tmp_path / "atoms.sqlite3"
+    _build_store(sqlite_path)
+    cards_path = tmp_path / "episode_cards.reviewed.json"
+    cards_path.write_text(json.dumps({"schema": "numquamoblita.episode_cards.reviewed.v1", "cards": []}) + "\n", encoding="utf-8")
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            str(REPO_ROOT / "tools" / "run_live_runtime.py"),
+            "--memories",
+            str(sqlite_path),
+            "--episodes",
+            str(cards_path),
+            "--port",
+            "0",
+        ],
+        cwd=REPO_ROOT,
+        env={**os.environ, "MNO_RUNTIME_STATE_ROOT": str(state_root), "PYTHONUNBUFFERED": "1"},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+    )
+    lock_path = state_root / "live_runtime.lock.json"
+    try:
+        deadline = time.time() + 15
+        while time.time() < deadline and not lock_path.exists():
+            time.sleep(0.1)
+        if not lock_path.exists():
+            if process.poll() is None:
+                process.kill()
+            stdout, stderr = process.communicate(timeout=5)
+            pytest.fail(f"runtime did not create its ownership lock (code={process.returncode}):\n{stdout}\n{stderr}")
+        process.send_signal(signal.CTRL_BREAK_EVENT)
+        stdout, stderr = process.communicate(timeout=15)
+        assert process.returncode == 0, stdout + "\n" + stderr
+        assert "runtime_shutdown_reason=signal:SIGBREAK" in stdout + stderr
+        assert not lock_path.exists()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
 
 
 def _electron_ci_sandbox_args() -> list[str]:

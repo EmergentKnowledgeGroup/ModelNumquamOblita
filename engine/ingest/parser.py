@@ -29,7 +29,7 @@ def normalize_role(raw_role: Any) -> Optional[str]:
     return None
 
 
-def normalize_timestamp(raw_value: Any) -> Optional[datetime]:
+def normalize_timestamp(raw_value: Any, *, naive_policy: str = "reject") -> Optional[datetime]:
     """Normalize mixed timestamp formats to UTC datetime.
 
     Returns ``None`` when the value is missing or malformed.
@@ -56,7 +56,13 @@ def normalize_timestamp(raw_value: Any) -> Optional[datetime]:
         parsed = datetime.fromisoformat(text)
     except ValueError:
         return None
-    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+    if parsed.tzinfo is None:
+        if naive_policy == "reject":
+            return None
+        if naive_policy != "assume_utc":
+            raise ValueError("naive_policy must be 'reject' or 'assume_utc'")
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _canonicalize_quote_text(value: Any) -> str:

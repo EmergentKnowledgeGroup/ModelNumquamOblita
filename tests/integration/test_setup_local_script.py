@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 
@@ -49,7 +48,7 @@ def test_setup_local_preflight_only_succeeds() -> None:
 
 
 def test_setup_local_rejects_venv_outside_repo() -> None:
-    outside_venv = (Path(tempfile.gettempdir()) / "numquamoblita-outside").resolve()
+    outside_venv = (REPO_ROOT.parent / "numquamoblita-outside-test-venv").resolve()
     result = subprocess.run(
         [
             sys.executable,

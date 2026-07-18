@@ -6,7 +6,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from engine.contracts import AtomType, CandidateAtom, NormalizedTurn, SourceRef
-from engine.memory import AtomStatus, AtomStore, SqliteAtomStore
+from engine.memory import AtomStatus, AtomStore, SqliteAtomStore, backup_memory_family
+from engine.memory.proposal_store import SqliteProposalStore
+from engine.memory.provisional_store import SqliteProvisionalMemoryStore
 
 
 def _candidate(
@@ -456,3 +458,26 @@ def test_sqlite_atom_store_restricts_live_and_backup_permissions(tmp_path: Path,
     reopened = SqliteAtomStore(live_path)
     reopened.close()
     assert calls == [(live_path, 0o600)]
+
+
+def test_memory_family_backup_uses_sqlite_apis_and_records_only_topology_metadata(tmp_path: Path) -> None:
+    atom_path = tmp_path / "atoms.sqlite3"
+    atom_store = SqliteAtomStore(atom_path)
+    atom_store.add_candidate(_candidate(text="Family backup atom", source="family"))
+    provisional = SqliteProvisionalMemoryStore(atom_path.with_suffix(".provisional.sqlite3"))
+    proposal = SqliteProposalStore(atom_path.with_suffix(".proposals.sqlite3"))
+    provisional.close()
+    proposal.close()
+    manifest = backup_memory_family(atom_store, tmp_path / "backups")
+    atom_store.close()
+
+    assert manifest["schema"] == "mno.memory-family-backup.v1"
+    assert manifest["artifacts"]["atom"]["present"] is True
+    assert manifest["artifacts"]["provisional"]["present"] is True
+    assert manifest["artifacts"]["proposal"]["present"] is True
+    assert "Family backup atom" not in Path(manifest["manifest_path"]).read_text(encoding="utf-8")
+    restored = SqliteAtomStore(tmp_path / "backups" / "atoms.sqlite3")
+    try:
+        assert len(restored.list_atoms()) == 1
+    finally:
+        restored.close()

@@ -15,6 +15,7 @@ from engine.mcp.server import AuthConfig, MCPServer, RuntimeApiClient, ServerCon
 from engine.memory import AtomStore, MutationReviewQueue, SqliteAtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
 from engine.runtime import RuntimeSession, start_runtime_server, stop_runtime_server
+from engine.runtime import server as runtime_server_module
 
 
 @pytest.fixture(autouse=True)
@@ -271,6 +272,62 @@ def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
         assert resolve_again["data"]["status"] == "approved"
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_durable_writeback_proposal_replays_after_server_restart_and_audit_failure(tmp_path, monkeypatch) -> None:
+    store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier())
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    headers = {
+        "Authorization": "Bearer local-integration-operator-token",
+        "Idempotency-Key": "idem_durable_restart_1",
+    }
+    payload = {
+        "schema_version": "integration.v1",
+        "request_id": "req_DURABLEREPLAY123",
+        "session_id": "session_durable",
+        "run_id": "run_durable",
+        "data": {
+            "mutation": {"intent": "create", "target_kind": "fact_card", "body": {"canonical_text": "Durable writeback."}},
+            "evidence": [{
+                "provenance_handle": "prov_durable", "source_kind": "conversation", "source_id": "conv_durable",
+                "excerpt": "durable evidence", "citation": {"type": "message", "ref": "conv_durable#m1"}, "confidence": 0.9,
+            }],
+        },
+    }
+    original_append = runtime_server_module._integration_append_audit
+    monkeypatch.setattr(
+        runtime_server_module, "_integration_append_audit", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("audit offline"))
+    )
+    try:
+        first_status, first = _http_json(
+            method="POST", url=f"{base}/api/integration/v1/writeback/propose", payload=payload, headers=headers
+        )
+        assert first_status == 200
+        proposal_id = str(first["data"]["proposal_id"])
+        assert len(queue.list_all()) == 1
+        stop_runtime_server(server, thread, runtime=runtime)
+
+        monkeypatch.setattr(runtime_server_module, "_integration_append_audit", original_append)
+        restarted, restarted_thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+        restarted_host, restarted_port = restarted.server_address
+        replay_status, replay = _http_json(
+            method="POST",
+            url=f"http://{restarted_host}:{restarted_port}/api/integration/v1/writeback/propose",
+            payload=payload,
+            headers=headers,
+        )
+        assert replay_status == 200
+        assert replay["data"]["proposal_id"] == proposal_id
+        assert replay["data"]["idempotent_replay"] is True
+        assert len(queue.list_all()) == 1
+        stop_runtime_server(restarted, restarted_thread, runtime=runtime)
+    finally:
+        monkeypatch.setattr(runtime_server_module, "_integration_append_audit", original_append)
+        store.close()
 
 
 def test_external_observe_consolidates_provisionally_and_survives_context_contract(tmp_path) -> None:
@@ -708,6 +765,22 @@ def test_integration_mcp_parity_and_domain_error_passthrough() -> None:
             headers=viewer_headers,
         )
         assert http_status == 200
+        capability_rows = {
+            str(row.get("name") or ""): dict(row)
+            for row in list(dict(http_payload.get("data") or {}).get("operations") or [])
+        }
+        assert capability_rows["context.build"]["available"] is True
+        assert capability_rows["context.build"]["authorized"] is True
+        assert capability_rows["writeback.propose"]["exposed"] is True
+        assert capability_rows["writeback.propose"]["backend_available"] is True
+        assert capability_rows["writeback.propose"]["authorized"] is False
+        assert capability_rows["writeback.propose"]["available"] is False
+        assert "role_not_authorized" in capability_rows["writeback.propose"]["reason_codes"]
+        assert capability_rows["writeback.resolve"]["policy_state"] == "human_review_required"
+        support_ticket = dict(dict(http_payload.get("data") or {}).get("support_ticket") or {})
+        assert support_ticket["command"] == "mno-report"
+        assert support_ticket["explicit_logs_only"] is True
+        assert support_ticket["submission_requires_explicit_flag"] is True
 
         viewer_mcp = MCPServer(
             config=ServerConfig(

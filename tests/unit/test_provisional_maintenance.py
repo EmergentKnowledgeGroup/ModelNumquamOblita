@@ -150,3 +150,43 @@ def test_stale_supported_plan_is_durably_demoted_to_historical_recall(tmp_path) 
         assert reopened.list_events(record_id=record_id)[-1].reason == "plan_currentness_window"
     finally:
         reopened.close()
+
+
+def test_maintenance_cursor_wraps_fairly_and_dry_run_does_not_mutate_state(tmp_path) -> None:
+    now = datetime(2026, 7, 17, tzinfo=timezone.utc)
+    store = SqliteProvisionalMemoryStore(tmp_path / "fair.sqlite3", clock=lambda: now)
+    record_ids = []
+    for index in range(3):
+        candidate = ProvisionalMemoryCandidate(
+            kind=ProvisionalMemoryKind.FACT,
+            canonical_text=f"fairness fact {index}",
+            source_refs=[SourceRef(source_id=f"fair-{index}", message_id=f"message-{index}")],
+            source_role="user", session_id=f"session-{index}", source_id=f"fair-{index}",
+            message_id=f"message-{index}", content=f"fairness fact {index}",
+        )
+        registration = store.register_source(
+            source_id=candidate.source_id, message_id=candidate.message_id, source_role="user",
+            content=candidate.content, session_id=candidate.session_id,
+        )
+        record_ids.append(store.observe_candidate(candidate, reason="turn", registration=registration).record_id)
+
+    first = run_maintenance(store, now=now, max_records=1, run_id="fair-1", return_result=True)
+    second = run_maintenance(store, now=now, max_records=1, run_id="fair-2", return_result=True)
+    third = run_maintenance(store, now=now, max_records=1, run_id="fair-3", return_result=True)
+    assert [item["next_cursor"]["record_id"] for item in (first, second, third)] == record_ids
+    replay = run_maintenance(store, now=now, max_records=1, run_id="fair-2", return_result=True)
+    assert replay["state"] == "replay"
+
+    cursor_before = store.maintenance_cursor()
+    preview = run_maintenance(
+        store, now=now + timedelta(days=91), max_records=1, dry_run=True, return_result=True
+    )
+    assert preview["state"] == "preview"
+    assert preview["processed_count"] == 1
+    assert preview["transitions"][0].disposition == "would_dormant"
+    assert store.maintenance_cursor() == cursor_before
+    assert all(store.get_record(record_id).lifecycle is ProvisionalLifecycle.ACTIVE for record_id in record_ids)
+    assert store.maintenance_begin("active-run")["state"] == "acquired"
+    assert store.maintenance_begin("active-run")["state"] == "join"
+    assert store.maintenance_begin("other-run")["state"] == "conflict"
+    store.close()

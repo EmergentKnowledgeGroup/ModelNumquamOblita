@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
@@ -762,6 +763,10 @@ class SqliteProvisionalMemoryStore:
         target.parent.mkdir(parents=True, exist_ok=True)
         with self._lock, sqlite3.connect(str(target)) as destination:
             self._conn.backup(destination)
+        try:
+            os.chmod(target, 0o600)
+        except OSError:
+            pass
         return target
 
     def _schema_version(self) -> int:
@@ -780,6 +785,7 @@ class SqliteProvisionalMemoryStore:
         if version not in {0, 2, _SCHEMA_VERSION}:
             raise RuntimeError(f"unsupported provisional schema version: {version}")
         if version == _SCHEMA_VERSION:
+            self._ensure_maintenance_schema()
             return
         if version == 2:
             self._migrate_v2_to_v3(
@@ -787,6 +793,7 @@ class SqliteProvisionalMemoryStore:
                 scrub_authorized_by=scrub_authorized_by,
                 verified_backup=verified_backup,
             )
+            self._ensure_maintenance_schema()
             return
         with self._lock, self._conn:
             self._conn.executescript(
@@ -861,6 +868,19 @@ class SqliteProvisionalMemoryStore:
                     metadata_json TEXT NOT NULL,
                     processed_at_utc TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS provisional_maintenance_runs (
+                    run_id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    started_at_utc TEXT NOT NULL,
+                    lease_expires_at_utc TEXT NOT NULL,
+                    completed_at_utc TEXT,
+                    cursor_start_json TEXT NOT NULL,
+                    cursor_end_json TEXT NOT NULL,
+                    transitions_json TEXT NOT NULL,
+                    error_code TEXT NOT NULL DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_provisional_maintenance_running
+                    ON provisional_maintenance_runs(status, lease_expires_at_utc);
                 """
             )
             self._conn.execute(
@@ -868,6 +888,29 @@ class SqliteProvisionalMemoryStore:
                 (str(uuid.uuid4()),),
             )
             self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
+        self._ensure_maintenance_schema()
+
+    def _ensure_maintenance_schema(self) -> None:
+        """Add maintenance state without changing the established store version."""
+
+        with self._lock, self._conn:
+            self._conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS provisional_maintenance_runs (
+                    run_id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    started_at_utc TEXT NOT NULL,
+                    lease_expires_at_utc TEXT NOT NULL,
+                    completed_at_utc TEXT,
+                    cursor_start_json TEXT NOT NULL,
+                    cursor_end_json TEXT NOT NULL,
+                    transitions_json TEXT NOT NULL,
+                    error_code TEXT NOT NULL DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_provisional_maintenance_running
+                    ON provisional_maintenance_runs(status, lease_expires_at_utc);
+                """
+            )
 
     def _migrate_v2_to_v3(
         self,
@@ -996,6 +1039,149 @@ class SqliteProvisionalMemoryStore:
                 (normalized_id, normalized_type, str(observed_at_utc or ""), self._serialize_metadata(metadata or {}), now),
             )
         return int(cursor.rowcount or 0) == 1
+
+    def maintenance_cursor(self) -> dict[str, str]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT control_value FROM provisional_control WHERE control_key = 'maintenance_cursor'"
+            ).fetchone()
+        if row is None:
+            return {"created_at": "", "record_id": ""}
+        try:
+            value = json.loads(str(row[0]))
+        except json.JSONDecodeError:
+            return {"created_at": "", "record_id": ""}
+        return {
+            "created_at": str(value.get("created_at") or ""),
+            "record_id": str(value.get("record_id") or ""),
+        }
+
+    def maintenance_begin(self, run_id: str, *, lease_seconds: int = 300) -> dict[str, object]:
+        """Acquire the durable maintenance lease or report replay/join/conflict."""
+
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_run_id:
+            raise ValueError("maintenance run_id is required")
+        if not 1 <= int(lease_seconds) <= 3600:
+            raise ValueError("maintenance lease_seconds must be in 1..3600")
+        now = self._clock().astimezone(timezone.utc)
+        now_text = now.isoformat()
+        expires_text = (now + timedelta(seconds=int(lease_seconds))).isoformat()
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                existing = self._conn.execute(
+                    "SELECT * FROM provisional_maintenance_runs WHERE run_id = ?", (normalized_run_id,)
+                ).fetchone()
+                if existing is not None and str(existing["status"]) == "completed":
+                    self._conn.commit()
+                    return {"state": "replay", "transitions": json.loads(str(existing["transitions_json"]))}
+                active = self._conn.execute(
+                    "SELECT * FROM provisional_maintenance_runs WHERE status = 'running'"
+                ).fetchall()
+                for row in active:
+                    if datetime.fromisoformat(str(row["lease_expires_at_utc"])) > now:
+                        self._conn.commit()
+                        return {"state": "join" if str(row["run_id"]) == normalized_run_id else "conflict"}
+                    self._conn.execute(
+                        "UPDATE provisional_maintenance_runs SET status = 'failed', error_code = 'LEASE_EXPIRED' WHERE run_id = ?",
+                        (str(row["run_id"]),),
+                    )
+                cursor = self.maintenance_cursor()
+                self._conn.execute(
+                    """
+                    INSERT INTO provisional_maintenance_runs (
+                        run_id, status, started_at_utc, lease_expires_at_utc, cursor_start_json,
+                        cursor_end_json, transitions_json, error_code
+                    ) VALUES (?, 'running', ?, ?, ?, '{}', '[]', '')
+                    ON CONFLICT(run_id) DO UPDATE SET
+                        status = 'running', started_at_utc = excluded.started_at_utc,
+                        lease_expires_at_utc = excluded.lease_expires_at_utc,
+                        cursor_start_json = excluded.cursor_start_json, cursor_end_json = '{}',
+                        transitions_json = '[]', error_code = ''
+                    """,
+                    (normalized_run_id, now_text, expires_text, json.dumps(cursor, sort_keys=True)),
+                )
+                self._conn.commit()
+                return {"state": "acquired", "cursor": cursor}
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def maintenance_candidates(
+        self, *, cursor: dict[str, str], limit: int
+    ) -> tuple[list[ProvisionalMemoryRecord], dict[str, str]]:
+        if not 1 <= int(limit) <= 100:
+            raise ValueError("maintenance limit must be in 1..100")
+        terminal = tuple(item.value for item in (
+            ProvisionalMemoryStatus.SUPERSEDED,
+            ProvisionalMemoryStatus.CONFLICTED,
+            ProvisionalMemoryStatus.ARCHIVED,
+        ))
+        params = [*terminal]
+        created_at = str(cursor.get("created_at") or "")
+        record_id = str(cursor.get("record_id") or "")
+        where_after = ""
+        if created_at or record_id:
+            where_after = " AND (created_at > ? OR (created_at = ? AND record_id > ?))"
+            params.extend([created_at, created_at, record_id])
+        query = (
+            "SELECT * FROM provisional_records WHERE status NOT IN (?, ?, ?)"
+            + where_after
+            + " ORDER BY created_at ASC, record_id ASC LIMIT ?"
+        )
+        params.append(int(limit))
+        with self._lock:
+            rows = self._conn.execute(query, params).fetchall()
+            if len(rows) < int(limit) and (created_at or record_id):
+                remaining = int(limit) - len(rows)
+                seen = {str(row["record_id"]) for row in rows}
+                wrapped = self._conn.execute(
+                    "SELECT * FROM provisional_records WHERE status NOT IN (?, ?, ?) "
+                    "ORDER BY created_at ASC, record_id ASC LIMIT ?",
+                    [*terminal, remaining],
+                ).fetchall()
+                rows.extend(row for row in wrapped if str(row["record_id"]) not in seen)
+        records = [self._row_to_record(row) for row in rows]
+        next_cursor = dict(cursor)
+        if records:
+            last = records[-1]
+            next_cursor = {"created_at": last.created_at.isoformat(), "record_id": last.record_id}
+        return records, next_cursor
+
+    def maintenance_complete(
+        self, run_id: str, *, cursor: dict[str, str], transitions: list[dict[str, str]]
+    ) -> None:
+        now = self._clock().astimezone(timezone.utc).isoformat()
+        normalized_run_id = str(run_id or "").strip()
+        payload = json.dumps(list(transitions), ensure_ascii=False, sort_keys=True)
+        cursor_payload = json.dumps(dict(cursor), ensure_ascii=False, sort_keys=True)
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT status FROM provisional_maintenance_runs WHERE run_id = ?", (normalized_run_id,)
+            ).fetchone()
+            if row is None or str(row["status"]) != "running":
+                raise RuntimeError("MAINTENANCE_RUN_NOT_OWNED")
+            self._conn.execute(
+                """
+                UPDATE provisional_maintenance_runs
+                SET status = 'completed', completed_at_utc = ?, cursor_end_json = ?, transitions_json = ?
+                WHERE run_id = ?
+                """,
+                (now, cursor_payload, payload, normalized_run_id),
+            )
+            self._conn.execute(
+                "INSERT INTO provisional_control(control_key, control_value) VALUES ('maintenance_cursor', ?) "
+                "ON CONFLICT(control_key) DO UPDATE SET control_value = excluded.control_value",
+                (cursor_payload,),
+            )
+
+    def maintenance_fail(self, run_id: str, *, error_code: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE provisional_maintenance_runs SET status = 'failed', error_code = ? WHERE run_id = ? AND status = 'running'",
+                (str(error_code or "MAINTENANCE_FAILED"), str(run_id or "").strip()),
+            )
 
     @classmethod
     def migrate_legacy_store(

@@ -25,7 +25,9 @@ Core pieces:
 Truth order is simple: human-reviewed canonical truth wins; evidence atoms remain source-backed substrate; provisional memory is labeled and revisable. A work-session scratchpad or short-term session context can help an agent continue work, but neither is evidence.
 
 Further reading:
-- [v0.2.0 release notes](../RELEASE_NOTES_v0.2.0.md)
+- [v0.2.1 release notes](../RELEASE_NOTES_v0.2.1.md)
+- [Compatibility and support](../COMPATIBILITY_AND_SUPPORT.md)
+- [Agent support tickets](../SUPPORT_TICKETS_FOR_AGENTS.md)
 - [Public Architecture](ARCHITECTURE.md)
 - [Work-Session Scratchpad](../WORK_SESSION_SCRATCHPAD.md)
 - [Response To "Why Long-Term Memory Remains Unsolved"](MNO_RESPONSE_TO_WHY_LONG_TERM_MEMORY_REMAINS_UNSOLVED_2026-04-12.md)

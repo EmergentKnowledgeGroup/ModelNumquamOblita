@@ -48,6 +48,27 @@ def test_generic_mcp_bundle_contains_launcher_and_entry_artifacts(tmp_path: Path
     assert "<MNO_MEMORY_CONTEXT>" in artifacts["agent_memory_context_instructions.md"]
 
 
+def test_exported_launchers_are_relocatable_and_do_not_run_setup(tmp_path: Path) -> None:
+    origin = tmp_path / "origin checkout with spaces"
+    bundle = build_integration_bundle(target="generic_mcp", preview=_preview(tmp_path), repo_root=origin)
+    artifacts = dict(bundle["artifacts"])
+    for name in (
+        "launch_runtime.sh",
+        "launch_runtime.ps1",
+        "launch_runtime.bat",
+        "launch_agent_mcp.sh",
+        "launch_agent_mcp.ps1",
+        "launch_agent_mcp.bat",
+    ):
+        launcher = str(artifacts[name])
+        assert str(origin) not in launcher
+        assert "setup_local" not in launcher
+    assert "mno-runtime" in artifacts["launch_runtime.sh"]
+    assert "MNO_RUNTIME_NOT_INSTALLED" in artifacts["launch_runtime.ps1"]
+    assert "mno-agent-mcp" in artifacts["launch_agent_mcp.bat"]
+    assert "MNO_AGENT_MCP_NOT_INSTALLED" in artifacts["launch_agent_mcp.sh"]
+
+
 def test_openclaw_bundle_contains_adapter_and_sidecar_hints(tmp_path: Path) -> None:
     bundle = build_integration_bundle(target="openclaw", preview=_preview(tmp_path), repo_root=tmp_path)
     assert bundle["target"] == "openclaw"

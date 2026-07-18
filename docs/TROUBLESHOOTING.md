@@ -1,5 +1,9 @@
 # Troubleshooting
 
+## Prepare an agent-grade bug report
+
+Run `mno-report --help`, then provide title, summary, reproduction steps, expected behavior, and actual behavior. `--check quick` runs the bounded compatibility checks. Add only the smallest relevant logs with repeatable `--log PATH`; the command never sweeps runtime or memory data. Review the local bundle before using an explicitly authorized `--submit`. Full contract: [Support Tickets for Agents](SUPPORT_TICKETS_FOR_AGENTS.md).
+
 ## Setup fails
 
 Run:

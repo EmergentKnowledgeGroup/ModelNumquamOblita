@@ -12,6 +12,18 @@ Optional starting artifacts:
 
 If you do not have those yet, MNO can start from raw source files or folders.
 
+For an installed Python package, the equivalent headless commands are:
+
+```bash
+mno-setup --plan-only
+mno-import --help
+mno-runtime --help
+mno-mcp --help
+mno-agent-mcp --help
+```
+
+Mutable stores and logs are placed in a platform user-state directory unless `MNO_RUNTIME_STATE_ROOT` is set. They are never written inside the installed package.
+
 ## Setup
 
 - Unix/macOS: `./setup_local.sh`
@@ -174,6 +186,10 @@ This launcher starts:
 - the runtime
 - the MCP sidecar
 - a local assistant/agent-friendly tool path in one step
+
+Exported integration bundles use `mno-runtime` and `mno-agent-mcp`. Install the Python package first; exported launchers fail with an explicit `*_NOT_INSTALLED` result and make no setup changes when those commands are absent.
+
+See [Compatibility and Support](COMPATIBILITY_AND_SUPPORT.md) for supported hosts and artifact boundaries.
 
 ## What to read next
 

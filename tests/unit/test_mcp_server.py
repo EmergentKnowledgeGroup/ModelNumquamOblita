@@ -21,6 +21,7 @@ from engine.mcp.server import (
     run_stdio_server,
     start_http_server,
     stop_http_server,
+    _stdio_trace_log,
 )
 
 
@@ -4255,3 +4256,24 @@ def test_stdio_server_parse_error_recovery() -> None:
 
     assert dict(first_obj["error"]).get("code") == -32700
     assert "result" in second_obj
+
+
+def test_stdio_trace_redacts_initialize_auth_tokens(tmp_path: Path, monkeypatch) -> None:
+    trace_path = tmp_path / "stdio.jsonl"
+    monkeypatch.setenv("NO_MCP_STDIO_TRACE", str(trace_path))
+    _stdio_trace_log({"event": "request", "method": "initialize", "params": {"auth_token": "secret", "nested": {"admin_token": "worse"}}})
+    text = trace_path.read_text(encoding="utf-8")
+    assert "secret" not in text
+    assert "worse" not in text
+    assert text.count("[REDACTED]") == 2
+
+
+def test_stdio_server_rejects_lossy_utf8_and_recovers() -> None:
+    bad_body = b'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"x":"\xff"}}'
+    bad_message = f"Content-Length: {len(bad_body)}\r\n\r\n".encode() + bad_body
+    stdin_buffer = BytesIO(bad_message)
+    stdout_buffer = BytesIO()
+    server = MCPServer(config=ServerConfig(runtime_base_url="http://127.0.0.1:7340", auth=AuthConfig(default_role="viewer")), api_client=_FakeApiClient())
+    assert run_stdio_server(server, stdin_buffer=stdin_buffer, stdout_buffer=stdout_buffer) == 0
+    frames = _decode_framed_json_messages(stdout_buffer.getvalue())
+    assert dict(frames[0]["error"])["code"] == -32700

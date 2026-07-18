@@ -290,7 +290,7 @@ def test_install_claude_code_prefers_native_windows_cli_entry(tmp_path: Path, mo
     assert captured["entry"]["command"] == r"C:\Windows\System32\wsl.exe"
     assert captured["entry"]["type"] == "stdio"
     assert "--exec" in captured["entry"]["args"]
-    assert "python3" in captured["entry"]["args"]
+    assert "/usr/bin/python3" in captured["entry"]["args"]
     assert "tools/run_claude_live_mcp.py" in captured["entry"]["args"]
     assert captured["scope"] == "user"
     assert captured["claude_bin"] == native_claude
@@ -373,7 +373,7 @@ def test_native_windows_install_normalizes_pythonw_to_python(tmp_path: Path, mon
 
     assert captured["entry"]["type"] == "stdio"
     assert captured["entry"]["command"] == r"C:\Windows\System32\wsl.exe"
-    assert "python3" in captured["entry"]["args"]
+    assert "/usr/bin/python3" in captured["entry"]["args"]
     assert "tools/run_claude_live_mcp.py" in captured["entry"]["args"]
 
 

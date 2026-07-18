@@ -10,6 +10,9 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+from uuid import uuid4
+
+from tools.preflight import _default_memories
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SERVER_NAME = "numquamoblita-live"
@@ -93,15 +96,15 @@ def windows_wsl_command() -> str:
 
 
 def default_memory_path(*, repo_root: Path = REPO_ROOT) -> Path:
-    sqlite_default = repo_root / ".runtime" / "imports" / "atoms.sqlite3"
-    if sqlite_default.exists():
-        return sqlite_default
+    default_path = _default_memories(repo_root)
+    if default_path.exists():
+        return default_path
     imports_dir = repo_root / "runtime" / "imports"
     if imports_dir.exists():
         candidates = sorted(imports_dir.rglob("memories.json"), key=lambda path: path.stat().st_mtime, reverse=True)
         if candidates:
             return candidates[0]
-    return sqlite_default
+    return default_path
 
 
 
@@ -367,7 +370,7 @@ def build_windows_wsl_stdio_entry(
     args: list[str] = []
     if distro:
         args.extend(["-d", distro])
-    args.extend(["--cd", repo_root_arg, "--exec", "python3"])
+    args.extend(["--cd", repo_root_arg, "--exec", "/usr/bin/python3"])
     args.extend(
         build_launcher_cli_args(
             launcher_path="tools/run_claude_live_mcp.py",
@@ -430,12 +433,30 @@ def _backup_path(path: Path) -> Path:
 
 
 def write_json_with_backup(path: Path, payload: dict[str, Any]) -> Path | None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     backup_path: Path | None = None
     if path.exists():
         backup_path = _backup_path(path)
-        backup_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        if backup_path.exists():
+            backup_path = backup_path.with_name(f"{backup_path.name}.{uuid4().hex[:8]}")
+        backup_temp = backup_path.with_name(f".{backup_path.name}.{uuid4().hex}.tmp")
+        try:
+            with backup_temp.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write(path.read_text(encoding="utf-8"))
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(backup_temp, backup_path)
+        finally:
+            backup_temp.unlink(missing_ok=True)
+    target_temp = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        with target_temp.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(target_temp, path)
+    finally:
+        target_temp.unlink(missing_ok=True)
     return backup_path
 
 
@@ -456,7 +477,25 @@ def candidate_windows_user_dirs(*, users_root: Path | None = None) -> list[Path]
 
 
 
-def find_windows_claude_desktop_config(*, users_root: Path | None = None) -> Path | None:
+def _current_windows_user_dir(*, users_root: Path | None = None, env: Mapping[str, str] | None = None) -> Path | None:
+    env_map = dict(env or os.environ)
+    user_profile = str(env_map.get("USERPROFILE") or "").strip()
+    if user_profile:
+        return Path(user_profile).expanduser().resolve()
+    user_name = str(env_map.get("USERNAME") or "").strip()
+    if user_name:
+        return (users_root or windows_users_root(env=env_map)) / user_name
+    return None
+
+
+def find_windows_claude_desktop_config(
+    *, users_root: Path | None = None, env: Mapping[str, str] | None = None, allow_cross_profile: bool = False
+) -> Path | None:
+    current_user = _current_windows_user_dir(users_root=users_root, env=env)
+    if current_user is not None:
+        return current_user / WINDOWS_CLAUDE_DESKTOP_REL
+    if not allow_cross_profile:
+        return None
     matches: list[Path] = []
     for user_dir in candidate_windows_user_dirs(users_root=users_root):
         candidate = user_dir / WINDOWS_CLAUDE_DESKTOP_REL
@@ -465,17 +504,18 @@ def find_windows_claude_desktop_config(*, users_root: Path | None = None) -> Pat
     if matches:
         matches.sort(key=lambda path: path.stat().st_mtime, reverse=True)
         return matches[0]
-    user_profile = str(os.environ.get("USERPROFILE") or "").strip()
-    if user_profile:
-        return Path(user_profile).expanduser().resolve() / WINDOWS_CLAUDE_DESKTOP_REL
-    user_name = str(os.environ.get("USERNAME") or "").strip()
-    if user_name:
-        return (users_root or windows_users_root()) / user_name / WINDOWS_CLAUDE_DESKTOP_REL
     return None
 
 
 
-def find_windows_claude_code_config(*, users_root: Path | None = None) -> Path | None:
+def find_windows_claude_code_config(
+    *, users_root: Path | None = None, env: Mapping[str, str] | None = None, allow_cross_profile: bool = False
+) -> Path | None:
+    current_user = _current_windows_user_dir(users_root=users_root, env=env)
+    if current_user is not None:
+        return current_user / WINDOWS_CLAUDE_CODE_REL
+    if not allow_cross_profile:
+        return None
     matches: list[Path] = []
     for user_dir in candidate_windows_user_dirs(users_root=users_root):
         candidate = user_dir / WINDOWS_CLAUDE_CODE_REL
@@ -484,12 +524,6 @@ def find_windows_claude_code_config(*, users_root: Path | None = None) -> Path |
     if matches:
         matches.sort(key=lambda path: path.stat().st_mtime, reverse=True)
         return matches[0]
-    user_profile = str(os.environ.get("USERPROFILE") or "").strip()
-    if user_profile:
-        return Path(user_profile).expanduser().resolve() / WINDOWS_CLAUDE_CODE_REL
-    user_name = str(os.environ.get("USERNAME") or "").strip()
-    if user_name:
-        return (users_root or windows_users_root()) / user_name / WINDOWS_CLAUDE_CODE_REL
     return None
 
 
@@ -681,20 +715,53 @@ def install_claude_code_server(
     runner = runner or run_subprocess_hidden_on_windows
     if which(str(claude_bin)) is None:
         raise RuntimeError(f"claude CLI not found: {claude_bin}")
-    remove_cmd = build_claude_code_remove_cmd(server_name=server_name, scope=scope, claude_bin=claude_bin)
-    remove_proc = runner(remove_cmd, check=False, capture_output=True, text=True)
+    version_proc = runner([str(claude_bin), "--version"], check=False, capture_output=True, text=True)
+    if version_proc.returncode != 0:
+        raise RuntimeError("claude CLI version probe failed")
+    help_proc = runner([str(claude_bin), "mcp", "--help"], check=False, capture_output=True, text=True)
+    help_text = f"{help_proc.stdout or ''}\n{help_proc.stderr or ''}".lower()
+    if help_proc.returncode != 0 or not all(command in help_text for command in ("add-json", "get", "remove")):
+        raise RuntimeError("claude CLI lacks required mcp add-json/get/remove capabilities")
+
+    normalized_name = ensure_valid_server_name(server_name)
+    stage_name = ensure_valid_server_name(f"{normalized_name}-mno-stage-{uuid4().hex[:8]}")
+    stage_add_cmd = build_claude_code_add_json_cmd(
+        server_name=stage_name, entry=entry, scope=scope, claude_bin=claude_bin
+    )
+    stage_proc = runner(stage_add_cmd, check=False, capture_output=True, text=True)
+    if stage_proc.returncode != 0:
+        detail = str(stage_proc.stderr or stage_proc.stdout or "unknown error").strip()
+        raise RuntimeError(f"claude mcp staged add-json failed; existing connector preserved: {detail}")
+    stage_verified = False
+    try:
+        stage_get = runner([str(claude_bin), "mcp", "get", stage_name], check=False, capture_output=True, text=True)
+        stage_verified = stage_get.returncode == 0
+        if not stage_verified:
+            detail = str(stage_get.stderr or stage_get.stdout or "unknown error").strip()
+            raise RuntimeError(f"claude mcp staged verification failed; existing connector preserved: {detail}")
+    finally:
+        runner(
+            build_claude_code_remove_cmd(server_name=stage_name, scope=scope, claude_bin=claude_bin),
+            check=False, capture_output=True, text=True,
+        )
+
     add_cmd = build_claude_code_add_json_cmd(server_name=server_name, entry=entry, scope=scope, claude_bin=claude_bin)
     add_proc = runner(add_cmd, check=False, capture_output=True, text=True)
     if add_proc.returncode != 0:
         stderr = str(add_proc.stderr or "").strip() or str(add_proc.stdout or "").strip() or "unknown error"
-        raise RuntimeError(f"claude mcp add-json failed: {stderr}")
+        raise RuntimeError(f"claude mcp add-json failed; prior connector preserved: {stderr}")
+    verify_proc = runner([str(claude_bin), "mcp", "get", normalized_name], check=False, capture_output=True, text=True)
+    if verify_proc.returncode != 0:
+        detail = str(verify_proc.stderr or verify_proc.stdout or "unknown error").strip()
+        raise RuntimeError(f"claude mcp replacement verification failed: {detail}")
     return {
-        "remove_returncode": int(remove_proc.returncode),
-        "remove_stdout": str(remove_proc.stdout or "").strip(),
-        "remove_stderr": str(remove_proc.stderr or "").strip(),
+        "client_version": str(version_proc.stdout or version_proc.stderr or "").strip(),
+        "capability_probe": "add-json,get,remove",
+        "stage_verified": stage_verified,
         "add_returncode": int(add_proc.returncode),
         "add_stdout": str(add_proc.stdout or "").strip(),
         "add_stderr": str(add_proc.stderr or "").strip(),
+        "verified": True,
         "scope": str(scope or "local").strip() or "local",
     }
 

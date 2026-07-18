@@ -68,6 +68,8 @@ python3 tools/run_agent_live_mcp.py \
 The `run_agent_live_mcp.py` entrypoint is the user-facing alias for the combined runtime + MCP launcher.
 The config-print flag keeps its older internal name for compatibility.
 
+Installed-package equivalents are `mno-mcp` and `mno-agent-mcp`. Generated bundles use these commands so they remain relocatable; they do not rerun source setup.
+
 ## Stable parity tool names
 
 The clean repo ships stable MCP parity tools for the public integration contract:
@@ -85,6 +87,8 @@ The clean repo ships stable MCP parity tools for the public integration contract
 - `integration.health.get`
 
 These mirror the `integration-v1` HTTP contract.
+
+Call `integration.capabilities.get` after initialize. The returned runtime operation state is authoritative for the current credential and backend; an exposed MCP tool may still be unauthorized, degraded, or unavailable upstream.
 
 High-risk proposal listing is metadata-only with an operator token. Content-bearing listing, dismissal, and source-backed bridge require the separate `review_apply` capability. Bridge stops at a pending review proposal; it does not apply or publish memory.
 

@@ -68,9 +68,23 @@ def _stdio_trace_log(payload: dict[str, Any]) -> None:
         path = Path(target).expanduser().resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            handle.write(json.dumps(_redact_stdio_trace_payload(payload), ensure_ascii=False) + "\n")
     except Exception:
         pass
+
+
+_TRACE_SECRET_KEYS = {"authorization", "auth_token", "token", "viewer_token", "operator_token", "admin_token"}
+
+
+def _redact_stdio_trace_payload(value: Any, *, key: str = "") -> Any:
+    normalized = key.strip().lower().replace("-", "_")
+    if normalized in _TRACE_SECRET_KEYS or normalized.endswith("_token"):
+        return "[REDACTED]"
+    if isinstance(value, Mapping):
+        return {str(child_key): _redact_stdio_trace_payload(child, key=str(child_key)) for child_key, child in value.items()}
+    if isinstance(value, list):
+        return [_redact_stdio_trace_payload(child) for child in value]
+    return value
 
 
 def _sha256_short(value: str) -> str:
@@ -2522,6 +2536,13 @@ class MCPServer:
                 "field_aliases_enabled": self._compat_mode_enabled(),
             },
             "remote_hardening": remote_hardening,
+            "support_ticket": {
+                "schema": "mno.support_ticket.v1",
+                "command": "mno-report",
+                "repository": "EmergentKnowledgeGroup/ModelNumquamOblita",
+                "submission_requires_explicit_flag": True,
+                "guide": "docs/SUPPORT_TICKETS_FOR_AGENTS.md",
+            },
             "resources": [
                 "resource://capabilities",
                 "resource://audit/summary",
@@ -5617,7 +5638,10 @@ def _read_message(stdin_buffer: Any) -> dict[str, Any] | None:
             return None
         if line in {b"\r\n", b"\n"}:
             break
-        text = line.decode("utf-8", errors="replace").strip()
+        try:
+            text = line.decode("utf-8", errors="strict").strip()
+        except UnicodeDecodeError as exc:
+            raise RuntimeError("invalid UTF-8 header") from exc
         if not text:
             continue
         key, sep, value = text.partition(":")
@@ -5638,8 +5662,8 @@ def _read_message(stdin_buffer: Any) -> dict[str, Any] | None:
     if len(body) != content_length:
         raise RuntimeError("incomplete message body")
     try:
-        decoded = json.loads(body.decode("utf-8", errors="replace"))
-    except json.JSONDecodeError as exc:
+        decoded = json.loads(body.decode("utf-8", errors="strict"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise RuntimeError("invalid JSON body") from exc
     if not isinstance(decoded, dict):
         raise RuntimeError("JSON body must be an object")

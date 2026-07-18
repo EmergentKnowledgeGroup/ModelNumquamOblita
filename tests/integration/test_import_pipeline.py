@@ -1,10 +1,32 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
+from engine.contracts import AtomType, CandidateAtom, SourceRef
 from engine.ingest import run_sqlite_import_job
+from engine.ingest.orchestrator import _backup_sqlite_store
 from engine.memory import SqliteAtomStore
+
+
+def _seed_candidate(candidate_id: str, text: str, source_id: str) -> CandidateAtom:
+    return CandidateAtom(
+        candidate_id=candidate_id,
+        atom_type=AtomType.EPISODE,
+        canonical_text=text,
+        source_refs=[
+            SourceRef(
+                source_id=source_id,
+                message_id=f"{candidate_id}_message",
+                timestamp=datetime.now(timezone.utc),
+                span_start=0,
+                span_end=max(1, len(text)),
+            )
+        ],
+        confidence=0.9,
+        salience=0.8,
+    )
 
 
 def _write_export(path: Path) -> None:
@@ -158,6 +180,55 @@ def test_import_pipeline_malformed_input_fails_without_partial_commit(tmp_path: 
         store.close()
 
     assert after_count == before_count
+
+
+def test_import_rejects_secrets_before_any_store_persistence(tmp_path: Path) -> None:
+    input_path = tmp_path / "secret_export.json"
+    store_path = tmp_path / "atoms.sqlite3"
+    secret = "sk-MNO-CANARY-1234567890abcdef"
+    input_path.write_text(
+        json.dumps(
+            {
+                "conversations": [
+                    {
+                        "id": "secret-conversation",
+                        "messages": [{"id": "u1", "role": "user", "text": f"api_key={secret}"}],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = run_sqlite_import_job(input_path=input_path, sqlite_path=store_path)
+
+    assert report.ok is False
+    assert report.error_code == "CONTENT_SAFETY_REJECTED"
+    assert report.error_message == "LEGACY_SECRET_DETECTED"
+    assert secret not in json.dumps(report.to_dict())
+    assert not store_path.exists()
+    assert not list(tmp_path.glob("atoms.sqlite3.tmp_*"))
+
+
+def test_sqlite_import_snapshot_includes_committed_wal_state(tmp_path: Path) -> None:
+    live_path = tmp_path / "live.sqlite3"
+    snapshot_path = tmp_path / "snapshot.sqlite3"
+    live_store = SqliteAtomStore(live_path)
+    try:
+        live_store._conn.execute("PRAGMA wal_autocheckpoint=0")  # noqa: SLF001 - hostile WAL fixture
+        live_store.add_candidate(
+            _seed_candidate("wal_candidate", "Committed memory waiting in WAL state.", "wal_source")
+        )
+        assert live_path.with_name(f"{live_path.name}-wal").exists()
+
+        _backup_sqlite_store(live_path, snapshot_path)
+        snapshot_store = SqliteAtomStore(snapshot_path)
+        try:
+            assert any(atom.canonical_text == "Committed memory waiting in WAL state." for atom in snapshot_store.list_atoms())
+        finally:
+            snapshot_store.close()
+    finally:
+        live_store.close()
 
 
 def test_import_report_counts_are_internally_consistent(tmp_path: Path) -> None:

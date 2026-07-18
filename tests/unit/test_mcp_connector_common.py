@@ -64,7 +64,7 @@ def test_build_posix_and_windows_entries_are_stable(tmp_path: Path) -> None:
     assert windows["command"] == r"C:\Windows\System32\wsl.exe"
     assert windows["env"] == {}
     assert windows["args"][:4] == ["-d", "Ubuntu-24.04", "--cd", "/mnt/z/mno-workspace"]
-    assert windows["args"][4:6] == ["--exec", "python3"]
+    assert windows["args"][4:6] == ["--exec", "/usr/bin/python3"]
     assert "tools/run_claude_live_mcp.py" in windows["args"]
     raw_memories = str(memories)
     expected_memories = raw_memories
@@ -169,6 +169,102 @@ def test_merge_and_backup_preserve_existing_payload(tmp_path: Path) -> None:
     assert payload["preferences"]["sidebarMode"] == "chat"
     assert payload["mcpServers"]["filesystem"]["command"] == "npx"
     assert payload["mcpServers"]["numquamoblita-live"]["command"] == "python3"
+
+
+def test_atomic_json_replace_failure_preserves_live_config(tmp_path: Path, monkeypatch) -> None:
+    module = _load_module()
+    config_path = tmp_path / "claude.json"
+    original = '{"mcpServers":{"working":{"command":"old"}}}\n'
+    config_path.write_text(original, encoding="utf-8")
+    real_replace = module.os.replace
+
+    def _replace(source, target):
+        if Path(target) == config_path:
+            raise OSError("injected replace failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(module.os, "replace", _replace)
+    try:
+        module.write_json_with_backup(config_path, {"mcpServers": {"new": {"command": "new"}}})
+    except OSError as exc:
+        assert "injected" in str(exc)
+    else:
+        raise AssertionError("expected injected replacement failure")
+    assert config_path.read_text(encoding="utf-8") == original
+
+
+def test_windows_config_discovery_is_current_user_scoped_by_default(tmp_path: Path) -> None:
+    module = _load_module()
+    users = tmp_path / "Users"
+    current = users / "Current"
+    other = users / "Other"
+    other_config = other / module.WINDOWS_CLAUDE_DESKTOP_REL
+    other_config.parent.mkdir(parents=True)
+    other_config.write_text("{}", encoding="utf-8")
+    current_config = current / module.WINDOWS_CLAUDE_DESKTOP_REL
+    assert module.find_windows_claude_desktop_config(
+        users_root=users, env={"USERPROFILE": str(current)}
+    ) == current_config
+    assert module.find_windows_claude_code_config(
+        users_root=users, env={"USERPROFILE": str(current)}
+    ) == current / module.WINDOWS_CLAUDE_CODE_REL
+
+
+def test_claude_install_stages_and_verifies_without_removing_existing_first() -> None:
+    module = _load_module()
+    calls: list[list[str]] = []
+
+    class _Proc:
+        returncode = 0
+        stdout = "add-json get remove\n"
+        stderr = ""
+
+    def _runner(cmd, **_kwargs):
+        calls.append(list(cmd))
+        return _Proc()
+
+    result = module.install_claude_code_server(
+        server_name="numquamoblita-live",
+        entry={"type": "stdio", "command": "python3", "args": ["-m", "mno"]},
+        scope="user",
+        runner=_runner,
+        which=lambda _binary: "claude",
+    )
+    assert result["stage_verified"] is True
+    assert result["verified"] is True
+    real_add_index = next(
+        index for index, cmd in enumerate(calls)
+        if cmd[:3] == ["claude", "mcp", "add-json"] and cmd[5] == "numquamoblita-live"
+    )
+    prior_removes = [cmd for cmd in calls[:real_add_index] if cmd[:3] == ["claude", "mcp", "remove"]]
+    assert prior_removes
+    assert all("-mno-stage-" in cmd[3] for cmd in prior_removes)
+
+
+def test_failed_staged_add_never_removes_existing_connector() -> None:
+    module = _load_module()
+    calls: list[list[str]] = []
+
+    class _Proc:
+        def __init__(self, returncode=0, stdout="add-json get remove", stderr=""):
+            self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+    def _runner(cmd, **_kwargs):
+        calls.append(list(cmd))
+        if cmd[:3] == ["claude", "mcp", "add-json"]:
+            return _Proc(1, "", "invalid entry")
+        return _Proc()
+
+    try:
+        module.install_claude_code_server(
+            server_name="numquamoblita-live", entry={"command": "broken"}, scope="user",
+            runner=_runner, which=lambda _binary: "claude",
+        )
+    except RuntimeError as exc:
+        assert "existing connector preserved" in str(exc)
+    else:
+        raise AssertionError("expected staged add failure")
+    assert not any(cmd[:4] == ["claude", "mcp", "remove", "numquamoblita-live"] for cmd in calls)
 
 
 def test_remove_mcp_server_entry_preserves_other_servers() -> None:

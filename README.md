@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2f7d4f?style=for-the-badge"></a>
-  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases/tag/v0.2.0"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
+  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases/tag/v0.2.1"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
   <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge"></a>
   <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=ask"></a>
 </p>
@@ -282,6 +282,8 @@ Longer public writeup:
 
 Generated runtime data is intentionally not committed. Imported stores, setup reports, diagnostics, desktop logs, and local state should stay local.
 
+Agents that reproduce a defect can use the documented [`mno-report`](docs/SUPPORT_TICKETS_FOR_AGENTS.md) contract to prepare a redacted, test-backed issue bundle. Direct GitHub submission remains an explicit authorized action.
+
 ## 🧑‍💻 For Engineers
 
 The short technical shape is:
@@ -304,6 +306,8 @@ Engineer-facing diagrams:
 
 ## 📦 Release Metadata
 
+- [v0.2.1 Release Notes](docs/RELEASE_NOTES_v0.2.1.md)
+- [Compatibility and Support Matrix](docs/COMPATIBILITY_AND_SUPPORT.md)
 - [License](LICENSE)
 - [Security Policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)

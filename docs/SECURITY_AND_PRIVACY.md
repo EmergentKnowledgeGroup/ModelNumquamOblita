@@ -77,6 +77,8 @@ MNO can preserve bounded raw-context receipts for provenance and quote-oriented 
 
 Practical rule: if the source file contains private text, assume raw-context surfaces may reveal short excerpts of that text to local operators or authorized agents.
 
+Raw import applies the secret-content boundary before normalized conversations, raw-context receipts, reports, or database rows are persisted. A rejected secret-like payload fails closed and must leave no durable canary residue. Desktop and source artifacts are also manifest-checked to exclude populated runtime data.
+
 ## Work-Session Scratchpad Risks
 
 WSS summaries are non-authoritative `scratchpad_ephemeral` helper state, but they can still mention local work details. Keep the runtime state root private, rotate or delete WSS sidecars according to your retention policy, and never treat scratchpad summaries as reviewed memory evidence.

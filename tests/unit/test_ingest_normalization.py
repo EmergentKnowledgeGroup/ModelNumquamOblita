@@ -28,6 +28,13 @@ def test_normalize_timestamp_supports_iso_and_epoch() -> None:
     assert normalize_timestamp("not-a-timestamp") is None
 
 
+def test_normalize_timestamp_rejects_naive_values_unless_policy_is_explicit() -> None:
+    assert normalize_timestamp("2026-02-08T05:00:00") is None
+    assumed = normalize_timestamp("2026-02-08T05:00:00", naive_policy="assume_utc")
+    assert assumed is not None
+    assert assumed.tzinfo == timezone.utc
+
+
 def test_noise_reason_detects_preface_and_tool_payload() -> None:
     preface = "Make sure to include `【message_idx†source】` markers to provide citations based on this file"
     assert noise_reason(preface, role="assistant") == "preface_blob"

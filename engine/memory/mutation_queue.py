@@ -148,6 +148,58 @@ class MutationReviewQueue:
             actor=actor,
         )
 
+    def propose_idempotent(
+        self,
+        *,
+        action: WriteAction,
+        target_atom_id: str,
+        replacement_candidate: CandidateAtom | None,
+        reason_code: str,
+        metadata: Optional[dict[str, str]],
+        actor: Optional[str],
+        idempotency_key: str,
+        payload_fingerprint: str,
+        response: dict[str, object],
+        retention_days: int = 30,
+    ) -> tuple[MutationProposal | None, str, dict[str, object]]:
+        """Create/replay an integration proposal without a process-local race."""
+
+        proposal = MutationProposal(
+            proposal_id=f"mpr_{uuid4().hex}",
+            action=action,
+            target_atom_id=target_atom_id,
+            reason_code=reason_code,
+            created_at=datetime.now(timezone.utc),
+            replacement_candidate=replacement_candidate,
+            retention_days=retention_days,
+            metadata=dict(metadata or {}),
+            created_by=self._optional_actor(actor),
+        )
+        durable_response = dict(response)
+        durable_response["proposal_id"] = proposal.proposal_id
+        if self._durable:
+            assert isinstance(self.store, SqliteAtomStore)
+            result = self.store.mutation_review_create_idempotent(
+                self._to_sqlite(proposal),
+                operation="writeback.propose",
+                idempotency_key=idempotency_key,
+                payload_fingerprint=payload_fingerprint,
+                response=durable_response,
+            )
+            state = str(result.get("state") or "")
+            if state == "conflict":
+                return None, state, {}
+            row = result.get("proposal")
+            if not isinstance(row, dict):
+                raise RuntimeError("durable idempotency result missing proposal")
+            stored_response = result.get("response")
+            if not isinstance(stored_response, dict):
+                raise RuntimeError("durable idempotency result missing response")
+            return self._from_sqlite(row), state, dict(stored_response)
+        with self._lock:
+            self._proposals[proposal.proposal_id] = proposal
+        return proposal, "created", durable_response
+
     def _propose(
         self,
         *,

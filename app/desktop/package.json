@@ -1,6 +1,6 @@
 {
   "name": "modelnumquamoblita-desktop-shell",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "author": "ProfessahX",
   "description": "Electron shell for the standalone ModelNumquamOblita runtime UI",
@@ -8,7 +8,7 @@
   "scripts": {
     "desktop:dev": "electron .",
     "desktop:test": "node --test *.test.cjs",
-    "desktop:build-assets": "bash build/generate_macos_icon.sh",
+    "desktop:build-assets": "node build-assets.cjs",
     "desktop:bundle-runtime": "node run-python.cjs build_managed_runtime.py",
     "desktop:clean-pack-output": "node clean-pack-output.cjs",
     "desktop:pack:dir": "npm run desktop:clean-pack-output && npm run desktop:build-assets && npm run desktop:bundle-runtime && node run-electron-builder.cjs --dir --publish never --unsigned-mac-local",
@@ -47,10 +47,6 @@
       {
         "from": "../../tools",
         "to": "mno_bundle/tools"
-      },
-      {
-        "from": "../../runtime",
-        "to": "mno_bundle/runtime"
       },
       {
         "from": "build/runtime/python",

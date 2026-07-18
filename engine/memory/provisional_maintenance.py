@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 from .provisional_store import (
     ProvisionalLifecycle,
     ProvisionalMemoryKind,
@@ -70,46 +71,106 @@ def run_maintenance(
     now: datetime | None = None,
     max_records: int | None = None,
     consolidation_enabled: bool = True,
-) -> list[MaintenanceTransition]:
-    """Run a stable-order pass and return only durable state transitions."""
+    run_id: str | None = None,
+    dry_run: bool = False,
+    return_result: bool = False,
+) -> list[MaintenanceTransition] | dict[str, object]:
+    """Run a durable, fair maintenance pass (or a read-only preview)."""
     server_now = now or datetime.now(timezone.utc)
     cap = max_records if max_records is not None else policy.max_records
     if not 1 <= int(cap) <= 100:
         raise ValueError("max_records must be in 1..100")
-    transitions: list[MaintenanceTransition] = []
-    terminal_statuses = {
-        ProvisionalMemoryStatus.SUPERSEDED,
-        ProvisionalMemoryStatus.CONFLICTED,
-        ProvisionalMemoryStatus.ARCHIVED,
+
+    def process(rows, *, apply: bool) -> list[MaintenanceTransition]:
+        transitions: list[MaintenanceTransition] = []
+        for record in rows:
+            last = record.last_independent_support_at or record.last_reinforced_at or record.updated_at
+            age = server_now - last.astimezone(timezone.utc)
+            if record.lifecycle is ProvisionalLifecycle.ACTIVE and age >= timedelta(days=policy.dormant_days):
+                if apply:
+                    store.set_lifecycle(record.record_id, ProvisionalLifecycle.DORMANT, reason="inactivity_window")
+                    disposition = "dormant"
+                else:
+                    disposition = "would_dormant"
+                transitions.append(MaintenanceTransition(record.record_id, disposition, "inactivity_window"))
+                continue
+            if record.lifecycle is ProvisionalLifecycle.DORMANT and age >= timedelta(days=policy.archive_days):
+                if apply:
+                    store.set_lifecycle(record.record_id, ProvisionalLifecycle.ARCHIVED, reason="archive_window")
+                    disposition = "archived"
+                else:
+                    disposition = "would_archive"
+                transitions.append(MaintenanceTransition(record.record_id, disposition, "archive_window"))
+                continue
+            if not consolidation_enabled or record.derived or record.lifecycle is not ProvisionalLifecycle.ACTIVE:
+                continue
+            required_support, required_sessions = policy.threshold_for(record.kind)
+            if record.independent_support_count < required_support or record.distinct_session_count < required_sessions:
+                continue
+            if record.kind is ProvisionalMemoryKind.PLAN and age >= timedelta(days=policy.plan_currentness_days):
+                if apply:
+                    store.set_lifecycle(record.record_id, ProvisionalLifecycle.DORMANT, reason="plan_currentness_window")
+                    disposition = "historical_plan"
+                else:
+                    disposition = "would_historical_plan"
+                transitions.append(MaintenanceTransition(record.record_id, disposition, "plan_currentness_window"))
+                continue
+            if apply:
+                derived = store.create_consolidated_revision(record_ids=[record.record_id], policy_version=policy.policy_version)
+                if derived is not None:
+                    transitions.append(MaintenanceTransition(derived.record_id, "consolidated", "threshold_met"))
+            else:
+                transitions.append(MaintenanceTransition(record.record_id, "would_consolidate", "threshold_met"))
+        return transitions
+
+    if dry_run:
+        cursor = store.maintenance_cursor()
+        rows, next_cursor = store.maintenance_candidates(cursor=cursor, limit=int(cap))
+        transitions = process(rows, apply=False)
+        result: dict[str, object] = {
+            "state": "preview",
+            "dry_run": True,
+            "transitions": transitions,
+            "processed_count": len(rows),
+            "cursor": cursor,
+            "next_cursor": next_cursor,
+        }
+        return result if return_result else transitions
+
+    durable_run_id = str(run_id or f"maint_{uuid4().hex}").strip()
+    started = store.maintenance_begin(durable_run_id)
+    state = str(started.get("state") or "")
+    if state == "replay":
+        transitions = [MaintenanceTransition(**dict(item)) for item in list(started.get("transitions") or [])]
+        result = {"state": "replay", "dry_run": False, "transitions": transitions, "processed_count": len(transitions)}
+        return result if return_result else transitions
+    if state in {"join", "conflict"}:
+        result = {"state": state, "dry_run": False, "transitions": [], "processed_count": 0}
+        return result if return_result else []
+    if state != "acquired":
+        raise RuntimeError("MAINTENANCE_RUN_ACQUISITION_FAILED")
+
+    cursor = dict(started.get("cursor") or {})
+    try:
+        rows, next_cursor = store.maintenance_candidates(cursor=cursor, limit=int(cap))
+        transitions = process(rows, apply=True)
+        serialized = [
+            {"record_id": item.record_id, "disposition": item.disposition, "reason": item.reason}
+            for item in transitions
+        ]
+        store.maintenance_complete(durable_run_id, cursor=next_cursor, transitions=serialized)
+    except Exception:
+        store.maintenance_fail(durable_run_id, error_code="MAINTENANCE_FAILED")
+        raise
+    result = {
+        "state": "completed",
+        "dry_run": False,
+        "transitions": transitions,
+        "processed_count": len(rows),
+        "cursor": cursor,
+        "next_cursor": next_cursor,
     }
-    rows = sorted(
-        (record for record in store.list_records(status="all") if record.status not in terminal_statuses),
-        key=lambda record: (record.created_at, record.record_id),
-    )[: int(cap)]
-    for record in rows:
-        last = record.last_independent_support_at or record.last_reinforced_at or record.updated_at
-        age = server_now - last.astimezone(timezone.utc)
-        if record.lifecycle is ProvisionalLifecycle.ACTIVE and age >= timedelta(days=policy.dormant_days):
-            store.set_lifecycle(record.record_id, ProvisionalLifecycle.DORMANT, reason="inactivity_window")
-            transitions.append(MaintenanceTransition(record.record_id, "dormant", "inactivity_window"))
-            continue
-        if record.lifecycle is ProvisionalLifecycle.DORMANT and age >= timedelta(days=policy.archive_days):
-            store.set_lifecycle(record.record_id, ProvisionalLifecycle.ARCHIVED, reason="archive_window")
-            transitions.append(MaintenanceTransition(record.record_id, "archived", "archive_window"))
-            continue
-        if not consolidation_enabled or record.derived or record.lifecycle is not ProvisionalLifecycle.ACTIVE:
-            continue
-        required_support, required_sessions = policy.threshold_for(record.kind)
-        if record.independent_support_count < required_support or record.distinct_session_count < required_sessions:
-            continue
-        if record.kind is ProvisionalMemoryKind.PLAN and age >= timedelta(days=policy.plan_currentness_days):
-            store.set_lifecycle(record.record_id, ProvisionalLifecycle.DORMANT, reason="plan_currentness_window")
-            transitions.append(MaintenanceTransition(record.record_id, "historical_plan", "plan_currentness_window"))
-            continue
-        derived = store.create_consolidated_revision(record_ids=[record.record_id], policy_version=policy.policy_version)
-        if derived is not None:
-            transitions.append(MaintenanceTransition(derived.record_id, "consolidated", "threshold_met"))
-    return transitions
+    return result if return_result else transitions
 
 
 __all__ = ["MaintenancePolicy", "MaintenanceTransition", "run_maintenance"]

@@ -65,6 +65,10 @@ def _backup_sqlite_file(source_path: str | Path, target_path: str | Path) -> Pat
             sqlite3.connect(str(target))
         ) as target_conn:
             source_conn.backup(target_conn)
+        try:
+            os.chmod(target, 0o600)
+        except OSError:
+            pass
     except Exception:
         target.unlink(missing_ok=True)
         raise

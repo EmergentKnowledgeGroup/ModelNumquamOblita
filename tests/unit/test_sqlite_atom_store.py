@@ -483,6 +483,28 @@ def test_memory_family_backup_uses_sqlite_apis_and_records_only_topology_metadat
         restored.close()
 
 
+def test_memory_family_backup_restricts_sidecar_and_manifest_permissions(tmp_path: Path, monkeypatch) -> None:
+    atom_path = tmp_path / "atoms.sqlite3"
+    atom_store = SqliteAtomStore(atom_path)
+    provisional = SqliteProvisionalMemoryStore(atom_path.with_suffix(".provisional.sqlite3"))
+    proposal = SqliteProposalStore(atom_path.with_suffix(".proposals.sqlite3"))
+    provisional.close()
+    proposal.close()
+    calls: list[tuple[Path, int]] = []
+    monkeypatch.setattr(
+        "engine.memory.backup.os.chmod",
+        lambda path, mode: calls.append((Path(path).resolve(), mode)),
+    )
+
+    backup_dir = tmp_path / "backups"
+    backup_memory_family(atom_store, backup_dir)
+    atom_store.close()
+
+    assert ((backup_dir / "atoms.provisional.sqlite3").resolve(), 0o600) in calls
+    assert ((backup_dir / "atoms.proposals.sqlite3").resolve(), 0o600) in calls
+    assert ((backup_dir / "memory_family_manifest.json").resolve(), 0o600) in calls
+
+
 def test_memory_family_backup_does_not_initialize_existing_sidecars(tmp_path: Path) -> None:
     atom_store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
     provisional_path = tmp_path / "atoms.provisional.sqlite3"

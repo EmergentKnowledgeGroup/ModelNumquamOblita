@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from dataclasses import dataclass, field
@@ -348,6 +349,10 @@ class SqliteProposalStore:
         target.parent.mkdir(parents=True, exist_ok=True)
         with self._lock, sqlite3.connect(str(target)) as destination:
             self._conn.backup(destination)
+        try:
+            os.chmod(target, 0o600)
+        except OSError:
+            pass
         return target
 
     @staticmethod

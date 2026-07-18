@@ -11,19 +11,20 @@ permissions:
 
 jobs:
   python:
-    name: Python ${{ matrix.os }}
+    name: Python ${{ matrix.python-version }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
       - uses: actions/setup-node@v4
         if: matrix.os == 'ubuntu-latest'
@@ -44,8 +45,12 @@ jobs:
           MNO_ELECTRON_TEST_NO_SANDBOX: ${{ matrix.os == 'ubuntu-latest' && '1' || '0' }}
 
   desktop:
-    name: Desktop tests and release metadata
-    runs-on: ubuntu-latest
+    name: Desktop tests / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,7 +67,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Verify v0.2.0 metadata is aligned
+      - name: Verify v0.2.1 metadata is aligned
         shell: python
         run: |
           import json
@@ -74,8 +79,43 @@ jobs:
           desktop = json.loads((root / "app/desktop/package.json").read_text(encoding="utf-8"))
           lock = json.loads((root / "app/desktop/package-lock.json").read_text(encoding="utf-8"))
           manifest = json.loads((root / "app/desktop/runtime-bundle.manifest.json").read_text(encoding="utf-8"))
-          expected = "0.2.0"
+          expected = "0.2.1"
           assert project["project"]["version"] == expected
           assert desktop["version"] == expected
           assert lock["version"] == expected
           assert expected in manifest["allowed_app_versions"]
+
+  distribution-artifacts:
+    name: Build and prove release artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Build exact wheel and source distribution
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --outdir dist
+      - name: Verify manifests and isolated install
+        run: python tools/verify_distribution_artifacts.py --dist-dir dist --work-root artifact-proof
+      - name: Record release digests
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import pathlib
+
+          rows = []
+          for path in sorted(pathlib.Path("dist").iterdir()):
+              if path.is_file():
+                  rows.append({"name": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+          pathlib.Path("dist/SHA256SUMS.json").write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modelnumquamoblita-v0.2.1-python
+          path: dist/*
+          if-no-files-found: error

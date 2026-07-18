@@ -23,6 +23,7 @@ from engine.memory import MutationReviewQueue, SqliteAtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
 from engine.runtime import RuntimeSession, load_inmemory_store_from_json, start_runtime_server, stop_runtime_server
 from engine.runtime.server import _wizard_runtime_store_fingerprint, _wizard_write_runtime_lock
+from tools.preflight import _default_memories
 
 
 RUNTIME_TRACE_PATH = (REPO_ROOT / "runtime" / "desktop_shell" / "runtime_child_trace.log").resolve()
@@ -42,15 +43,15 @@ def _trace_runtime(line: str) -> None:
 
 
 def _default_memory_path() -> Path:
-    sqlite_default = REPO_ROOT / ".runtime" / "imports" / "atoms.sqlite3"
-    if sqlite_default.exists():
-        return sqlite_default
+    default_path = _default_memories(REPO_ROOT)
+    if default_path.exists():
+        return default_path
     imports_dir = REPO_ROOT / "runtime" / "imports"
     if imports_dir.exists():
         candidates = sorted(imports_dir.rglob("memories.json"), key=lambda path: path.stat().st_mtime, reverse=True)
         if candidates:
             return candidates[0]
-    return sqlite_default
+    return default_path
 
 
 def _default_episode_cards_path() -> Path | None:
@@ -319,6 +320,9 @@ def main() -> int:
         try:
             _trace_runtime(f"loop_enter pid={runtime_pid}")
             while True:
+                if received_signals:
+                    shutdown_reason = f"signal:{received_signals[-1]}"
+                    break
                 if bool(getattr(server, "desktop_shutdown_requested", False)):
                     shutdown_reason = "desktop_shutdown_requested"
                     break

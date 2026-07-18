@@ -48,6 +48,11 @@ def test_build_posix_and_windows_entries_are_stable(tmp_path: Path) -> None:
             self.stderr = ""
 
     def _runner(cmd, **_kwargs):
+        if "-c" in cmd and "--exec" in cmd:
+            candidate = str(cmd[cmd.index("--exec") + 1])
+            if candidate == "/usr/local/bin/python3.14":
+                return _Proc("3.14\n")
+            return type("Failed", (), {"returncode": 1, "stdout": "", "stderr": "missing"})()
         return _Proc(f"/converted/{Path(str(cmd[-1])).name}\n")
 
     windows = module.build_windows_wsl_stdio_entry(
@@ -64,7 +69,7 @@ def test_build_posix_and_windows_entries_are_stable(tmp_path: Path) -> None:
     assert windows["command"] == r"C:\Windows\System32\wsl.exe"
     assert windows["env"] == {}
     assert windows["args"][:4] == ["-d", "Ubuntu-24.04", "--cd", "/mnt/z/mno-workspace"]
-    assert windows["args"][4:6] == ["--exec", "python3"]
+    assert windows["args"][4:6] == ["--exec", "/usr/local/bin/python3.14"]
     assert "tools/run_claude_live_mcp.py" in windows["args"]
     raw_memories = str(memories)
     expected_memories = raw_memories
@@ -137,6 +142,82 @@ def test_detect_wsl_distro_returns_empty_when_command_is_missing() -> None:
     assert module.detect_wsl_distro(env={}, runner=_runner) == ""
 
 
+def test_wsl_python_discovery_does_not_assume_usr_bin_python3() -> None:
+    module = _load_module()
+
+    class _Proc:
+        def __init__(self, returncode: int, stdout: str = ""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = ""
+
+    def _runner(cmd, **_kwargs):
+        candidate = cmd[cmd.index("--exec") + 1]
+        if candidate == "/usr/local/bin/python3.13":
+            return _Proc(0, "3.13\n")
+        return _Proc(1)
+
+    assert module.discover_wsl_python_path(distro_name="Ubuntu", runner=_runner) == "/usr/local/bin/python3.13"
+
+
+def test_wsl_python_discovery_uses_one_path_probe_when_supported() -> None:
+    module = _load_module()
+    calls: list[list[str]] = []
+
+    class _Proc:
+        returncode = 0
+        stdout = '{"path":"/opt/python/bin/python3.14","version":[3,14]}\n'
+        stderr = ""
+
+    def _runner(cmd, **_kwargs):
+        calls.append(list(cmd))
+        return _Proc()
+
+    assert module.discover_wsl_python_path(distro_name="Ubuntu", runner=_runner) == "/opt/python/bin/python3.14"
+    assert len(calls) == 1
+
+
+def test_wsl_entry_uses_target_runtime_path_resolution_when_discovery_is_unavailable(tmp_path: Path) -> None:
+    module = _load_module()
+
+    class _Proc:
+        returncode = 1
+        stdout = ""
+        stderr = "unavailable"
+
+    entry = module.build_windows_wsl_stdio_entry(
+        repo_root="/mnt/z/mno",
+        memories_path=tmp_path / "memories.json",
+        episodes_path=None,
+        default_role="viewer",
+        compat_mode="strict",
+        mutations_enabled=False,
+        distro_name="Ubuntu",
+        runner=lambda *_args, **_kwargs: _Proc(),
+    )
+    exec_index = entry["args"].index("--exec")
+    assert entry["args"][exec_index + 1:exec_index + 4] == ["/usr/bin/env", "python3", "-c"]
+    launch_guard = entry["args"][exec_index + 4]
+    assert "sys.version_info >= (3,12)" in launch_guard
+    assert "runpy.run_path" in launch_guard
+    assert entry["args"][exec_index + 5] == "tools/run_claude_live_mcp.py"
+
+
+def test_default_memory_path_scans_selected_legacy_imports_root(tmp_path: Path) -> None:
+    module = _load_module()
+    nested = tmp_path / ".runtime" / "imports" / "export" / "memories.json"
+    nested.parent.mkdir(parents=True)
+    nested.write_text("[]", encoding="utf-8")
+    assert module.default_memory_path(repo_root=tmp_path) == nested
+
+
+def test_empty_injected_environment_does_not_read_process_profile(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "ProcessUser"))
+    monkeypatch.setenv("USERNAME", "ProcessUser")
+    assert module._current_windows_user_dir(users_root=tmp_path / "Users", env={}) is None
+
+
 def test_detect_wsl_distro_returns_empty_when_no_distro_is_available() -> None:
     module = _load_module()
 
@@ -169,6 +250,127 @@ def test_merge_and_backup_preserve_existing_payload(tmp_path: Path) -> None:
     assert payload["preferences"]["sidebarMode"] == "chat"
     assert payload["mcpServers"]["filesystem"]["command"] == "npx"
     assert payload["mcpServers"]["numquamoblita-live"]["command"] == "python3"
+
+
+def test_json_backup_fsyncs_directory_after_each_atomic_rename(tmp_path: Path, monkeypatch) -> None:
+    module = _load_module()
+    config_path = tmp_path / "claude_desktop_config.json"
+    config_path.write_text('{"existing": true}\n', encoding="utf-8")
+    calls: list[Path] = []
+    monkeypatch.setattr(module, "_fsync_directory", lambda path: calls.append(Path(path).resolve()))
+
+    module.write_json_with_backup(config_path, {"updated": True})
+
+    assert calls == [tmp_path.resolve(), tmp_path.resolve()]
+
+
+def test_directory_fsync_closes_descriptor_on_posix(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+    calls: list[tuple[str, int] | tuple[str, int, int]] = []
+    monkeypatch.setattr(module.os, "open", lambda path, flags: calls.append(("open", flags)) or 41)
+    monkeypatch.setattr(module.os, "fsync", lambda descriptor: calls.append(("fsync", descriptor)))
+    monkeypatch.setattr(module.os, "close", lambda descriptor: calls.append(("close", descriptor)))
+
+    module._fsync_directory(tmp_path, platform_name="posix")
+
+    assert calls[0][0] == "open"
+    assert calls[1:] == [("fsync", 41), ("close", 41)]
+
+
+def test_atomic_json_replace_failure_preserves_live_config(tmp_path: Path, monkeypatch) -> None:
+    module = _load_module()
+    config_path = tmp_path / "claude.json"
+    original = '{"mcpServers":{"working":{"command":"old"}}}\n'
+    config_path.write_text(original, encoding="utf-8")
+    real_replace = module.os.replace
+
+    def _replace(source, target):
+        if Path(target) == config_path:
+            raise OSError("injected replace failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(module.os, "replace", _replace)
+    try:
+        module.write_json_with_backup(config_path, {"mcpServers": {"new": {"command": "new"}}})
+    except OSError as exc:
+        assert "injected" in str(exc)
+    else:
+        raise AssertionError("expected injected replacement failure")
+    assert config_path.read_text(encoding="utf-8") == original
+
+
+def test_windows_config_discovery_is_current_user_scoped_by_default(tmp_path: Path) -> None:
+    module = _load_module()
+    users = tmp_path / "Users"
+    current = users / "Current"
+    other = users / "Other"
+    other_config = other / module.WINDOWS_CLAUDE_DESKTOP_REL
+    other_config.parent.mkdir(parents=True)
+    other_config.write_text("{}", encoding="utf-8")
+    current_config = current / module.WINDOWS_CLAUDE_DESKTOP_REL
+    assert module.find_windows_claude_desktop_config(
+        users_root=users, env={"USERPROFILE": str(current)}
+    ) == current_config
+    assert module.find_windows_claude_code_config(
+        users_root=users, env={"USERPROFILE": str(current)}
+    ) == current / module.WINDOWS_CLAUDE_CODE_REL
+
+
+def test_claude_install_stages_and_verifies_without_removing_existing_first() -> None:
+    module = _load_module()
+    calls: list[list[str]] = []
+
+    class _Proc:
+        returncode = 0
+        stdout = "add-json get remove\n"
+        stderr = ""
+
+    def _runner(cmd, **_kwargs):
+        calls.append(list(cmd))
+        return _Proc()
+
+    result = module.install_claude_code_server(
+        server_name="numquamoblita-live",
+        entry={"type": "stdio", "command": "python3", "args": ["-m", "mno"]},
+        scope="user",
+        runner=_runner,
+        which=lambda _binary: "claude",
+    )
+    assert result["stage_verified"] is True
+    assert result["verified"] is True
+    real_add_index = next(
+        index for index, cmd in enumerate(calls)
+        if cmd[:3] == ["claude", "mcp", "add-json"] and cmd[5] == "numquamoblita-live"
+    )
+    prior_removes = [cmd for cmd in calls[:real_add_index] if cmd[:3] == ["claude", "mcp", "remove"]]
+    assert prior_removes
+    assert all("-mno-stage-" in cmd[3] for cmd in prior_removes)
+
+
+def test_failed_staged_add_never_removes_existing_connector() -> None:
+    module = _load_module()
+    calls: list[list[str]] = []
+
+    class _Proc:
+        def __init__(self, returncode=0, stdout="add-json get remove", stderr=""):
+            self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+    def _runner(cmd, **_kwargs):
+        calls.append(list(cmd))
+        if cmd[:3] == ["claude", "mcp", "add-json"]:
+            return _Proc(1, "", "invalid entry")
+        return _Proc()
+
+    try:
+        module.install_claude_code_server(
+            server_name="numquamoblita-live", entry={"command": "broken"}, scope="user",
+            runner=_runner, which=lambda _binary: "claude",
+        )
+    except RuntimeError as exc:
+        assert "existing connector preserved" in str(exc)
+    else:
+        raise AssertionError("expected staged add failure")
+    assert not any(cmd[:4] == ["claude", "mcp", "remove", "numquamoblita-live"] for cmd in calls)
 
 
 def test_remove_mcp_server_entry_preserves_other_servers() -> None:

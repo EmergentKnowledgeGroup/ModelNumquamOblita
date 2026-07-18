@@ -79,16 +79,21 @@ Example response:
   "ok": true,
   "operation": "capabilities.get",
   "data": {
-    "schema_version": "integration.v1",
-    "operations": {
-      "context.build": {"required_roles": ["admin", "operator", "viewer"]},
-      "memory.observe": {"required_roles": ["admin", "operator"]},
-      "writeback.propose": {"required_roles": ["admin", "operator"]},
-      "writeback.resolve": {"required_capability": "review_apply"}
+    "contract_version": "1.0.0",
+    "operations": [
+      {"name": "context.build", "exposed": true, "backend_available": true, "authorized": true, "degraded": false, "available": true, "reason_codes": []},
+      {"name": "writeback.resolve", "exposed": true, "backend_available": true, "degraded": false, "authorized": false, "available": false, "required_capability": "review_apply", "reason_codes": ["review_capability_required"], "policy_state": "human_review_required"}
+    ],
+    "support_ticket": {
+      "schema": "mno.support_ticket.v1",
+      "command": "mno-report",
+      "submission_requires_explicit_flag": true
     }
   }
 }
 ```
+
+`exposed` means the contract/tool exists. `backend_available` means its required store, queue, or signer exists. `authorized` is evaluated for the authenticated principal, including role, operation scope, and separate reviewer capability. `available` is the effective result after backend, authorization, and degradation. Agents must obey `available` and `reason_codes`; schema exposure is not permission or proof of success.
 
 ## Context Build
 

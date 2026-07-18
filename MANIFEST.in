@@ -1,0 +1,28 @@
+include README.md LICENSE SECURITY.md CONTRIBUTING.md LLMS.md DISTRIBUTION.md
+include pyproject.toml
+include setup_local.bat setup_local.ps1 setup_local.sh
+include launch_setup_workspace.bat launch_setup_workspace.ps1 launch_setup_workspace.sh
+recursive-include engine *
+recursive-include tools *.py *.ps1 *.bat *.sh
+recursive-include app/desktop *.js *.cjs *.json *.html *.css *.png *.icns *.plist *.swift *.sh
+recursive-include docs *
+recursive-include skills *
+recursive-include tests *.py
+include runtime/README.md
+include runtime/desktop_shell/.gitkeep
+include runtime/diagnostics/.gitkeep
+include runtime/episodes/.gitkeep
+include runtime/imports/.gitkeep
+include runtime/live_runs/.gitkeep
+include runtime/packaging/.gitkeep
+include runtime/reports/.gitkeep
+include runtime/setup/.gitkeep
+include runtime/state/.gitkeep
+include runtime/stores/.gitkeep
+include runtime/tmp/.gitkeep
+include runtime/wizard_runs/.gitkeep
+prune app/desktop/node_modules
+prune app/desktop/dist
+prune app/desktop/build/runtime
+global-exclude *.sqlite3 *.sqlite3-wal *.sqlite3-shm
+global-exclude .DS_Store __pycache__ *.py[cod]

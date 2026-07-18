@@ -21,6 +21,7 @@ from engine.mcp.server import (
     run_stdio_server,
     start_http_server,
     stop_http_server,
+    _stdio_trace_log,
 )
 
 
@@ -2025,6 +2026,10 @@ def test_mcp_initialize_and_tools_list_default_role() -> None:
     assert "chat.build_context_package" in names
     assert "why.explain_turn" in names
     assert "evidence.resolve_citation" in names
+
+    capabilities = _call(server, 3, "tools/call", {"name": "capabilities.get", "arguments": {}})
+    support_ticket = dict(dict(capabilities["result"]).get("structuredContent") or {}).get("support_ticket")
+    assert dict(support_ticket or {}).get("explicit_logs_only") is True
 
 
 def test_mcp_initialize_requires_token_when_configured() -> None:
@@ -4152,6 +4157,11 @@ def test_mcp_phase6_http_security_logs_redact_token_values(tmp_path: Path) -> No
         )
         assert status_auth == 200
         assert "result" in auth_payload
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if log_path.exists() and '"reason":"request_completed"' in log_path.read_text(encoding="utf-8"):
+                break
+            time.sleep(0.05)
     finally:
         stop_http_server(http_server, thread)
 
@@ -4255,3 +4265,57 @@ def test_stdio_server_parse_error_recovery() -> None:
 
     assert dict(first_obj["error"]).get("code") == -32700
     assert "result" in second_obj
+
+
+def test_stdio_trace_redacts_initialize_auth_tokens_and_common_secret_suffixes(tmp_path: Path, monkeypatch) -> None:
+    trace_path = tmp_path / "stdio.jsonl"
+    monkeypatch.setenv("NO_MCP_STDIO_TRACE", str(trace_path))
+    _stdio_trace_log(
+        {
+            "event": "request",
+            "method": "initialize",
+            "params": {
+                "auth_token": "secret",
+                "nested": {"admin_token": "worse", "database_password": "pass", "third_party_api_key": "key"},
+                "client_secret": "client",
+                "cookie": "cookie-value",
+            },
+        }
+    )
+    payload = json.loads(trace_path.read_text(encoding="utf-8"))
+    params = dict(payload["params"])
+    assert params["auth_token"] == "[REDACTED]"
+    assert dict(params["nested"]) == {
+        "admin_token": "[REDACTED]",
+        "database_password": "[REDACTED]",
+        "third_party_api_key": "[REDACTED]",
+    }
+    assert params["client_secret"] == "[REDACTED]"
+    assert params["cookie"] == "[REDACTED]"
+
+
+def test_stdio_server_recovers_after_lossy_utf8_body_is_fully_drained() -> None:
+    bad_body = b'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"x":"\xff"}}'
+    bad_message = f"Content-Length: {len(bad_body)}\r\n\r\n".encode() + bad_body
+    good_payload = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}}).encode("utf-8")
+    good_message = f"Content-Length: {len(good_payload)}\r\n\r\n".encode() + good_payload
+    stdin_buffer = BytesIO(bad_message + good_message)
+    stdout_buffer = BytesIO()
+    server = MCPServer(config=ServerConfig(runtime_base_url="http://127.0.0.1:7340", auth=AuthConfig(default_role="viewer")), api_client=_FakeApiClient())
+    assert run_stdio_server(server, stdin_buffer=stdin_buffer, stdout_buffer=stdout_buffer) == 0
+    frames = _decode_framed_json_messages(stdout_buffer.getvalue())
+    assert dict(frames[0]["error"])["code"] == -32700
+    assert "result" in frames[1]
+
+
+def test_stdio_server_stops_after_malformed_utf8_header_cannot_be_drained() -> None:
+    malformed_header = b"Content-Length: 2\xff\r\n\r\n{}"
+    good_payload = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}}).encode("utf-8")
+    good_message = f"Content-Length: {len(good_payload)}\r\n\r\n".encode() + good_payload
+    stdout_buffer = BytesIO()
+    server = MCPServer(config=ServerConfig(runtime_base_url="http://127.0.0.1:7340", auth=AuthConfig(default_role="viewer")), api_client=_FakeApiClient())
+
+    assert run_stdio_server(server, stdin_buffer=BytesIO(malformed_header + good_message), stdout_buffer=stdout_buffer) == 1
+    frames = _decode_framed_json_messages(stdout_buffer.getvalue())
+    assert len(frames) == 1
+    assert dict(frames[0]["error"])["code"] == -32700

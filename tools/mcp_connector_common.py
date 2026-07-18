@@ -8,8 +8,11 @@ import shutil
 import subprocess
 from collections import Counter
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
+from uuid import uuid4
+
+from tools.preflight import PYTHON_BOOTSTRAP_PROBE, _default_memories
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SERVER_NAME = "numquamoblita-live"
@@ -20,6 +23,17 @@ WINDOWS_CLAUDE_DESKTOP_REL = Path("AppData/Roaming/Claude/claude_desktop_config.
 WINDOWS_CLAUDE_CODE_REL = Path(".claude.json")
 _WINDOWS_USER_EXCLUDE = {"All Users", "Default", "Default User", "Public", "defaultuser0"}
 SUPPORTED_MEMORY_SUFFIXES = {".sqlite3", ".sqlite", ".db", ".json"}
+WSL_PYTHON_CANDIDATES = tuple(
+    f"{prefix}/python3{suffix}"
+    for suffix in (".15", ".14", ".13", ".12", "")
+    for prefix in ("/usr/bin", "/usr/local/bin")
+)
+WSL_PYTHON_LAUNCH_GUARD = (
+    "import runpy,sys,venv,xml.parsers.expat;"
+    "assert sys.version_info >= (3,12), 'MNO requires Python 3.12+';"
+    "script=sys.argv.pop(1);sys.argv[0]=script;"
+    "runpy.run_path(script,run_name='__main__')"
+)
 
 
 def _path_text(value: str | Path | None) -> str:
@@ -93,15 +107,15 @@ def windows_wsl_command() -> str:
 
 
 def default_memory_path(*, repo_root: Path = REPO_ROOT) -> Path:
-    sqlite_default = repo_root / ".runtime" / "imports" / "atoms.sqlite3"
-    if sqlite_default.exists():
-        return sqlite_default
-    imports_dir = repo_root / "runtime" / "imports"
+    default_path = _default_memories(repo_root)
+    if default_path.exists():
+        return default_path
+    imports_dir = default_path.parent
     if imports_dir.exists():
         candidates = sorted(imports_dir.rglob("memories.json"), key=lambda path: path.stat().st_mtime, reverse=True)
         if candidates:
             return candidates[0]
-    return sqlite_default
+    return default_path
 
 
 
@@ -354,6 +368,7 @@ def build_windows_wsl_stdio_entry(
     distro_name: str,
     runner: Any | None = None,
     config_path: str | Path | None = None,
+    python_path: str = "",
 ) -> dict[str, Any]:
     runner = runner or run_subprocess_hidden_on_windows
     repo_root_arg, distro = wsl_path_from_windows(repo_root, distro_name=distro_name, runner=runner)
@@ -364,10 +379,22 @@ def build_windows_wsl_stdio_entry(
         episodes_arg, distro = wsl_path_from_windows(episodes_path, distro_name=distro, runner=runner)
     if config_path is not None and _path_text(config_path):
         config_arg, distro = wsl_path_from_windows(config_path, distro_name=distro, runner=runner)
+    selected_python = str(python_path or "").strip()
+    runtime_python_argv: list[str]
+    if selected_python:
+        runtime_python_argv = [selected_python]
+    else:
+        try:
+            runtime_python_argv = [discover_wsl_python_path(distro_name=distro, runner=runner)]
+        except ValueError:
+            # Cross-platform bundle generation may not have access to the target WSL distro.
+            # Resolve inside that distro at launch, but fail before MNO starts if the
+            # target's unversioned interpreter does not satisfy the 3.12+ contract.
+            runtime_python_argv = ["/usr/bin/env", "python3", "-c", WSL_PYTHON_LAUNCH_GUARD]
     args: list[str] = []
     if distro:
         args.extend(["-d", distro])
-    args.extend(["--cd", repo_root_arg, "--exec", "python3"])
+    args.extend(["--cd", repo_root_arg, "--exec", *runtime_python_argv])
     args.extend(
         build_launcher_cli_args(
             launcher_path="tools/run_claude_live_mcp.py",
@@ -385,6 +412,56 @@ def build_windows_wsl_stdio_entry(
         "args": args,
         "env": {},
     }
+
+
+def discover_wsl_python_path(*, distro_name: str, runner: Any | None = None) -> str:
+    runner = runner or run_subprocess_hidden_on_windows
+    path_probe = (
+        "import json,sys,venv,xml.parsers.expat; "
+        "assert sys.version_info >= (3,12); "
+        "print(json.dumps({'path':sys.executable,'version':[sys.version_info[0],sys.version_info[1]]}))"
+    )
+    path_command = [windows_wsl_command()]
+    if distro_name:
+        path_command.extend(["-d", distro_name])
+    path_command.extend(["--exec", "/usr/bin/env", "python3", "-c", path_probe])
+    try:
+        path_result = runner(path_command, check=False, capture_output=True, text=True)
+    except OSError:
+        path_result = None
+    if path_result is not None and int(path_result.returncode) == 0:
+        try:
+            payload = json.loads(str(path_result.stdout or "").strip().splitlines()[-1])
+            selected_path = str(payload.get("path") or "").strip()
+            version = tuple(int(piece) for piece in payload.get("version") or ())
+            if len(version) == 2 and version >= (3, 12) and PurePosixPath(selected_path).is_absolute():
+                return selected_path
+        except (IndexError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+    best: tuple[tuple[int, int], str] | None = None
+    for candidate in WSL_PYTHON_CANDIDATES:
+        command = [windows_wsl_command()]
+        if distro_name:
+            command.extend(["-d", distro_name])
+        command.extend(["--exec", candidate, "-c", PYTHON_BOOTSTRAP_PROBE])
+        try:
+            proc = runner(command, check=False, capture_output=True, text=True)
+        except OSError:
+            continue
+        if int(proc.returncode) != 0:
+            continue
+        raw = str(proc.stdout or "").strip()
+        parts = raw.split(".", 1)
+        if len(parts) != 2 or not all(part.isdigit() for part in parts):
+            continue
+        version = (int(parts[0]), int(parts[1]))
+        if version < (3, 12):
+            continue
+        if best is None or version > best[0]:
+            best = (version, candidate)
+    if best is None:
+        raise ValueError("no compatible Python 3.12+ interpreter found inside the selected WSL distribution")
+    return best[1]
 
 
 
@@ -428,14 +505,55 @@ def _backup_path(path: Path) -> Path:
     return path.with_name(f"{path.name}.bak.{stamp}")
 
 
+def _fsync_directory(path: Path, *, platform_name: str | None = None) -> None:
+    """Persist directory-entry changes where the host supports directory fsync.
+
+    Windows does not expose POSIX directory descriptors through ``os.open``;
+    there the atomic ``os.replace`` plus file fsync is the strongest portable
+    guarantee available to this connector writer.
+    """
+
+    if str(platform_name or os.name).lower() == "nt":
+        return
+    flags = int(os.O_RDONLY) | int(getattr(os, "O_DIRECTORY", 0) or 0)
+    try:
+        descriptor = os.open(str(path), flags)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 
 def write_json_with_backup(path: Path, payload: dict[str, Any]) -> Path | None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     backup_path: Path | None = None
     if path.exists():
         backup_path = _backup_path(path)
-        backup_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        if backup_path.exists():
+            backup_path = backup_path.with_name(f"{backup_path.name}.{uuid4().hex[:8]}")
+        backup_temp = backup_path.with_name(f".{backup_path.name}.{uuid4().hex}.tmp")
+        try:
+            with backup_temp.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write(path.read_text(encoding="utf-8"))
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(backup_temp, backup_path)
+            _fsync_directory(path.parent)
+        finally:
+            backup_temp.unlink(missing_ok=True)
+    target_temp = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        with target_temp.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(target_temp, path)
+        _fsync_directory(path.parent)
+    finally:
+        target_temp.unlink(missing_ok=True)
     return backup_path
 
 
@@ -456,7 +574,25 @@ def candidate_windows_user_dirs(*, users_root: Path | None = None) -> list[Path]
 
 
 
-def find_windows_claude_desktop_config(*, users_root: Path | None = None) -> Path | None:
+def _current_windows_user_dir(*, users_root: Path | None = None, env: Mapping[str, str] | None = None) -> Path | None:
+    env_map = dict(os.environ if env is None else env)
+    user_profile = str(env_map.get("USERPROFILE") or "").strip()
+    if user_profile:
+        return Path(user_profile).expanduser().resolve()
+    user_name = str(env_map.get("USERNAME") or "").strip()
+    if user_name:
+        return (users_root or windows_users_root(env=env_map)) / user_name
+    return None
+
+
+def find_windows_claude_desktop_config(
+    *, users_root: Path | None = None, env: Mapping[str, str] | None = None, allow_cross_profile: bool = False
+) -> Path | None:
+    current_user = _current_windows_user_dir(users_root=users_root, env=env)
+    if current_user is not None:
+        return current_user / WINDOWS_CLAUDE_DESKTOP_REL
+    if not allow_cross_profile:
+        return None
     matches: list[Path] = []
     for user_dir in candidate_windows_user_dirs(users_root=users_root):
         candidate = user_dir / WINDOWS_CLAUDE_DESKTOP_REL
@@ -465,17 +601,18 @@ def find_windows_claude_desktop_config(*, users_root: Path | None = None) -> Pat
     if matches:
         matches.sort(key=lambda path: path.stat().st_mtime, reverse=True)
         return matches[0]
-    user_profile = str(os.environ.get("USERPROFILE") or "").strip()
-    if user_profile:
-        return Path(user_profile).expanduser().resolve() / WINDOWS_CLAUDE_DESKTOP_REL
-    user_name = str(os.environ.get("USERNAME") or "").strip()
-    if user_name:
-        return (users_root or windows_users_root()) / user_name / WINDOWS_CLAUDE_DESKTOP_REL
     return None
 
 
 
-def find_windows_claude_code_config(*, users_root: Path | None = None) -> Path | None:
+def find_windows_claude_code_config(
+    *, users_root: Path | None = None, env: Mapping[str, str] | None = None, allow_cross_profile: bool = False
+) -> Path | None:
+    current_user = _current_windows_user_dir(users_root=users_root, env=env)
+    if current_user is not None:
+        return current_user / WINDOWS_CLAUDE_CODE_REL
+    if not allow_cross_profile:
+        return None
     matches: list[Path] = []
     for user_dir in candidate_windows_user_dirs(users_root=users_root):
         candidate = user_dir / WINDOWS_CLAUDE_CODE_REL
@@ -484,12 +621,6 @@ def find_windows_claude_code_config(*, users_root: Path | None = None) -> Path |
     if matches:
         matches.sort(key=lambda path: path.stat().st_mtime, reverse=True)
         return matches[0]
-    user_profile = str(os.environ.get("USERPROFILE") or "").strip()
-    if user_profile:
-        return Path(user_profile).expanduser().resolve() / WINDOWS_CLAUDE_CODE_REL
-    user_name = str(os.environ.get("USERNAME") or "").strip()
-    if user_name:
-        return (users_root or windows_users_root()) / user_name / WINDOWS_CLAUDE_CODE_REL
     return None
 
 
@@ -681,20 +812,53 @@ def install_claude_code_server(
     runner = runner or run_subprocess_hidden_on_windows
     if which(str(claude_bin)) is None:
         raise RuntimeError(f"claude CLI not found: {claude_bin}")
-    remove_cmd = build_claude_code_remove_cmd(server_name=server_name, scope=scope, claude_bin=claude_bin)
-    remove_proc = runner(remove_cmd, check=False, capture_output=True, text=True)
+    version_proc = runner([str(claude_bin), "--version"], check=False, capture_output=True, text=True)
+    if version_proc.returncode != 0:
+        raise RuntimeError("claude CLI version probe failed")
+    help_proc = runner([str(claude_bin), "mcp", "--help"], check=False, capture_output=True, text=True)
+    help_text = f"{help_proc.stdout or ''}\n{help_proc.stderr or ''}".lower()
+    if help_proc.returncode != 0 or not all(command in help_text for command in ("add-json", "get", "remove")):
+        raise RuntimeError("claude CLI lacks required mcp add-json/get/remove capabilities")
+
+    normalized_name = ensure_valid_server_name(server_name)
+    stage_name = ensure_valid_server_name(f"{normalized_name}-mno-stage-{uuid4().hex[:8]}")
+    stage_add_cmd = build_claude_code_add_json_cmd(
+        server_name=stage_name, entry=entry, scope=scope, claude_bin=claude_bin
+    )
+    stage_proc = runner(stage_add_cmd, check=False, capture_output=True, text=True)
+    if stage_proc.returncode != 0:
+        detail = str(stage_proc.stderr or stage_proc.stdout or "unknown error").strip()
+        raise RuntimeError(f"claude mcp staged add-json failed; existing connector preserved: {detail}")
+    stage_verified = False
+    try:
+        stage_get = runner([str(claude_bin), "mcp", "get", stage_name], check=False, capture_output=True, text=True)
+        stage_verified = stage_get.returncode == 0
+        if not stage_verified:
+            detail = str(stage_get.stderr or stage_get.stdout or "unknown error").strip()
+            raise RuntimeError(f"claude mcp staged verification failed; existing connector preserved: {detail}")
+    finally:
+        runner(
+            build_claude_code_remove_cmd(server_name=stage_name, scope=scope, claude_bin=claude_bin),
+            check=False, capture_output=True, text=True,
+        )
+
     add_cmd = build_claude_code_add_json_cmd(server_name=server_name, entry=entry, scope=scope, claude_bin=claude_bin)
     add_proc = runner(add_cmd, check=False, capture_output=True, text=True)
     if add_proc.returncode != 0:
         stderr = str(add_proc.stderr or "").strip() or str(add_proc.stdout or "").strip() or "unknown error"
-        raise RuntimeError(f"claude mcp add-json failed: {stderr}")
+        raise RuntimeError(f"claude mcp add-json failed; prior connector preserved: {stderr}")
+    verify_proc = runner([str(claude_bin), "mcp", "get", normalized_name], check=False, capture_output=True, text=True)
+    if verify_proc.returncode != 0:
+        detail = str(verify_proc.stderr or verify_proc.stdout or "unknown error").strip()
+        raise RuntimeError(f"claude mcp replacement verification failed: {detail}")
     return {
-        "remove_returncode": int(remove_proc.returncode),
-        "remove_stdout": str(remove_proc.stdout or "").strip(),
-        "remove_stderr": str(remove_proc.stderr or "").strip(),
+        "client_version": str(version_proc.stdout or version_proc.stderr or "").strip(),
+        "capability_probe": "add-json,get,remove",
+        "stage_verified": stage_verified,
         "add_returncode": int(add_proc.returncode),
         "add_stdout": str(add_proc.stdout or "").strip(),
         "add_stderr": str(add_proc.stderr or "").strip(),
+        "verified": True,
         "scope": str(scope or "local").strip() or "local",
     }
 

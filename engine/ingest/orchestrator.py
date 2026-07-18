@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
+import sqlite3
+from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,7 @@ from uuid import uuid4
 
 from ..config import NumquamOblitaConfig, default_config
 from ..memory import MutationReviewQueue, SqliteAtomStore
+from ..memory.content_safety import SecretDetectedError, assert_safe_content
 from ..write_gate import (
     DeterministicJudgmentAdapter,
     StageAWriteGate,
@@ -103,6 +105,10 @@ class ImportOrchestrator:
         try:
             with store.write_batch():
                 for conversation in self.ingestor.iter_export_conversations(input_path):
+                    # Reject unsafe source material before normalization, hashing,
+                    # raw-context recording, candidate extraction, or any other
+                    # durable write.
+                    assert_safe_content(conversation)
                     counters.conversations_seen += 1
                     for maybe_turn, maybe_reason in self.ingestor.iter_turns_from_conversation(conversation):
                         counters.messages_seen += 1
@@ -172,6 +178,7 @@ class ImportOrchestrator:
                 counters=counters,
             )
         except Exception as exc:
+            is_content_safety_rejection = isinstance(exc, SecretDetectedError)
             return ImportReport(
                 input_path=str(input_path),
                 run_id=f"import_{uuid4().hex[:10]}",
@@ -179,8 +186,8 @@ class ImportOrchestrator:
                 finished_at=datetime.now(timezone.utc).isoformat(),
                 ok=False,
                 counters=counters,
-                error_code="INGEST_FAILURE",
-                error_message=str(exc),
+                error_code="CONTENT_SAFETY_REJECTED" if is_content_safety_rejection else "INGEST_FAILURE",
+                error_message=SecretDetectedError.code if is_content_safety_rejection else str(exc),
             )
 
     def _seed_indexes(self, store: SqliteAtomStore) -> tuple[dict[str, set[str]], dict[str, str]]:
@@ -226,7 +233,7 @@ def run_sqlite_import_job(
     target.parent.mkdir(parents=True, exist_ok=True)
     shadow = target.with_name(f"{target.name}.tmp_{uuid4().hex}")
     if target.exists():
-        shutil.copy2(target, shadow)
+        _backup_sqlite_store(target, shadow)
 
     store = SqliteAtomStore(shadow)
     queue = MutationReviewQueue(store, default_retention_days=retention_days)
@@ -246,6 +253,26 @@ def run_sqlite_import_job(
         except Exception:
             pass
     return report
+
+
+def _backup_sqlite_store(source_path: str | Path, target_path: str | Path) -> Path:
+    """Create a consistent SQLite snapshot, including committed WAL state."""
+
+    source = Path(source_path).expanduser().resolve()
+    target = Path(target_path).expanduser().resolve()
+    if source == target:
+        raise ValueError("SQLite snapshot target must differ from source")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source_uri = f"{source.as_uri()}?mode=ro"
+    try:
+        with closing(sqlite3.connect(source_uri, uri=True)) as source_conn, closing(
+            sqlite3.connect(str(target))
+        ) as target_conn:
+            source_conn.backup(target_conn)
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
+    return target
 
 
 def write_import_report(report: ImportReport, *, json_path: str | Path, md_path: str | Path) -> tuple[Path, Path]:

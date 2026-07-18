@@ -5,16 +5,27 @@ const MIN_MAJOR = 3;
 const MIN_MINOR = 12;
 const PYTHON_PROBE = [
   '-c',
-  "import ensurepip, sys, venv, xml.parsers.expat; print(f'{sys.version_info[0]}.{sys.version_info[1]}')",
+  "import sys, venv, xml.parsers.expat; print(f'{sys.version_info[0]}.{sys.version_info[1]}')",
 ];
 
-function preferredCommands(env = process.env) {
+function commandArgv(value) {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  const text = String(value || '').trim();
+  if (!text) return [];
+  const matches = text.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+  return matches.map((part) => part.replace(/^(["'])(.*)\1$/, '$2'));
+}
+
+function preferredCommands(env = process.env, platform = process.platform) {
   const envOverride = String(env.MNO_PYTHON || '').trim();
   const candidates = [];
   if (envOverride) {
-    candidates.push(envOverride);
+    candidates.push(commandArgv(envOverride));
   }
-  candidates.push('python3.15', 'python3.14', 'python3.13', 'python3.12', 'python3', 'python');
+  if (platform === 'win32') {
+    candidates.push(['py', '-3.15'], ['py', '-3.14'], ['py', '-3.13'], ['py', '-3.12']);
+  }
+  candidates.push(['python3.15'], ['python3.14'], ['python3.13'], ['python3.12'], ['/usr/bin/python3'], ['python3'], ['python']);
   return candidates;
 }
 
@@ -31,10 +42,13 @@ function parseVersion(raw) {
 }
 
 function canRun(command, spawn = spawnSync) {
-  const probe = spawn(command, PYTHON_PROBE, {
+  const argv = commandArgv(command);
+  if (!argv.length) return null;
+  const probe = spawn(argv[0], [...argv.slice(1), ...PYTHON_PROBE], {
     encoding: 'utf8',
     shell: false,
     stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 10000,
   });
   if (probe.status !== 0) {
     return null;
@@ -50,7 +64,7 @@ function canRun(command, spawn = spawnSync) {
 }
 
 function selectPythonCommand(candidates, spawn = spawnSync) {
-  let bestCommand = '';
+  let bestCommand = [];
   let bestScore = -1;
   for (const candidate of candidates) {
     if (!candidate) {
@@ -63,7 +77,7 @@ function selectPythonCommand(candidates, spawn = spawnSync) {
     const score = version.major * 100 + version.minor;
     if (score > bestScore) {
       bestScore = score;
-      bestCommand = candidate;
+      bestCommand = commandArgv(candidate);
     }
   }
   return bestCommand;
@@ -77,11 +91,11 @@ function main() {
   }
   const scriptPath = path.resolve(__dirname, scriptArgs[0]);
   const command = selectPythonCommand(preferredCommands());
-  if (!command) {
+  if (!command.length) {
     console.error('No compatible Python interpreter found. Install python3.12+ or set MNO_PYTHON.');
     process.exit(2);
   }
-  const result = spawnSync(command, [scriptPath, ...scriptArgs.slice(1)], {
+  const result = spawnSync(command[0], [...command.slice(1), scriptPath, ...scriptArgs.slice(1)], {
     stdio: 'inherit',
     shell: false,
   });
@@ -93,6 +107,7 @@ function main() {
 
 module.exports = {
   canRun,
+  commandArgv,
   parseVersion,
   preferredCommands,
   selectPythonCommand,

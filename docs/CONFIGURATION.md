@@ -1,5 +1,9 @@
 # Configuration
 
+## Installed state root
+
+Source checkout uses `runtime/` by default. Installed packages use a platform user-state directory, never `site-packages`. Set `MNO_RUNTIME_STATE_ROOT` to an explicit writable location when code is read-only or state ownership must be controlled. Canonical imports live under `runtime/imports`; legacy `.runtime/imports` is fallback-only and emits a warning when both locations exist.
+
 ## Runtime inputs
 
 The main runtime inputs are:

@@ -153,6 +153,12 @@ Typical `writeback.propose` rules:
 7. If the user explicitly wants durable writeback, call `writeback.propose`.
 8. Let a human workflow holding the separate `review_apply` capability resolve with `writeback.resolve`; `apply=true` creates only a non-reviewed evidence atom.
 
+Before every write or maintenance operation, inspect `integration.capabilities.get` (and refresh it after dependency/auth changes). Tool presence is not proof that the current principal can use it: honor each operation's backend/policy state, `authorized`, `available`, and reason fields. Never retry a denied operation by selecting a stronger credential yourself.
+
+Exported bundles are launch plans, not installers. They call the installed `mno-runtime` or `mno-agent-mcp` command, contain no originating checkout path, and fail before mutation when that declared dependency is missing.
+
+Capability responses also advertise the `mno.support_ticket.v1` contract. If you reproduce an MNO defect, use `mno-report` to create a redacted local issue bundle with exact steps and checks. GitHub submission is a separate explicit `--submit` action; see [Support Tickets for Agents](SUPPORT_TICKETS_FOR_AGENTS.md).
+
 ## Agent-facing memory block
 
 `context.build` returns both:

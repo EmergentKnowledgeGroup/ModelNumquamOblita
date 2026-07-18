@@ -14,7 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.preflight import _discover_python_version, find_supported_python_command, run_preflight
+from tools.preflight import _discover_python_version, find_supported_python_argv, python_command_argv, python_command_display, run_preflight
 
 
 def _timestamp() -> str:
@@ -32,16 +32,41 @@ def _run(command: list[str], *, cwd: Path, quiet: bool) -> int:
     return int(proc.returncode)
 
 
+def _create_venv(*, python_argv: list[str], venv_dir: Path, repo_root: Path, quiet: bool) -> int:
+    uv = shutil_which("uv")
+    if uv:
+        probe = subprocess.run(
+            [*python_argv, "-c", "import sys; print(sys.executable)"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        resolved_python = str(probe.stdout or "").strip() if probe.returncode == 0 else ""
+        if resolved_python:
+            rc = _run([uv, "venv", "--seed", "--python", resolved_python, str(venv_dir)], cwd=repo_root, quiet=quiet)
+            if rc == 0:
+                return 0
+    return _run([*python_argv, "-m", "venv", str(venv_dir)], cwd=repo_root, quiet=quiet)
+
+
 def _default_python() -> str:
-    if os.name == "nt":
-        py_launcher = shutil_which("py")
-        if py_launcher:
-            return "py"
-    discovered = find_supported_python_command(
-        candidates=("python3.15", "python3.14", "python3.13", "python3.12", "python3", "python", sys.executable),
+    current_version, _ = _discover_python_version((sys.executable,))
+    if current_version is not None and current_version >= (3, 12):
+        return python_command_display((sys.executable,))
+    env_override = str(os.environ.get("MNO_PYTHON") or "").strip()
+    candidates: tuple[str | tuple[str, ...], ...] = tuple(
+        item for item in (
+            env_override,
+            (sys.executable,),
+            ("py", "-3.15"), ("py", "-3.14"), ("py", "-3.13"), ("py", "-3.12"),
+            "python3.15", "python3.14", "python3.13", "python3.12", "/usr/bin/python3", "python3", "python",
+        ) if item
+    )
+    discovered = find_supported_python_argv(
+        candidates=candidates,
         min_python="3.12",
     )
-    return discovered or sys.executable
+    return python_command_display(discovered or (sys.executable,))
 
 
 def shutil_which(tool: str) -> str | None:
@@ -129,13 +154,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="One-command local setup for NumquamOblita.")
     parser.add_argument("--repo-root", default=str(REPO_ROOT))
     parser.add_argument("--venv", default=".venv")
-    parser.add_argument("--python-cmd", default=_default_python())
+    parser.add_argument("--python-cmd", default="")
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--skip-smoke", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--out-dir", default="runtime/setup")
     args = parser.parse_args()
+    args.python_cmd = str(args.python_cmd or _default_python())
+    python_argv = list(python_command_argv(args.python_cmd))
+    if not python_argv:
+        print("error=empty --python-cmd")
+        return 2
 
     repo_root = Path(args.repo_root).expanduser().resolve()
     venv_dir = (repo_root / args.venv).resolve()
@@ -180,7 +210,7 @@ def main() -> int:
 
     venv_python = _venv_python(venv_dir)
     commands = [
-        ["python-cmd", args.python_cmd, "-m", "venv", str(venv_dir)],
+        ["python-cmd", *python_argv, "-m", "venv", str(venv_dir)],
         ["venv-pip-upgrade", str(venv_python), "-m", "pip", "install", "-U", "pip", "setuptools", "wheel"],
         ["venv-install-editable", str(venv_python), "-m", "pip", "install", "-e", "."],
         ["venv-install-pytest", str(venv_python), "-m", "pip", "install", "pytest"],
@@ -239,7 +269,7 @@ def main() -> int:
         )
 
     if not venv_python.exists():
-        rc = _run([args.python_cmd, "-m", "venv", str(venv_dir)], cwd=repo_root, quiet=args.quiet)
+        rc = _create_venv(python_argv=python_argv, venv_dir=venv_dir, repo_root=repo_root, quiet=args.quiet)
         steps.append(
             {
                 "name": "create_venv",
@@ -268,12 +298,13 @@ def main() -> int:
     if pip_ready == 0:
         steps.append({"name": "bootstrap_venv_pip", "status": "pass", "detail": "pip already available"})
     else:
-        rc = _run([str(venv_python), "-m", "ensurepip", "--upgrade", "--default-pip"], cwd=repo_root, quiet=args.quiet)
+        uv = shutil_which("uv")
+        rc = _run([uv, "pip", "install", "--python", str(venv_python), "pip", "setuptools", "wheel"], cwd=repo_root, quiet=args.quiet) if uv else _run([str(venv_python), "-m", "ensurepip", "--upgrade", "--default-pip"], cwd=repo_root, quiet=args.quiet)
         steps.append(
             {
                 "name": "bootstrap_venv_pip",
                 "status": "pass" if rc == 0 else "fail",
-                "detail": f"{venv_python} -m ensurepip --upgrade --default-pip",
+                "detail": "uv-managed pip bootstrap" if uv else f"{venv_python} -m ensurepip --upgrade --default-pip",
             }
         )
         if rc != 0:

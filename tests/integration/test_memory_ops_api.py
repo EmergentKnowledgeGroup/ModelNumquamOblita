@@ -2820,7 +2820,7 @@ def test_wizard_direct_runtime_foreign_lock_blocks_activation(tmp_path: Path) ->
         runtime_server_module.LIVE_RUNTIME_LOCK_PATH = original_lock_path
 
 
-def test_wizard_developer_mode_allows_local_draft_activation_only(tmp_path: Path) -> None:
+def test_wizard_developer_mode_allows_local_draft_activation_only(tmp_path: Path, monkeypatch) -> None:
     store = AtomStore()
     continuity = ContinuityStore()
     continuity.set_snapshot(ContinuityBuilder().build(store.list_atoms()))
@@ -2878,6 +2878,10 @@ def test_wizard_developer_mode_allows_local_draft_activation_only(tmp_path: Path
         assert str((items.get("activate") or {}).get("tone") or "") == "unsafe"
         assert str((items.get("operate") or {}).get("status") or "") == "pending"
 
+        def _unexpected_connector_discovery():
+            raise AssertionError("connector discovery must not run before the verification gate")
+
+        monkeypatch.setattr(runtime_server_module, "_wizard_connector_panel", _unexpected_connector_discovery)
         mcp_code, mcp_payload = _json_post_error(
             f"{base}/api/wizard/activate/mcp/export",
             {"run_id": run_id},

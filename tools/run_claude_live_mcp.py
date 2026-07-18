@@ -218,6 +218,7 @@ def main() -> int:
     stdout_trace = trace_target.with_name("claude_cli_stdout.log")
     sys.stderr = _TextTeeStream(sys.stderr, stderr_trace)
     sys.stdout = _TextTeeStream(sys.stdout, stdout_trace)
+    _trace("startup")
     try:
         memories_path = _resolve_memories_path(memories=args.memories, from_live_manifest=args.from_live_manifest)
     except ValueError as exc:
@@ -243,6 +244,7 @@ def main() -> int:
     except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
         print(f"error=invalid runtime config: {exc}", file=sys.stderr)
         return 2
+    _trace("config_ready")
     if config_path is None and not args.plan_only and not args.print_claude_config:
         config_path = standard_config_path
         temporary = config_path.with_name(f".{config_path.name}.{os.getpid()}.tmp")
@@ -295,12 +297,14 @@ def main() -> int:
     except ValueError as exc:
         print(f"error={exc}", file=sys.stderr)
         return 2
+    _trace("store_opened", backend=backend_name)
 
     server = None
     thread = None
     runtime: RuntimeSession | None = None
     try:
         atoms = store.list_atoms()
+        _trace("atoms_loaded", atom_count=len(atoms))
         continuity = ContinuityStore()
         shared_language_keys = store.list_shared_language_keys() if hasattr(store, "list_shared_language_keys") else []
         continuity.set_snapshot(ContinuityBuilder().build(atoms, shared_language_keys=shared_language_keys))
@@ -313,6 +317,7 @@ def main() -> int:
             model_name=str(args.model_name).strip() or "numquam-oblita-runtime",
             episode_cards_path=str(episodes_path) if episodes_path is not None else None,
         )
+        _trace("runtime_ready")
         review_queue = MutationReviewQueue(store, default_retention_days=14)
         server, thread = start_runtime_server(
             runtime,
@@ -320,6 +325,7 @@ def main() -> int:
             port=int(args.runtime_port),
             review_queue=review_queue,
         )
+        _trace("runtime_server_started")
         host, port = server.server_address
         runtime_url = f"http://{host}:{port}"
         if args.verbose:
@@ -358,16 +364,19 @@ def main() -> int:
         mcp_server = MCPServer(config=config, api_client=client)
         if config.transport == "http":
             return run_http_server(mcp_server, host=config.http_bind_host, port=config.http_bind_port)
+        _trace("stdio_ready")
         return run_stdio_server(mcp_server, stdin_buffer=sys.stdin.buffer, stdout_buffer=sys.stdout.buffer)
     except KeyboardInterrupt:
         return 130
     finally:
+        _trace("shutdown_begin")
         if server is not None and thread is not None:
             stop_runtime_server(server, thread, runtime=runtime)
         if close_store:
             closer = getattr(store, "close", None)
             if callable(closer):
                 closer()
+        _trace("shutdown_complete")
 
 
 if __name__ == "__main__":

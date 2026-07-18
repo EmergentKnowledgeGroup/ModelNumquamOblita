@@ -1332,12 +1332,19 @@ class RuntimeSession:
         if any(str(payload.get(key) or "") != value for key, value in expected.items()):
             raise IntegrationHandleError("HANDLE_BINDING_MISMATCH")
 
-    def maintain_provisional_memory(self, *, max_records: int | None = None) -> list[dict[str, str]]:
+    def maintain_provisional_memory(
+        self,
+        *,
+        max_records: int | None = None,
+        run_id: str | None = None,
+        dry_run: bool = False,
+        return_result: bool = False,
+    ) -> list[dict[str, str]] | dict[str, Any]:
         store = self._provisional_store
         if not isinstance(store, SqliteProvisionalMemoryStore):
-            return []
+            return {"state": "unavailable", "transitions": [], "processed_count": 0} if return_result else []
         if not bool(self._provisional_policy.maintenance_enabled):
-            return []
+            return {"state": "disabled", "transitions": [], "processed_count": 0} if return_result else []
         policy = MaintenancePolicy(
             dormant_days=int(self._provisional_policy.dormant_days),
             archive_days=int(self._provisional_policy.archive_days),
@@ -1350,10 +1357,20 @@ class RuntimeSession:
             policy=policy,
             max_records=max_records,
             consolidation_enabled=bool(self._provisional_policy.consolidation_enabled),
+            run_id=run_id,
+            dry_run=dry_run,
+            return_result=return_result,
         )
+        if return_result:
+            result = dict(transitions)
+            result["transitions"] = [
+                {"record_id": item.record_id, "disposition": item.disposition, "reason": item.reason}
+                for item in list(result.get("transitions") or [])
+            ]
+            return result
         return [
             {"record_id": item.record_id, "disposition": item.disposition, "reason": item.reason}
-            for item in transitions
+            for item in list(transitions)
         ]
 
     def set_provisional_sensitivity(

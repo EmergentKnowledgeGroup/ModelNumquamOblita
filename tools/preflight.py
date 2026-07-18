@@ -5,22 +5,29 @@ import argparse
 import json
 import subprocess
 import os
+import shlex
 import shutil
 import sys
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-DEFAULT_PYTHON_CANDIDATES = (
-    "python3.15",
-    "python3.14",
-    "python3.13",
-    "python3.12",
-    "python3",
-    "python",
+DEFAULT_PYTHON_CANDIDATES: tuple[tuple[str, ...], ...] = (
+    ("py", "-3.15"),
+    ("py", "-3.14"),
+    ("py", "-3.13"),
+    ("py", "-3.12"),
+    ("python3.15",),
+    ("python3.14",),
+    ("python3.13",),
+    ("python3.12",),
+    ("/usr/bin/python3",),
+    ("python3",),
+    ("python",),
 )
 PYTHON_BOOTSTRAP_PROBE = (
-    "import ensurepip, sys, venv, xml.parsers.expat; "
+    "import sys, venv, xml.parsers.expat; "
     "print(f'{sys.version_info[0]}.{sys.version_info[1]}')"
 )
 
@@ -46,10 +53,19 @@ def _repo_root() -> Path:
 
 
 def _default_memories(repo_root: Path) -> Path:
-    sqlite_default = repo_root / ".runtime" / "imports" / "atoms.sqlite3"
-    if sqlite_default.exists():
-        return sqlite_default
-    return repo_root / ".runtime" / "imports" / "memories.json"
+    canonical = repo_root / "runtime" / "imports"
+    legacy = repo_root / ".runtime" / "imports"
+    canonical_exists = canonical.exists()
+    legacy_exists = legacy.exists()
+    if canonical_exists and legacy_exists:
+        warnings.warn(
+            f"both canonical {canonical} and legacy {legacy} exist; using canonical runtime/ imports",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    base = canonical if canonical_exists or not legacy_exists else legacy
+    sqlite_default = base / "atoms.sqlite3"
+    return sqlite_default if sqlite_default.exists() else base / "memories.json"
 
 
 def _status_line(check: CheckResult) -> str:
@@ -75,16 +91,41 @@ def _clean_probe_detail(raw: str) -> str:
     return " ".join(str(raw or "").strip().split())
 
 
-def _discover_python_version(python_cmd: str) -> tuple[tuple[int, int] | None, str]:
+def python_command_argv(python_cmd: str | tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    if isinstance(python_cmd, (tuple, list)):
+        parts = tuple(str(piece) for piece in python_cmd if str(piece).strip())
+        return (str(Path(parts[0]).expanduser()), *parts[1:]) if parts else ()
     candidate = str(python_cmd or "").strip()
     if not candidate:
+        return ()
+    expanded = Path(candidate).expanduser()
+    if expanded.exists():
+        return (str(expanded),)
+    try:
+        parts = shlex.split(candidate, posix=os.name != "nt")
+    except ValueError:
+        return (candidate,)
+    normalized = tuple(
+        piece[1:-1] if len(piece) >= 2 and piece[0] == piece[-1] and piece[0] in {'"', "'"} else piece
+        for piece in parts
+    )
+    return (str(Path(normalized[0]).expanduser()), *normalized[1:]) if normalized else ()
+
+
+def python_command_display(argv: tuple[str, ...] | list[str]) -> str:
+    return subprocess.list2cmdline(list(argv))
+
+
+def _discover_python_version(python_cmd: str | tuple[str, ...] | list[str]) -> tuple[tuple[int, int] | None, str]:
+    argv = python_command_argv(python_cmd)
+    if not argv:
         return None, "empty candidate"
-    resolved = shutil.which(candidate)
-    if not resolved and not Path(candidate).expanduser().exists():
+    resolved = shutil.which(argv[0])
+    if not resolved and not Path(argv[0]).expanduser().exists():
         return None, "not found"
     try:
         proc = subprocess.run(
-            [candidate, "-c", PYTHON_BOOTSTRAP_PROBE],
+            [*argv, "-c", PYTHON_BOOTSTRAP_PROBE],
             capture_output=True,
             text=True,
             check=False,
@@ -105,18 +146,28 @@ def _discover_python_version(python_cmd: str) -> tuple[tuple[int, int] | None, s
 
 def find_supported_python_command(
     *,
-    candidates: tuple[str, ...] = DEFAULT_PYTHON_CANDIDATES,
+    candidates: tuple[str | tuple[str, ...], ...] = DEFAULT_PYTHON_CANDIDATES,
     min_python: str = "3.12",
 ) -> str | None:
+    argv = find_supported_python_argv(candidates=candidates, min_python=min_python)
+    return python_command_display(argv) if argv else None
+
+
+def find_supported_python_argv(
+    *,
+    candidates: tuple[str | tuple[str, ...], ...] = DEFAULT_PYTHON_CANDIDATES,
+    min_python: str = "3.12",
+) -> tuple[str, ...] | None:
     min_major, min_minor = _parse_min_python(min_python)
-    best_command: str | None = None
+    best_command: tuple[str, ...] | None = None
     best_score: tuple[int, int, int] | None = None
     seen: set[str] = set()
     for index, raw_candidate in enumerate(candidates):
-        candidate = str(raw_candidate or "").strip()
-        if not candidate or candidate in seen:
+        candidate = python_command_argv(raw_candidate)
+        candidate_key = "\0".join(candidate)
+        if not candidate or candidate_key in seen:
             continue
-        seen.add(candidate)
+        seen.add(candidate_key)
         version, _detail = _discover_python_version(candidate)
         if version is None:
             continue
@@ -132,10 +183,11 @@ def find_supported_python_command(
 
 def _python_check(min_python: str, *, python_cmd: str = "") -> CheckResult:
     min_major, min_minor = _parse_min_python(min_python)
-    candidate = str(python_cmd or "").strip() or sys.executable
+    candidate = python_command_argv(python_cmd) or (sys.executable,)
+    candidate_display = python_command_display(candidate)
     version, probe_detail = _discover_python_version(candidate)
     if version is None:
-        detail = f"unable to validate bootstrap readiness for {candidate}"
+        detail = f"unable to validate bootstrap readiness for {candidate_display}"
         if probe_detail:
             detail += f": {probe_detail}"
         return CheckResult(
@@ -147,7 +199,7 @@ def _python_check(min_python: str, *, python_cmd: str = "") -> CheckResult:
                 "with --python-cmd or MNO_PYTHON."
             ),
         )
-    detail_prefix = "detected " if not str(python_cmd or "").strip() else f"detected via {python_cmd} "
+    detail_prefix = "detected " if not str(python_cmd or "").strip() else f"detected via {candidate_display} "
     major, minor = version
     if (major, minor) < (min_major, min_minor):
         return CheckResult(

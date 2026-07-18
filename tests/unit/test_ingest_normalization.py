@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import timezone
 
+import pytest
+
 from engine.ingest.parser import ConversationIngestor, noise_reason, normalize_role, normalize_timestamp
 
 
@@ -26,6 +28,18 @@ def test_normalize_timestamp_supports_iso_and_epoch() -> None:
     assert dt_ms.tzinfo == timezone.utc
 
     assert normalize_timestamp("not-a-timestamp") is None
+
+
+def test_normalize_timestamp_rejects_naive_values_unless_policy_is_explicit() -> None:
+    assert normalize_timestamp("2026-02-08T05:00:00") is None
+    assumed = normalize_timestamp("2026-02-08T05:00:00", naive_policy="assume_utc")
+    assert assumed is not None
+    assert assumed.tzinfo == timezone.utc
+
+
+def test_normalize_timestamp_validates_policy_before_handling_input() -> None:
+    with pytest.raises(ValueError, match="naive_policy"):
+        normalize_timestamp(None, naive_policy="local_machine")
 
 
 def test_noise_reason_detects_preface_and_tool_payload() -> None:

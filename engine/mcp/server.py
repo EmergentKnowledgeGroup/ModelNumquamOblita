@@ -68,9 +68,27 @@ def _stdio_trace_log(payload: dict[str, Any]) -> None:
         path = Path(target).expanduser().resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            handle.write(json.dumps(_redact_stdio_trace_payload(payload), ensure_ascii=False) + "\n")
     except Exception:
         pass
+
+
+_TRACE_SECRET_KEYS = {
+    "authorization", "auth_token", "token", "viewer_token", "operator_token", "admin_token",
+    "password", "api_key", "client_secret", "cookie",
+}
+_TRACE_SECRET_SUFFIXES = ("_token", "_password", "_api_key", "_client_secret", "_cookie")
+
+
+def _redact_stdio_trace_payload(value: Any, *, key: str = "") -> Any:
+    normalized = key.strip().lower().replace("-", "_")
+    if normalized in _TRACE_SECRET_KEYS or normalized.endswith(_TRACE_SECRET_SUFFIXES):
+        return "[REDACTED]"
+    if isinstance(value, Mapping):
+        return {str(child_key): _redact_stdio_trace_payload(child, key=str(child_key)) for child_key, child in value.items()}
+    if isinstance(value, list):
+        return [_redact_stdio_trace_payload(child) for child in value]
+    return value
 
 
 def _sha256_short(value: str) -> str:
@@ -2522,6 +2540,14 @@ class MCPServer:
                 "field_aliases_enabled": self._compat_mode_enabled(),
             },
             "remote_hardening": remote_hardening,
+            "support_ticket": {
+                "schema": "mno.support_ticket.v1",
+                "command": "mno-report",
+                "repository": "EmergentKnowledgeGroup/ModelNumquamOblita",
+                "explicit_logs_only": True,
+                "submission_requires_explicit_flag": True,
+                "guide": "docs/SUPPORT_TICKETS_FOR_AGENTS.md",
+            },
             "resources": [
                 "resource://capabilities",
                 "resource://audit/summary",
@@ -5609,6 +5635,12 @@ class MCPServer:
         return payload
 
 
+class _MCPFramingError(RuntimeError):
+    def __init__(self, message: str, *, recoverable: bool) -> None:
+        super().__init__(message)
+        self.recoverable = recoverable
+
+
 def _read_message(stdin_buffer: Any) -> dict[str, Any] | None:
     content_length: int | None = None
     while True:
@@ -5617,7 +5649,10 @@ def _read_message(stdin_buffer: Any) -> dict[str, Any] | None:
             return None
         if line in {b"\r\n", b"\n"}:
             break
-        text = line.decode("utf-8", errors="replace").strip()
+        try:
+            text = line.decode("utf-8", errors="strict").strip()
+        except UnicodeDecodeError as exc:
+            raise _MCPFramingError("invalid UTF-8 header", recoverable=False) from exc
         if not text:
             continue
         key, sep, value = text.partition(":")
@@ -5627,22 +5662,22 @@ def _read_message(stdin_buffer: Any) -> dict[str, Any] | None:
             try:
                 content_length = int(value.strip())
             except ValueError as exc:
-                raise RuntimeError("invalid Content-Length header") from exc
+                raise _MCPFramingError("invalid Content-Length header", recoverable=False) from exc
 
     if content_length is None or content_length < 0:
-        raise RuntimeError("missing Content-Length header")
+        raise _MCPFramingError("missing Content-Length header", recoverable=False)
 
     body = stdin_buffer.read(content_length)
     if body is None:
         return None
     if len(body) != content_length:
-        raise RuntimeError("incomplete message body")
+        raise _MCPFramingError("incomplete message body", recoverable=False)
     try:
-        decoded = json.loads(body.decode("utf-8", errors="replace"))
-    except json.JSONDecodeError as exc:
-        raise RuntimeError("invalid JSON body") from exc
+        decoded = json.loads(body.decode("utf-8", errors="strict"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise _MCPFramingError("invalid JSON body", recoverable=True) from exc
     if not isinstance(decoded, dict):
-        raise RuntimeError("JSON body must be an object")
+        raise _MCPFramingError("JSON body must be an object", recoverable=True)
     return decoded
 
 
@@ -5658,12 +5693,14 @@ def run_stdio_server(server: MCPServer, *, stdin_buffer: Any, stdout_buffer: Any
     while True:
         try:
             request_payload = _read_message(stdin_buffer)
-        except RuntimeError:
-            _stdio_trace_log({"ts": _utc_iso(), "event": "parse_error"})
+        except _MCPFramingError as exc:
+            _stdio_trace_log({"ts": _utc_iso(), "event": "parse_error", "recoverable": exc.recoverable})
             _write_message(
                 stdout_buffer,
                 MCPServer._error_response(None, -32700, "Parse error"),
             )
+            if not exc.recoverable:
+                return 1
             continue
         if request_payload is None:
             _stdio_trace_log({"ts": _utc_iso(), "event": "stdin_closed"})

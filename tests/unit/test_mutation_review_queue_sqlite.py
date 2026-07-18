@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
+import threading
 
 import pytest
 
-from engine.contracts import AtomType, CandidateAtom, SourceRef
+from engine.contracts import AtomType, CandidateAtom, SourceRef, WriteAction
 from engine.memory import AtomStatus, MutationReviewQueue, ProposalStatus, SqliteAtomStore
 from engine.memory.mutation_queue import DecisionConflictError
 
@@ -58,6 +59,92 @@ def test_sqlite_review_queue_pending_and_approved_survive_restart(tmp_path) -> N
 
     final_store = SqliteAtomStore(path)
     assert MutationReviewQueue(final_store).get(pending.proposal_id).status is ProposalStatus.APPROVED
+
+
+def test_sqlite_review_queue_idempotency_survives_restart_and_rejects_payload_conflicts(tmp_path) -> None:
+    path = tmp_path / "atoms.sqlite3"
+    first_store = SqliteAtomStore(path)
+    first_queue = MutationReviewQueue(first_store)
+    response = {"proposal_id": "", "status": "pending_review", "audit_ref": "audit_persisted"}
+    first, state, receipt = first_queue.propose_idempotent(
+        action=WriteAction.PROPOSE_CREATE,
+        target_atom_id="",
+        replacement_candidate=_candidate("Idempotent durable proposal"),
+        reason_code="integration_create",
+        metadata={"run_id": "run_1"},
+        actor="operator-1",
+        idempotency_key="idem_restart_1",
+        payload_fingerprint="payload_a",
+        response=response,
+    )
+    assert state == "created"
+    assert first is not None
+    assert receipt["proposal_id"] == first.proposal_id
+    first_store.close()
+
+    reopened = SqliteAtomStore(path)
+    resumed = MutationReviewQueue(reopened)
+    replay, replay_state, replay_receipt = resumed.propose_idempotent(
+        action=WriteAction.PROPOSE_CREATE,
+        target_atom_id="",
+        replacement_candidate=_candidate("Idempotent durable proposal"),
+        reason_code="integration_create",
+        metadata={"run_id": "run_1"},
+        actor="operator-1",
+        idempotency_key="idem_restart_1",
+        payload_fingerprint="payload_a",
+        response=response,
+    )
+    assert replay_state == "replay"
+    assert replay is not None and replay.proposal_id == first.proposal_id
+    assert replay_receipt == receipt
+    conflict, conflict_state, _ = resumed.propose_idempotent(
+        action=WriteAction.PROPOSE_CREATE,
+        target_atom_id="",
+        replacement_candidate=_candidate("Conflicting durable proposal"),
+        reason_code="integration_create",
+        metadata={"run_id": "run_1"},
+        actor="operator-1",
+        idempotency_key="idem_restart_1",
+        payload_fingerprint="payload_b",
+        response=response,
+    )
+    assert conflict is None
+    assert conflict_state == "conflict"
+    assert len(resumed.list_all()) == 1
+    reopened.close()
+
+
+def test_sqlite_review_queue_idempotency_serializes_concurrent_store_connections(tmp_path) -> None:
+    path = tmp_path / "concurrent.sqlite3"
+    first_store = SqliteAtomStore(path)
+    second_store = SqliteAtomStore(path)
+    first_queue = MutationReviewQueue(first_store)
+    second_queue = MutationReviewQueue(second_store)
+    barrier = threading.Barrier(2)
+
+    def submit(queue: MutationReviewQueue):
+        barrier.wait(timeout=5)
+        return queue.propose_idempotent(
+            action=WriteAction.PROPOSE_CREATE,
+            target_atom_id="",
+            replacement_candidate=_candidate("Concurrent durable proposal"),
+            reason_code="integration_create",
+            metadata={"run_id": "run_concurrent"},
+            actor="operator-1",
+            idempotency_key="idem_concurrent_1",
+            payload_fingerprint="payload_concurrent",
+            response={"proposal_id": "", "status": "pending_review", "audit_ref": "audit_concurrent"},
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(submit, (first_queue, second_queue)))
+    proposal_ids = {result[0].proposal_id for result in results if result[0] is not None}
+    assert {result[1] for result in results} == {"created", "replay"}
+    assert len(proposal_ids) == 1
+    assert len(first_queue.list_all()) == 1
+    first_store.close()
+    second_store.close()
 
 
 def test_sqlite_review_queue_rejects_opposite_immutable_decision_after_restart(tmp_path) -> None:

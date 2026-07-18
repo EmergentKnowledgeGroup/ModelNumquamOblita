@@ -86,6 +86,7 @@ The design goal is not to maximize the number of signals. The goal is to recover
 - `integration-v1` public orchestration contract
 - MCP sidecar
 - compatibility adapters for `reference`, `openclaw`, and `nanobot`
+- agent support loop through the advertised `mno.support_ticket.v1` contract and local `mno-report` evidence bundle
 
 ## Truth boundaries
 
@@ -99,6 +100,8 @@ The design goal is not to maximize the number of signals. The goal is to recover
 - work-session scratchpad rows are non-authoritative helper state and never support memory claims by themselves
 
 Authority families are ordered: `human_reviewed_canonical` → `evidence_atom` → `provisional`. Within the provisional family, consolidated artifacts outrank direct observations for retrieval, while `observed → reinforced → consolidated` remains the separate maturity axis. No model-autonomous transition crosses into evidence or canonical authority. STM and WSS sit outside this order as scoped helper context, not evidence.
+
+The support-ticket loop is deliberately outside memory truth: it reads no store automatically, accepts only explicitly named bounded logs, redacts secret-like content, and requires a separate explicit action before GitHub submission.
 
 Canonical WSS details live in [Work-Session Scratchpad](../WORK_SESSION_SCRATCHPAD.md).
 

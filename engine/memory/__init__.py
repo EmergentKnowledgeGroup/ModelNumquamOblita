@@ -1,6 +1,7 @@
 """Memory subsystem exports."""
 
 from .mutation_queue import DecisionConflictError, MutationProposal, MutationReviewQueue, ProposalStatus
+from .backup import backup_memory_family
 from .provisional_store import (
     EvidenceRegistration,
     InMemoryProvisionalMemoryStore,
@@ -34,6 +35,7 @@ from .store import (
 
 __all__ = [
     "AtomStatus",
+    "backup_memory_family",
     "AtomStore",
     "ContradictionEdge",
     "DecisionConflictError",

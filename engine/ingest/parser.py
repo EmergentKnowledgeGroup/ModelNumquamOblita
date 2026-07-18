@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
 from .source_loader import iter_source_conversations
-from .streaming_json import iter_json_array_objects
 from ..contracts import NormalizedTurn
 
 DEFAULT_DROP_PATTERNS: tuple[str, ...] = (
@@ -29,12 +28,14 @@ def normalize_role(raw_role: Any) -> Optional[str]:
     return None
 
 
-def normalize_timestamp(raw_value: Any) -> Optional[datetime]:
+def normalize_timestamp(raw_value: Any, *, naive_policy: str = "reject") -> Optional[datetime]:
     """Normalize mixed timestamp formats to UTC datetime.
 
     Returns ``None`` when the value is missing or malformed.
     """
 
+    if naive_policy not in {"reject", "assume_utc"}:
+        raise ValueError("naive_policy must be 'reject' or 'assume_utc'")
     if raw_value is None:
         return None
     if isinstance(raw_value, (int, float)):
@@ -56,7 +57,11 @@ def normalize_timestamp(raw_value: Any) -> Optional[datetime]:
         parsed = datetime.fromisoformat(text)
     except ValueError:
         return None
-    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+    if parsed.tzinfo is None:
+        if naive_policy == "reject":
+            return None
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _canonicalize_quote_text(value: Any) -> str:

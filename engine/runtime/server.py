@@ -23,9 +23,11 @@ from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
+from importlib import metadata as importlib_metadata
 import ipaddress
 import hmac
 from pathlib import Path
+from socketserver import TCPServer
 from typing import Any, Mapping, Sequence
 from urllib import request as urllib_request
 from urllib.error import HTTPError, URLError
@@ -34,7 +36,7 @@ from uuid import uuid4
 
 from ..config import default_config
 from ..continuity import Consolidator, ContinuityBuilder, SharedLanguageRegistry
-from ..contracts import AtomType, CandidateAtom, RetrievalOverrideRequestContract, SourceRef
+from ..contracts import AtomType, CandidateAtom, RetrievalOverrideRequestContract, SourceRef, WriteAction
 from ..ingest import summarize_source_input
 from ..ingest.parser import ConversationIngestor
 from ..memory import AtomStatus, DecisionConflictError, MutationReviewQueue, ProposalStatus, SqliteAtomStore
@@ -68,7 +70,23 @@ from .live_eval import load_inmemory_store_from_json
 UI_ROOT = Path(__file__).resolve().parent / "ui"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _RUNTIME_STATE_ROOT_ENV = str(os.environ.get("MNO_RUNTIME_STATE_ROOT") or "").strip()
-RUNTIME_ROOT = Path(_RUNTIME_STATE_ROOT_ENV).expanduser().resolve() if _RUNTIME_STATE_ROOT_ENV else (REPO_ROOT / "runtime")
+
+
+def _default_runtime_root() -> Path:
+    if _RUNTIME_STATE_ROOT_ENV:
+        return Path(_RUNTIME_STATE_ROOT_ENV).expanduser().resolve()
+    if (REPO_ROOT / "pyproject.toml").is_file() and (REPO_ROOT / "engine").is_dir():
+        return (REPO_ROOT / "runtime").resolve()
+    if os.name == "nt":
+        base = str(os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or "").strip()
+        return (Path(base) if base else Path.home() / "AppData" / "Local") / "ModelNumquamOblita"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "ModelNumquamOblita"
+    xdg_state = str(os.environ.get("XDG_STATE_HOME") or "").strip()
+    return (Path(xdg_state).expanduser() if xdg_state else Path.home() / ".local" / "state") / "modelnumquamoblita"
+
+
+RUNTIME_ROOT = _default_runtime_root().resolve()
 WIZARD_RUNS_ROOT = RUNTIME_ROOT / "wizard_runs"
 WIZARD_LATEST_PATH = WIZARD_RUNS_ROOT / "LATEST.json"
 BUILDER_PROFILES_ROOT = RUNTIME_ROOT / "builder_profiles"
@@ -78,7 +96,11 @@ BACKUPS_ROOT = RUNTIME_ROOT / "backups"
 DIAGNOSTICS_ROOT = RUNTIME_ROOT / "diagnostics"
 PACKAGING_ROOT = RUNTIME_ROOT / "packaging"
 LIVE_RUNTIME_LOCK_PATH = RUNTIME_ROOT / "live_runtime.lock.json"
-PACKAGING_GUIDE_PATH = REPO_ROOT / "docs" / "QUICKSTART.md"
+PACKAGING_GUIDE_PATH = (
+    REPO_ROOT / "docs" / "QUICKSTART.md"
+    if (REPO_ROOT / "docs" / "QUICKSTART.md").is_file()
+    else Path(__file__).resolve().parent / "resources" / "QUICKSTART.md"
+)
 WINDOWS_PACKAGING_SCRIPT_PY = REPO_ROOT / "tools" / "build_windows_single_exe.py"
 WINDOWS_PACKAGING_SCRIPT_PS1 = REPO_ROOT / "tools" / "build_windows_single_exe.ps1"
 WINDOWS_PACKAGING_SCRIPT_BAT = REPO_ROOT / "tools" / "build_windows_single_exe.bat"
@@ -112,6 +134,10 @@ def _host_is_loopback(host: str) -> bool:
 
 
 def _project_version() -> str:
+    try:
+        return importlib_metadata.version("modelnumquamoblita")
+    except importlib_metadata.PackageNotFoundError:
+        pass
     pyproject_path = REPO_ROOT / "pyproject.toml"
     try:
         payload = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
@@ -7037,6 +7063,88 @@ def _integration_require_role(*, principal: dict[str, Any], operation: str) -> N
             )
 
 
+def _integration_operation_capability(
+    server: "RuntimeHTTPServer",
+    *,
+    principal: dict[str, Any],
+    operation: str,
+    dependency_healthy: bool,
+) -> dict[str, Any]:
+    name = str(operation or "").strip().lower()
+    required_roles = set(INTEGRATION_REQUIRED_ROLES.get(name, {"viewer", "operator", "admin"}))
+    required_capability = (
+        "review_apply"
+        if name in {"writeback.resolve", "memory.proposals.dismiss", "memory.proposals.bridge"}
+        else ""
+    )
+    principal_capabilities = {
+        str(item or "").strip().lower()
+        for item in list(principal.get("capabilities") or [])
+        if str(item or "").strip()
+    }
+    allowed_operations = {
+        str(item or "").strip().lower()
+        for item in list(principal.get("allowed_operations") or [])
+        if str(item or "").strip()
+    }
+    role_authorized = _integration_role_allowed(principal=principal, required_roles=required_roles)
+    scope_authorized = not allowed_operations or name in allowed_operations
+    capability_authorized = not required_capability or required_capability in principal_capabilities
+    authorized = bool(role_authorized and scope_authorized and capability_authorized)
+
+    runtime = server.runtime
+    provisional_available = getattr(runtime, "_provisional_store", None) is not None
+    proposal_store_available = getattr(runtime, "_proposal_store", None) is not None
+    review_queue_available = server.review_queue is not None
+    signed_handles_available = getattr(runtime, "_integration_handle_signer", None) is not None
+    backend_available = True
+    if name == "memory.source.register":
+        backend_available = signed_handles_available
+    elif name == "memory.observe":
+        backend_available = provisional_available and signed_handles_available
+    elif name == "memory.maintain":
+        backend_available = provisional_available
+    elif name in {"memory.proposals.list", "memory.proposals.dismiss"}:
+        backend_available = proposal_store_available
+    elif name == "memory.proposals.bridge":
+        backend_available = proposal_store_available and review_queue_available
+    elif name in {"writeback.propose", "writeback.resolve"}:
+        backend_available = review_queue_available
+
+    degraded = bool(not dependency_healthy and name not in {"health.get", "capabilities.get"})
+    reason_codes: list[str] = []
+    if not backend_available:
+        reason_codes.append("backend_unavailable")
+    if not role_authorized:
+        reason_codes.append("role_not_authorized")
+    if not scope_authorized:
+        reason_codes.append("operation_out_of_scope")
+    if not capability_authorized:
+        reason_codes.append("review_capability_required")
+    if degraded:
+        reason_codes.append("runtime_degraded")
+    policy_state = "enabled"
+    if name == "writeback.propose":
+        policy_state = "proposal_only"
+    elif name == "writeback.resolve":
+        policy_state = "human_review_required"
+    return {
+        "name": name,
+        "exposed": True,
+        "enabled": bool(backend_available),
+        "backend_available": bool(backend_available),
+        "authorized": authorized,
+        "degraded": degraded,
+        "available": bool(backend_available and authorized and not degraded),
+        "reason_codes": reason_codes,
+        "policy_state": policy_state,
+        "requires_auth": True,
+        "required_roles": sorted(required_roles),
+        "required_capability": required_capability,
+        "idempotent": name in {"writeback.propose", "writeback.resolve", "health.get", "capabilities.get"},
+    }
+
+
 def _integration_parse_get_envelope(
     *,
     parsed_query: str,
@@ -7947,11 +8055,12 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             elif operation == "memory.maintain":
                 try:
                     max_records = int(request_payload.get("max_records") or 25)
-                    dry_run = bool(request_payload.get("dry_run", False))
-                    transitions = (
-                        []
-                        if dry_run
-                        else self.server.runtime.maintain_provisional_memory(max_records=max_records)
+                    dry_run = _to_bool(request_payload.get("dry_run"), default=False)
+                    maintenance = self.server.runtime.maintain_provisional_memory(
+                        max_records=max_records,
+                        run_id=run_id,
+                        dry_run=dry_run,
+                        return_result=True,
                     )
                 except (ValueError, RuntimeError) as exc:
                     raise IntegrationContractError(
@@ -7961,9 +8070,10 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         operator_action="set_max_records_in_range_1_to_100",
                     ) from exc
                 response_data = {
-                    "transitions": transitions,
-                    "processed_count": len(transitions),
+                    "transitions": list(maintenance.get("transitions") or []),
+                    "processed_count": int(maintenance.get("processed_count") or 0),
                     "dry_run": dry_run,
+                    "maintenance_state": str(maintenance.get("state") or ""),
                 }
             elif operation == "context.why":
                 evidence_ids = request_payload.get("evidence_ids")
@@ -8239,17 +8349,14 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                             retryable=False,
                             operator_action="set_target_id_for_mutation_intent",
                         )
-                    if intent == "delete":
-                        proposal = queue.propose_delete(
-                            target_atom_id=target_id,
-                            reason_code=f"integration_{intent}",
-                            metadata={
-                                "session_id": session_id,
-                                "run_id": run_id,
-                                "principal_id": str(principal.get("principal_id") or ""),
-                            },
-                        )
-                    else:
+                    action = {
+                        "create": WriteAction.PROPOSE_CREATE,
+                        "edit": WriteAction.PROPOSE_EDIT,
+                        "delete": WriteAction.PROPOSE_DELETE,
+                        "conflict": WriteAction.PROPOSE_EDIT,
+                    }[intent]
+                    candidate: CandidateAtom | None = None
+                    if intent != "delete":
                         body_value = mutation.get("body")
                         if isinstance(body_value, str):
                             candidate_text = body_value.strip()
@@ -8310,55 +8417,48 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                             confidence=max(0.0, min(1.0, float(dict(evidence[0]).get("confidence") or 0.5))),
                             salience=0.5,
                         )
-                        if intent == "create":
-                            proposal = queue.propose_create(
-                                candidate=candidate,
-                                reason_code=f"integration_{intent}",
-                                metadata={
-                                    "session_id": session_id,
-                                    "run_id": run_id,
-                                    "principal_id": str(principal.get("principal_id") or ""),
-                                    "intent": intent,
-                                },
-                            )
-                        else:
-                            proposal = queue.propose_edit(
-                                target_atom_id=target_id,
-                                replacement_candidate=candidate,
-                                reason_code=f"integration_{intent}",
-                                metadata={
-                                    "session_id": session_id,
-                                    "run_id": run_id,
-                                    "principal_id": str(principal.get("principal_id") or ""),
-                                    "intent": intent,
-                                },
-                            )
-                    proposal_id = str(getattr(proposal, "proposal_id", "") or "")
-                    candidate_id = str(getattr(locals().get("candidate"), "candidate_id", "") or "")
                     audit_ref = f"audit_{uuid4().hex[:20]}"
-                    response_data = {
-                        "proposal_id": proposal_id,
+                    response_template = {
+                        "proposal_id": "",
                         "status": "pending_review",
                         "idempotent_replay": False,
                         "audit_ref": audit_ref,
                     }
-                    affected_ids = [target_id] if target_id else [candidate_id or proposal_id]
-                    _integration_append_audit(
-                        self.server,
-                        {
-                            "audit_ref": audit_ref,
-                            "operation": operation,
-                            "request_id": request_id,
+                    proposal, durable_state, response_data = queue.propose_idempotent(
+                        action=action,
+                        target_atom_id=target_id,
+                        replacement_candidate=candidate,
+                        reason_code=f"integration_{intent}",
+                        metadata={
                             "session_id": session_id,
                             "run_id": run_id,
-                            "proposal_id": proposal_id,
-                            "decision": "proposed",
-                            "actor": str(principal.get("principal_id") or ""),
-                            "timestamp_utc": _utc_iso(),
-                            "mutation_intent": intent,
-                            "affected_ids": affected_ids,
+                            "principal_id": str(principal.get("principal_id") or ""),
+                            "intent": intent,
                         },
+                        actor=str(principal.get("principal_id") or ""),
+                        idempotency_key=idem_key,
+                        payload_fingerprint=payload_fp,
+                        response=response_template,
                     )
+                    if durable_state == "conflict":
+                        raise IntegrationContractError(
+                            code="INVALID_INPUT",
+                            message="idempotency key replay has different payload",
+                            retryable=False,
+                            operator_action="use_unique_idempotency_key_per_payload",
+                            status=HTTPStatus.CONFLICT,
+                        )
+                    if proposal is None:
+                        raise RuntimeError("idempotent proposal creation returned no proposal")
+                    proposal_id = str(proposal.proposal_id)
+                    response_data = dict(response_data)
+                    response_data["proposal_id"] = proposal_id
+                    if durable_state == "replay":
+                        response_data["idempotent_replay"] = True
+                    else:
+                        response_data["idempotent_replay"] = False
+                    candidate_id = str(getattr(candidate, "candidate_id", "") or "")
+                    affected_ids = [target_id] if target_id else [candidate_id or proposal_id]
                     _integration_idempotency_store(
                         self.server,
                         operation=operation,
@@ -8368,6 +8468,28 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                             "data": dict(response_data),
                         },
                     )
+                    if durable_state == "created":
+                        try:
+                            _integration_append_audit(
+                                self.server,
+                                {
+                                    "audit_ref": audit_ref,
+                                    "operation": operation,
+                                    "request_id": request_id,
+                                    "session_id": session_id,
+                                    "run_id": run_id,
+                                    "proposal_id": proposal_id,
+                                    "decision": "proposed",
+                                    "actor": str(principal.get("principal_id") or ""),
+                                    "timestamp_utc": _utc_iso(),
+                                    "mutation_intent": intent,
+                                    "affected_ids": affected_ids,
+                                },
+                            )
+                        except Exception:
+                            # The proposal receipt is already committed in the atom DB.
+                            # A secondary JSONL outage must never make that success ambiguous.
+                            LOGGER.exception("integration audit append failed after durable proposal commit")
             elif operation == "writeback.resolve":
                 queue = self.server.review_queue
                 if queue is None:
@@ -8485,20 +8607,16 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     "dependencies": dependencies,
                 }
             elif operation == "capabilities.get":
+                dependency_healthy = _integration_dependency_healthy(self.server)
                 operations: list[dict[str, Any]] = []
                 for name in ["context.build", "context.why", "memory.source.register", "memory.observe", "memory.maintain", "memory.proposals.list", "memory.proposals.dismiss", "memory.proposals.bridge", "writeback.propose", "writeback.resolve", "health.get", "capabilities.get"]:
-                    enabled = True
-                    if name in {"writeback.propose", "writeback.resolve"} and self.server.review_queue is None:
-                        enabled = False
                     operations.append(
-                        {
-                            "name": name,
-                            "enabled": enabled,
-                            "requires_auth": True,
-                            "required_roles": sorted(INTEGRATION_REQUIRED_ROLES.get(name, {"viewer", "operator", "admin"})),
-                            "required_capability": "review_apply" if name in {"writeback.resolve", "memory.proposals.dismiss", "memory.proposals.bridge"} else "",
-                            "idempotent": name in {"writeback.propose", "writeback.resolve", "health.get", "capabilities.get"},
-                        }
+                        _integration_operation_capability(
+                            self.server,
+                            principal=principal,
+                            operation=name,
+                            dependency_healthy=dependency_healthy,
+                        )
                     )
                 response_data = {
                     "contract_version": "1.0.0",
@@ -8513,6 +8631,15 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         "opaque_token_auth_enabled": True,
                         "secret_manager_auth_enabled": bool(self.server.integration_auth.secret_manager_enabled),
                         "scoped_operation_tokens_enabled": True,
+                    },
+                    "support_ticket": {
+                        "schema": "mno.support_ticket.v1",
+                        "command": "mno-report",
+                        "repository": "EmergentKnowledgeGroup/ModelNumquamOblita",
+                        "required_fields": ["title", "summary", "steps", "expected", "actual"],
+                        "explicit_logs_only": True,
+                        "submission_requires_explicit_flag": True,
+                        "guide": "docs/SUPPORT_TICKETS_FOR_AGENTS.md",
                     },
                     "limits": {
                         "max_generic_string_chars": INTEGRATION_MAX_GENERIC_STRING,
@@ -12691,13 +12818,16 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         {"error": "target only supports export; install/remove are limited to managed local MCP targets"},
                     )
                 state = _load_or_create_wizard_state(run_id=run_id, start_new=False)
+                if path == "/api/wizard/activate/mcp/export":
+                    _wizard_require(state, action="mcp_export")
+                elif path == "/api/wizard/activate/mcp/install":
+                    _wizard_require(state, action="activate_mcp")
                 panel = _wizard_connector_panel()
                 mcp_payload = _wizard_mcp_payload(state, data)
                 preview = panel.build_preview(mcp_payload)
                 targets_payload = _wizard_mcp_targets_payload(panel, mcp_payload)
 
                 if path == "/api/wizard/activate/mcp/export":
-                    _wizard_require(state, action="mcp_export")
                     export_payload = {**mcp_payload, "target": target}
                     export_path_raw = str(data.get("export_path") or "").strip()
                     if export_path_raw:
@@ -12772,7 +12902,6 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         {"ok": True, "run_id": state.get("run_id"), "target": target, "result": remove_result, "activation": activation},
                     )
 
-                _wizard_require(state, action="activate_mcp")
                 ownership_action = str(data.get("ownership_action") or "").strip().lower()
                 existing_entry = dict(existing.get("existing_entry") or {})
                 if target_status.get("ownership") == "unknown":
@@ -13711,6 +13840,14 @@ class RuntimeHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     block_on_close = False
 
+    def server_bind(self) -> None:
+        """Bind without the reverse-DNS lookup performed by HTTPServer."""
+
+        TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
+
     def __init__(
         self,
         server_address: tuple[str, int],
@@ -13797,7 +13934,14 @@ def start_runtime_server(
     daemon: bool = False,
 ) -> tuple[RuntimeHTTPServer, threading.Thread]:
     server = RuntimeHTTPServer((host, port), runtime, adapter_registry=adapter_registry, review_queue=review_queue)
-    thread = threading.Thread(target=server.serve_forever, daemon=bool(daemon), name="runtime-http")
+
+    def _serve_and_close() -> None:
+        try:
+            server.serve_forever()
+        finally:
+            server.server_close()
+
+    thread = threading.Thread(target=_serve_and_close, daemon=bool(daemon), name="runtime-http")
     server.runtime_thread = thread
     thread.start()
     return server, thread

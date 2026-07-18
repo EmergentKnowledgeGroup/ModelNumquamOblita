@@ -136,16 +136,14 @@ def _cmd_quote(value: str | Path) -> str:
 
 def _runtime_launch_command(
     *,
-    python_cmd: str,
-    repo_root: Path,
+    executable: str,
     memories_path: str,
     episodes_path: str,
     host: str = "127.0.0.1",
     port: int = DEFAULT_HELPER_RUNTIME_PORT,
 ) -> list[str]:
     args = [
-        python_cmd,
-        str((repo_root / "tools" / "run_live_runtime.py").resolve()),
+        executable,
         "--host",
         str(host),
         "--port",
@@ -160,8 +158,7 @@ def _runtime_launch_command(
 
 def _combined_mcp_launch_command(
     *,
-    python_cmd: str,
-    repo_root: Path,
+    executable: str,
     memories_path: str,
     episodes_path: str,
     default_role: str,
@@ -169,8 +166,7 @@ def _combined_mcp_launch_command(
     mutations_enabled: bool,
 ) -> list[str]:
     args = [
-        python_cmd,
-        str((repo_root / "tools" / "run_agent_live_mcp.py").resolve()),
+        executable,
         "--memories",
         str(memories_path),
         "--default-role",
@@ -192,15 +188,14 @@ def build_runtime_launcher_scripts(
     episodes_path: str,
     runtime_base_url: str = DEFAULT_RUNTIME_BASE_URL,
 ) -> dict[str, str]:
+    del repo_root  # Kept in the API; exported launchers must not bind to the source checkout.
     runtime_cmd = _runtime_launch_command(
-        python_cmd="python3",
-        repo_root=repo_root,
+        executable="mno-runtime",
         memories_path=memories_path,
         episodes_path=episodes_path,
     )
     runtime_cmd_win = _runtime_launch_command(
-        python_cmd="python",
-        repo_root=repo_root,
+        executable="mno-runtime",
         memories_path=memories_path,
         episodes_path=episodes_path,
     )
@@ -208,8 +203,7 @@ def build_runtime_launcher_scripts(
         [
             "#!/usr/bin/env bash",
             "set -euo pipefail",
-            f"cd {_posix_quote(repo_root)}",
-            "./setup_local.sh",
+            "command -v mno-runtime >/dev/null 2>&1 || { echo 'MNO_RUNTIME_NOT_INSTALLED: install the modelnumquamoblita package before launching this bundle.' >&2; exit 127; }",
             " ".join(_posix_quote(part) for part in runtime_cmd),
             "",
         ]
@@ -217,8 +211,7 @@ def build_runtime_launcher_scripts(
     powershell = "\n".join(
         [
             "$ErrorActionPreference = 'Stop'",
-            f"Set-Location {_powershell_quote(repo_root)}",
-            "& .\\setup_local.ps1",
+            "if (-not (Get-Command mno-runtime -ErrorAction SilentlyContinue)) { throw 'MNO_RUNTIME_NOT_INSTALLED: install the modelnumquamoblita package before launching this bundle.' }",
             "& " + " ".join(_powershell_quote(part) for part in runtime_cmd_win),
             "",
         ]
@@ -226,8 +219,7 @@ def build_runtime_launcher_scripts(
     batch = "\r\n".join(
         [
             "@echo off",
-            f"cd /d {_cmd_quote(repo_root)}",
-            "call setup_local.bat",
+            "where mno-runtime >nul 2>nul || (echo MNO_RUNTIME_NOT_INSTALLED: install the modelnumquamoblita package before launching this bundle. 1>&2 & exit /b 127)",
             " ".join(_cmd_quote(part) for part in runtime_cmd_win),
             "",
         ]
@@ -238,6 +230,8 @@ def build_runtime_launcher_scripts(
         "launch_runtime.bat": batch,
         "runtime_readme.txt": (
             "Run one of the launch_runtime scripts to start the local MNO runtime.\n"
+            "Requirement: install the modelnumquamoblita package so mno-runtime is on PATH.\n"
+            "The launcher never installs dependencies or refers to its originating checkout.\n"
             f"Expected runtime URL: {runtime_base_url}\n"
         ),
     }
@@ -252,9 +246,9 @@ def build_combined_mcp_launcher_scripts(
     compat_mode: str,
     mutations_enabled: bool,
 ) -> dict[str, str]:
+    del repo_root  # Kept in the API; exported launchers must not bind to the source checkout.
     combined_cmd = _combined_mcp_launch_command(
-        python_cmd="python3",
-        repo_root=repo_root,
+        executable="mno-agent-mcp",
         memories_path=memories_path,
         episodes_path=episodes_path,
         default_role=default_role,
@@ -262,8 +256,7 @@ def build_combined_mcp_launcher_scripts(
         mutations_enabled=mutations_enabled,
     )
     combined_cmd_win = _combined_mcp_launch_command(
-        python_cmd="python",
-        repo_root=repo_root,
+        executable="mno-agent-mcp",
         memories_path=memories_path,
         episodes_path=episodes_path,
         default_role=default_role,
@@ -274,8 +267,7 @@ def build_combined_mcp_launcher_scripts(
         [
             "#!/usr/bin/env bash",
             "set -euo pipefail",
-            f"cd {_posix_quote(repo_root)}",
-            "./setup_local.sh",
+            "command -v mno-agent-mcp >/dev/null 2>&1 || { echo 'MNO_AGENT_MCP_NOT_INSTALLED: install the modelnumquamoblita package before launching this bundle.' >&2; exit 127; }",
             " ".join(_posix_quote(part) for part in combined_cmd),
             "",
         ]
@@ -283,8 +275,7 @@ def build_combined_mcp_launcher_scripts(
     powershell = "\n".join(
         [
             "$ErrorActionPreference = 'Stop'",
-            f"Set-Location {_powershell_quote(repo_root)}",
-            "& .\\setup_local.ps1",
+            "if (-not (Get-Command mno-agent-mcp -ErrorAction SilentlyContinue)) { throw 'MNO_AGENT_MCP_NOT_INSTALLED: install the modelnumquamoblita package before launching this bundle.' }",
             "& " + " ".join(_powershell_quote(part) for part in combined_cmd_win),
             "",
         ]
@@ -292,8 +283,7 @@ def build_combined_mcp_launcher_scripts(
     batch = "\r\n".join(
         [
             "@echo off",
-            f"cd /d {_cmd_quote(repo_root)}",
-            "call setup_local.bat",
+            "where mno-agent-mcp >nul 2>nul || (echo MNO_AGENT_MCP_NOT_INSTALLED: install the modelnumquamoblita package before launching this bundle. 1>&2 & exit /b 127)",
             " ".join(_cmd_quote(part) for part in combined_cmd_win),
             "",
         ]

@@ -411,8 +411,94 @@ class SqliteAtomStore:
                     ON mutation_review_proposals(status, created_at);
                 CREATE INDEX IF NOT EXISTS idx_mutation_review_bridge_provisional
                     ON mutation_review_bridge_state(provisional_record_id);
+
+                CREATE TABLE IF NOT EXISTS mutation_review_idempotency (
+                    operation TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    payload_fingerprint TEXT NOT NULL,
+                    proposal_id TEXT NOT NULL,
+                    response_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (operation, idempotency_key)
+                );
                 """
             )
+
+    def mutation_review_create_idempotent(
+        self,
+        record: dict[str, object],
+        *,
+        operation: str,
+        idempotency_key: str,
+        payload_fingerprint: str,
+        response: dict[str, object],
+    ) -> dict[str, object]:
+        """Create a proposal and its replay identity in one SQLite transaction.
+
+        ``BEGIN IMMEDIATE`` is deliberate: separate runtime processes must
+        serialize the lookup/create race on the database, not a process-local
+        lock.  The stored response is the durable receipt returned on replay.
+        """
+
+        normalized_operation = str(operation or "").strip()
+        normalized_key = str(idempotency_key or "").strip()
+        if not normalized_operation or not normalized_key:
+            raise ValueError("operation and idempotency_key are required")
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                existing = self._conn.execute(
+                    """
+                    SELECT payload_fingerprint, proposal_id, response_json
+                    FROM mutation_review_idempotency
+                    WHERE operation = ? AND idempotency_key = ?
+                    """,
+                    (normalized_operation, normalized_key),
+                ).fetchone()
+                if existing is not None:
+                    if str(existing["payload_fingerprint"]) != str(payload_fingerprint):
+                        self._conn.rollback()
+                        return {"state": "conflict"}
+                    proposal = self.mutation_review_get(str(existing["proposal_id"]))
+                    stored_response = json.loads(str(existing["response_json"]))
+                    self._conn.commit()
+                    return {"state": "replay", "proposal": proposal, "response": stored_response}
+
+                self._conn.execute(
+                    """
+                    INSERT INTO mutation_review_proposals (
+                        proposal_id, action, target_atom_id, reason_code, created_at, status,
+                        replacement_candidate_json, retention_days, metadata_json, created_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        record["proposal_id"], record["action"], record["target_atom_id"], record["reason_code"],
+                        record["created_at"], record["status"], record.get("replacement_candidate_json"),
+                        int(record["retention_days"]), record["metadata_json"], record.get("created_by"),
+                    ),
+                )
+                self._mutation_review_audit(str(record["proposal_id"]), "PROPOSED", record.get("created_by"), {})
+                self._conn.execute(
+                    """
+                    INSERT INTO mutation_review_idempotency (
+                        operation, idempotency_key, payload_fingerprint, proposal_id, response_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        normalized_operation,
+                        normalized_key,
+                        str(payload_fingerprint),
+                        str(record["proposal_id"]),
+                        json.dumps(dict(response), ensure_ascii=False, sort_keys=True),
+                        self._now().isoformat(),
+                    ),
+                )
+                proposal = self.mutation_review_get(str(record["proposal_id"]))
+                self._conn.commit()
+                return {"state": "created", "proposal": proposal, "response": dict(response)}
+            except Exception:
+                self._conn.rollback()
+                raise
 
     def _ensure_runtime_control_schema(self) -> None:
         """Create or validate protected, store-stable integration signing state."""

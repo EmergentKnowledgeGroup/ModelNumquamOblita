@@ -49,6 +49,8 @@ Authority and maturity are separate. A consolidated provisional memory is more m
 6. Pass back the signed `source_registration` and `retrieval_receipt` exactly as MNO issued them.
 7. If the user explicitly says “remember this,” report `remember_intent: "user_explicit"` and tell the user that human-reviewed writeback is still required for durable evidence/canonical truth.
 
+Before using every write or maintenance operation, call `integration.capabilities.get`. Distinguish an exposed tool from one that is authorized and available for your current principal, and honor its `authorized`, `available`, and reason fields. If the response says unavailable, degraded, or unauthorized, report that state; do not invent success, switch credentials, or bypass the operation through raw import.
+
 `context.build` is read-only. `memory.observe` is the explicit live write that lets MNO evaluate safe provisional evidence. Do not use raw import as the day-to-day “remember this” path.
 
 ## Source identity and self-echo rules
@@ -104,6 +106,12 @@ Use this wording:
 
 If asked whether human approval is required for every provisional observation, answer **no**. If asked whether autonomous reinforcement can become canonical truth, answer **no**.
 
+## If you find an MNO bug
+
+Use `mno-report` instead of inventing a report format. Supply a title, summary, exact reproduction steps, expected behavior, actual behavior, and useful agent notes. The command can run the bounded compatibility checks and can include only logs you explicitly name; selected logs are size-bounded and secret-redacted. It never sweeps memory stores or private runtime data.
+
+Create and review the local bundle first. Use `--submit` only when the human has explicitly authorized opening a GitHub issue and the GitHub CLI is authenticated. Never attach databases, WAL/SHM files, credentials, WSS data, or private source datasets. See [`docs/SUPPORT_TICKETS_FOR_AGENTS.md`](docs/SUPPORT_TICKETS_FOR_AGENTS.md).
+
 ## Where to go next
 
 - Human quick start: [`docs/QUICKSTART.md`](docs/QUICKSTART.md)
@@ -112,6 +120,8 @@ If asked whether human approval is required for every provisional observation, a
 - Architecture and trust boundaries: [`docs/public/ARCHITECTURE.md`](docs/public/ARCHITECTURE.md)
 - Configuration: [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)
 - Security and privacy: [`docs/SECURITY_AND_PRIVACY.md`](docs/SECURITY_AND_PRIVACY.md)
+- Compatibility and artifact support: [`docs/COMPATIBILITY_AND_SUPPORT.md`](docs/COMPATIBILITY_AND_SUPPORT.md)
+- Agent bug reports: [`docs/SUPPORT_TICKETS_FOR_AGENTS.md`](docs/SUPPORT_TICKETS_FOR_AGENTS.md)
 - The locked v0.2 design contract: [`docs/MNO_V0_2_MODEL_CONSOLIDATION_SPEC_2026-07-17.md`](docs/MNO_V0_2_MODEL_CONSOLIDATION_SPEC_2026-07-17.md)
 
 When code and prose appear to disagree, preserve the authority boundary above, report the mismatch, and do not invent a shortcut.

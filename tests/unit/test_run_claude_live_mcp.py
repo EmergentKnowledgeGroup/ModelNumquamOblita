@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-import select
 import subprocess
 import sys
 from pathlib import Path
@@ -142,6 +141,9 @@ def test_plan_only_loads_explicit_runtime_config(tmp_path: Path) -> None:
 def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
     store = tmp_path / "demo.sqlite3"
     store.write_text("", encoding="utf-8")
+    config = tmp_path / "runtime-policy.json"
+    config.write_text('{"provisional_memory":{"enabled":true}}', encoding="utf-8")
+    state_root = tmp_path / "runtime-state"
 
     proc = subprocess.Popen(
         [
@@ -149,7 +151,16 @@ def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
             str(SCRIPT_PATH),
             "--memories",
             str(store),
+            "--runtime-port",
+            "0",
+            "--config",
+            str(config),
         ],
+        env={
+            **os.environ,
+            "MNO_RUNTIME_STATE_ROOT": str(state_root),
+            "NO_MCP_STDIO_TRACE": str(tmp_path / "mcp-stdio-trace.jsonl"),
+        },
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -168,19 +179,19 @@ def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
             }
         ).encode("utf-8")
         framed = f"Content-Length: {len(body)}\r\nContent-Type: application/json\r\n\r\n".encode("utf-8") + body
-        if os.name == "nt":
-            response, stderr = proc.communicate(input=framed, timeout=2.0)
-        else:
-            assert proc.stdin is not None
-            proc.stdin.write(framed)
-            proc.stdin.flush()
-            response = b""
-            if proc.stdout is not None and select.select([proc.stdout.fileno()], [], [], 2.0)[0]:
-                response = os.read(proc.stdout.fileno(), 512)
-            stderr = b""
-            if proc.stderr is not None and select.select([proc.stderr.fileno()], [], [], 0.2)[0]:
-                stderr = os.read(proc.stderr.fileno(), 4096)
-        assert b"protocolVersion" in response
+        try:
+            response, stderr = proc.communicate(input=framed, timeout=30.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            response, stderr = proc.communicate(timeout=5.0)
+            trace_path = tmp_path / "mcp-stdio-trace.jsonl"
+            trace = trace_path.read_text(encoding="utf-8") if trace_path.exists() else "<missing>"
+            pytest.fail(
+                f"MCP stdio child timed out: trace={trace!r} stdout={response!r} stderr={stderr!r}",
+                pytrace=False,
+            )
+        assert proc.returncode == 0, stderr.decode("utf-8", errors="replace")
+        assert b"protocolVersion" in response, stderr.decode("utf-8", errors="replace")
         assert b"runtime_url=" not in stderr
     finally:
         if proc.poll() is None:

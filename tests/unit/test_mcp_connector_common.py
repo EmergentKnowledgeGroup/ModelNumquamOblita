@@ -196,7 +196,11 @@ def test_wsl_entry_uses_target_runtime_path_resolution_when_discovery_is_unavail
         runner=lambda *_args, **_kwargs: _Proc(),
     )
     exec_index = entry["args"].index("--exec")
-    assert entry["args"][exec_index + 1:exec_index + 3] == ["/usr/bin/env", "python3"]
+    assert entry["args"][exec_index + 1:exec_index + 4] == ["/usr/bin/env", "python3", "-c"]
+    launch_guard = entry["args"][exec_index + 4]
+    assert "sys.version_info >= (3,12)" in launch_guard
+    assert "runpy.run_path" in launch_guard
+    assert entry["args"][exec_index + 5] == "tools/run_claude_live_mcp.py"
 
 
 def test_default_memory_path_scans_selected_legacy_imports_root(tmp_path: Path) -> None:
@@ -246,6 +250,31 @@ def test_merge_and_backup_preserve_existing_payload(tmp_path: Path) -> None:
     assert payload["preferences"]["sidebarMode"] == "chat"
     assert payload["mcpServers"]["filesystem"]["command"] == "npx"
     assert payload["mcpServers"]["numquamoblita-live"]["command"] == "python3"
+
+
+def test_json_backup_fsyncs_directory_after_each_atomic_rename(tmp_path: Path, monkeypatch) -> None:
+    module = _load_module()
+    config_path = tmp_path / "claude_desktop_config.json"
+    config_path.write_text('{"existing": true}\n', encoding="utf-8")
+    calls: list[Path] = []
+    monkeypatch.setattr(module, "_fsync_directory", lambda path: calls.append(Path(path).resolve()))
+
+    module.write_json_with_backup(config_path, {"updated": True})
+
+    assert calls == [tmp_path.resolve(), tmp_path.resolve()]
+
+
+def test_directory_fsync_closes_descriptor_on_posix(monkeypatch, tmp_path: Path) -> None:
+    module = _load_module()
+    calls: list[tuple[str, int] | tuple[str, int, int]] = []
+    monkeypatch.setattr(module.os, "open", lambda path, flags: calls.append(("open", flags)) or 41)
+    monkeypatch.setattr(module.os, "fsync", lambda descriptor: calls.append(("fsync", descriptor)))
+    monkeypatch.setattr(module.os, "close", lambda descriptor: calls.append(("close", descriptor)))
+
+    module._fsync_directory(tmp_path, platform_name="posix")
+
+    assert calls[0][0] == "open"
+    assert calls[1:] == [("fsync", 41), ("close", 41)]
 
 
 def test_atomic_json_replace_failure_preserves_live_config(tmp_path: Path, monkeypatch) -> None:

@@ -28,6 +28,12 @@ WSL_PYTHON_CANDIDATES = tuple(
     for suffix in (".15", ".14", ".13", ".12", "")
     for prefix in ("/usr/bin", "/usr/local/bin")
 )
+WSL_PYTHON_LAUNCH_GUARD = (
+    "import runpy,sys,venv,xml.parsers.expat;"
+    "assert sys.version_info >= (3,12), 'MNO requires Python 3.12+';"
+    "script=sys.argv.pop(1);sys.argv[0]=script;"
+    "runpy.run_path(script,run_name='__main__')"
+)
 
 
 def _path_text(value: str | Path | None) -> str:
@@ -382,8 +388,9 @@ def build_windows_wsl_stdio_entry(
             runtime_python_argv = [discover_wsl_python_path(distro_name=distro, runner=runner)]
         except ValueError:
             # Cross-platform bundle generation may not have access to the target WSL distro.
-            # Resolve inside that distro at launch rather than writing a guessed absolute path.
-            runtime_python_argv = ["/usr/bin/env", "python3"]
+            # Resolve inside that distro at launch, but fail before MNO starts if the
+            # target's unversioned interpreter does not satisfy the 3.12+ contract.
+            runtime_python_argv = ["/usr/bin/env", "python3", "-c", WSL_PYTHON_LAUNCH_GUARD]
     args: list[str] = []
     if distro:
         args.extend(["-d", distro])
@@ -498,6 +505,27 @@ def _backup_path(path: Path) -> Path:
     return path.with_name(f"{path.name}.bak.{stamp}")
 
 
+def _fsync_directory(path: Path, *, platform_name: str | None = None) -> None:
+    """Persist directory-entry changes where the host supports directory fsync.
+
+    Windows does not expose POSIX directory descriptors through ``os.open``;
+    there the atomic ``os.replace`` plus file fsync is the strongest portable
+    guarantee available to this connector writer.
+    """
+
+    if str(platform_name or os.name).lower() == "nt":
+        return
+    flags = int(os.O_RDONLY) | int(getattr(os, "O_DIRECTORY", 0) or 0)
+    try:
+        descriptor = os.open(str(path), flags)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 
 def write_json_with_backup(path: Path, payload: dict[str, Any]) -> Path | None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -513,6 +541,7 @@ def write_json_with_backup(path: Path, payload: dict[str, Any]) -> Path | None:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(backup_temp, backup_path)
+            _fsync_directory(path.parent)
         finally:
             backup_temp.unlink(missing_ok=True)
     target_temp = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
@@ -522,6 +551,7 @@ def write_json_with_backup(path: Path, payload: dict[str, Any]) -> Path | None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(target_temp, path)
+        _fsync_directory(path.parent)
     finally:
         target_temp.unlink(missing_ok=True)
     return backup_path

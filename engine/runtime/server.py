@@ -13932,7 +13932,14 @@ def start_runtime_server(
     daemon: bool = False,
 ) -> tuple[RuntimeHTTPServer, threading.Thread]:
     server = RuntimeHTTPServer((host, port), runtime, adapter_registry=adapter_registry, review_queue=review_queue)
-    thread = threading.Thread(target=server.serve_forever, daemon=bool(daemon), name="runtime-http")
+
+    def _serve_and_close() -> None:
+        try:
+            server.serve_forever()
+        finally:
+            server.server_close()
+
+    thread = threading.Thread(target=_serve_and_close, daemon=bool(daemon), name="runtime-http")
     server.runtime_thread = thread
     thread.start()
     return server, thread

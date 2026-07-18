@@ -322,6 +322,11 @@ def wsl_path_from_windows(
         return posix_path, inferred_distro or unc_distro
     if raw.startswith("/"):
         return raw, inferred_distro
+    if len(raw) >= 2 and raw[0].isalpha() and raw[1] == ":":
+        drive = raw[0].lower()
+        remainder = raw[2:].replace("\\", "/").lstrip("/")
+        converted = f"/mnt/{drive}/{remainder}" if remainder else f"/mnt/{drive}"
+        return converted, inferred_distro
     convert_source = raw.replace("\\", "/") if ":" in raw[:3] else raw
     cmd = [windows_wsl_command()]
     if inferred_distro:
@@ -573,7 +578,10 @@ def detect_wsl_distro(
     if current:
         return current
     wsl_command = windows_wsl_command()
-    proc = runner([wsl_command, "-l", "-q"], check=False, capture_output=True, text=True)
+    try:
+        proc = runner([wsl_command, "-l", "-q"], check=False, capture_output=True, text=True)
+    except OSError:
+        return ""
     if proc.returncode != 0:
         return ""
     for raw in str(proc.stdout or "").splitlines():

@@ -616,9 +616,17 @@ class ConnectorControlPanel:
     def _wsl_claude_available(self, *, distro_name: str) -> bool:
         if not is_windows_platform():
             return False
-        repo_root_wsl, distro = self._path_for_wsl(self.repo_root, distro_name=distro_name)
-        prefix = self._wsl_exec_prefix(repo_root_wsl, distro)
-        proc = self.runner(prefix + ["sh", "-lc", "command -v claude >/dev/null 2>&1"], check=False, capture_output=True, text=True)
+        try:
+            repo_root_wsl, distro = self._path_for_wsl(self.repo_root, distro_name=distro_name)
+            prefix = self._wsl_exec_prefix(repo_root_wsl, distro)
+            proc = self.runner(
+                prefix + ["sh", "-lc", "command -v claude >/dev/null 2>&1"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, ValueError):
+            return False
         return proc.returncode == 0
 
     def _wsl_exec_prefix(self, repo_root_wsl: str, distro_name: str) -> list[str]:

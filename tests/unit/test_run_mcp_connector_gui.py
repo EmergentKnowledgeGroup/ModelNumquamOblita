@@ -204,7 +204,11 @@ def test_panel_remove_claude_code_uses_shared_remover(tmp_path: Path) -> None:
         return {"remove_returncode": 0, "removed": True, "scope": scope}
 
     module.remove_claude_code_server = _fake_remove  # type: ignore[assignment]
-    panel = module.ConnectorControlPanel(repo_root=repo_root, python_path="python3")
+    panel = module.ConnectorControlPanel(
+        repo_root=repo_root,
+        python_path="python3",
+        which=lambda binary: "/usr/bin/claude" if binary == "claude" else None,
+    )
     result = panel.remove_claude_code(
         {
             "memories_path": str(repo_root / "runtime" / "stores" / "claude_no.sqlite3"),
@@ -524,3 +528,25 @@ def test_current_state_exposes_help_and_candidates(tmp_path: Path) -> None:
     assert state["memory_candidates"]
     assert "help_text" in state
     assert state["memory_candidates"][0]["display_label"]
+
+
+def test_current_state_treats_missing_wsl_as_unavailable(tmp_path: Path, monkeypatch) -> None:
+    module = _load_module()
+    repo_root = _make_repo(tmp_path)
+
+    def _runner(_cmd, **_kwargs):
+        raise FileNotFoundError("wsl.exe")
+
+    monkeypatch.setattr(module, "is_windows_platform", lambda: True)
+    panel = module.ConnectorControlPanel(
+        repo_root=repo_root,
+        python_path=r"C:\Python313\python.exe",
+        runner=_runner,
+        which=lambda _binary: None,
+    )
+
+    state = panel.current_state()
+
+    assert state["wsl_distro"] == ""
+    assert state["claude_code_available"] is False
+    assert state["claude_code_install_context"] == "missing"

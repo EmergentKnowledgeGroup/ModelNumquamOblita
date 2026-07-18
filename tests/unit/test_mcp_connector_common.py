@@ -177,6 +177,28 @@ def test_wsl_python_discovery_uses_one_path_probe_when_supported() -> None:
     assert len(calls) == 1
 
 
+def test_wsl_entry_uses_target_runtime_path_resolution_when_discovery_is_unavailable(tmp_path: Path) -> None:
+    module = _load_module()
+
+    class _Proc:
+        returncode = 1
+        stdout = ""
+        stderr = "unavailable"
+
+    entry = module.build_windows_wsl_stdio_entry(
+        repo_root="/mnt/z/mno",
+        memories_path=tmp_path / "memories.json",
+        episodes_path=None,
+        default_role="viewer",
+        compat_mode="strict",
+        mutations_enabled=False,
+        distro_name="Ubuntu",
+        runner=lambda *_args, **_kwargs: _Proc(),
+    )
+    exec_index = entry["args"].index("--exec")
+    assert entry["args"][exec_index + 1:exec_index + 3] == ["/usr/bin/env", "python3"]
+
+
 def test_default_memory_path_scans_selected_legacy_imports_root(tmp_path: Path) -> None:
     module = _load_module()
     nested = tmp_path / ".runtime" / "imports" / "export" / "memories.json"

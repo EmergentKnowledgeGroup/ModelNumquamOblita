@@ -373,14 +373,21 @@ def build_windows_wsl_stdio_entry(
         episodes_arg, distro = wsl_path_from_windows(episodes_path, distro_name=distro, runner=runner)
     if config_path is not None and _path_text(config_path):
         config_arg, distro = wsl_path_from_windows(config_path, distro_name=distro, runner=runner)
-    selected_python = str(python_path or "").strip() or discover_wsl_python_path(
-        distro_name=distro,
-        runner=runner,
-    )
+    selected_python = str(python_path or "").strip()
+    runtime_python_argv: list[str]
+    if selected_python:
+        runtime_python_argv = [selected_python]
+    else:
+        try:
+            runtime_python_argv = [discover_wsl_python_path(distro_name=distro, runner=runner)]
+        except ValueError:
+            # Cross-platform bundle generation may not have access to the target WSL distro.
+            # Resolve inside that distro at launch rather than writing a guessed absolute path.
+            runtime_python_argv = ["/usr/bin/env", "python3"]
     args: list[str] = []
     if distro:
         args.extend(["-d", distro])
-    args.extend(["--cd", repo_root_arg, "--exec", selected_python])
+    args.extend(["--cd", repo_root_arg, "--exec", *runtime_python_argv])
     args.extend(
         build_launcher_cli_args(
             launcher_path="tools/run_claude_live_mcp.py",

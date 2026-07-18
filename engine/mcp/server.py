@@ -156,6 +156,7 @@ class ServerConfig:
     integration_viewer_token: str = ""
     integration_operator_token: str = ""
     integration_admin_token: str = ""
+    integration_review_apply_token: str = ""
     auth: AuthConfig = field(default_factory=AuthConfig)
 
     def __post_init__(self) -> None:
@@ -216,6 +217,9 @@ class ServerConfig:
             self.integration_admin_token = str(
                 os.getenv("NO_INTEGRATION_ADMIN_TOKEN", "local-integration-admin-token") or ""
             ).strip()
+        self.integration_review_apply_token = str(
+            self.integration_review_apply_token or os.getenv("NO_INTEGRATION_REVIEW_APPLY_TOKEN", "") or ""
+        ).strip()
 
 
 class RuntimeApiClient:
@@ -694,6 +698,7 @@ class MCPServer:
                         "reason": {"type": "string"},
                     },
                     "required": ["session_id", "proposal_id", "decision"],
+                    "anyOf": [{"required": ["decided_by"]}, {"required": ["reviewer"]}],
                     "additionalProperties": False,
                 },
                 permission="operator",
@@ -2235,9 +2240,20 @@ class MCPServer:
             return operator
         return viewer
 
-    def _integration_headers(self, *, idempotency_key: str | None = None) -> dict[str, str]:
+    def _integration_headers(
+        self,
+        *,
+        idempotency_key: str | None = None,
+        review_apply: bool = False,
+    ) -> dict[str, str]:
         headers: dict[str, str] = {}
-        token = self._integration_token_for_session_role()
+        token = (
+            str(self.config.integration_review_apply_token or "").strip()
+            if review_apply
+            else self._integration_token_for_session_role()
+        )
+        if review_apply and not token:
+            raise MCPRequestError(-32001, "review_apply integration token is required")
         if token:
             headers["Authorization"] = f"Bearer {token}"
         if idempotency_key:
@@ -2251,6 +2267,7 @@ class MCPServer:
         args: dict[str, Any],
         data: dict[str, Any],
         idempotency_key: str | None = None,
+        review_apply: bool = False,
     ) -> dict[str, Any]:
         principal = dict(args.get("principal") or {}) if isinstance(args.get("principal"), Mapping) else {}
         payload = {
@@ -2266,7 +2283,7 @@ class MCPServer:
             path,
             query=None,
             payload=payload,
-            headers=self._integration_headers(idempotency_key=idempotency_key),
+            headers=self._integration_headers(idempotency_key=idempotency_key, review_apply=review_apply),
             allow_error_status=True,
         )
         if not isinstance(response, Mapping):
@@ -2279,6 +2296,7 @@ class MCPServer:
         path: str,
         args: dict[str, Any],
         extra_query: Mapping[str, Any] | None = None,
+        review_apply: bool = False,
     ) -> dict[str, Any]:
         query = {
             "schema_version": self.config.integration_schema_version,
@@ -2291,7 +2309,7 @@ class MCPServer:
             path,
             query=query,
             payload=None,
-            headers=self._integration_headers(),
+            headers=self._integration_headers(review_apply=review_apply),
             allow_error_status=True,
         )
         if not isinstance(response, Mapping):
@@ -2378,13 +2396,15 @@ class MCPServer:
         )
 
     def _tool_integration_memory_proposals_list(self, args: dict[str, Any]) -> dict[str, Any]:
+        include_content = bool(args.get("include_content", False))
         return self._integration_get(
             path="/api/integration/v1/memory/proposals",
             args=args,
             extra_query={
                 "status": str(args.get("status") or "all"),
-                "include_content": "true" if bool(args.get("include_content", False)) else "false",
+                "include_content": "true" if include_content else "false",
             },
+            review_apply=include_content,
         )
 
     def _tool_integration_memory_proposals_dismiss(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -2398,6 +2418,7 @@ class MCPServer:
             path=f"/api/integration/v1/memory/proposals/{record_id}/dismiss",
             args=args,
             data=data,
+            review_apply=True,
         )
 
     def _tool_integration_memory_proposals_bridge(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -2408,6 +2429,7 @@ class MCPServer:
             path=f"/api/integration/v1/memory/proposals/{record_id}/bridge",
             args=args,
             data={},
+            review_apply=True,
         )
 
     def _tool_integration_writeback_propose(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -2449,6 +2471,7 @@ class MCPServer:
             path="/api/integration/v1/writeback/resolve",
             args=args,
             data=data,
+            review_apply=True,
         )
 
     def _tool_integration_capabilities_get(self, args: dict[str, Any]) -> dict[str, Any]:

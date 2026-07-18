@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from engine.contracts import AtomType, CandidateAtom, SourceRef
-from engine.memory import MutationReviewQueue, ProposalStatus, SqliteAtomStore
+from engine.memory import AtomStatus, MutationReviewQueue, ProposalStatus, SqliteAtomStore
 from engine.memory.mutation_queue import DecisionConflictError
 
 
@@ -106,3 +106,23 @@ def test_sqlite_review_queue_concurrent_apply_retries_create_one_atom(tmp_path) 
 
     assert results[0].applied_atom_id == results[1].applied_atom_id
     assert len(store.list_atoms()) == 1
+
+
+def test_sqlite_review_queue_rejects_edit_that_dedupes_to_its_target(tmp_path) -> None:
+    store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    original = store.add_candidate(_candidate("Unchanged atom"))
+    queue = MutationReviewQueue(store)
+    proposal = queue.propose_edit(
+        target_atom_id=original.atom_id,
+        replacement_candidate=_candidate("Unchanged atom"),
+        reason_code="manual_edit",
+    )
+    queue.approve(proposal.proposal_id, actor="reviewer-1")
+
+    with pytest.raises(ValueError, match="replacement must differ from target"):
+        queue.apply(proposal.proposal_id, actor="reviewer-1")
+
+    assert queue.get(proposal.proposal_id).status is ProposalStatus.APPROVED
+    assert store.get_atom(original.atom_id).status is AtomStatus.ACTIVE
+    assert len(store.list_atoms()) == 1
+    store.close()

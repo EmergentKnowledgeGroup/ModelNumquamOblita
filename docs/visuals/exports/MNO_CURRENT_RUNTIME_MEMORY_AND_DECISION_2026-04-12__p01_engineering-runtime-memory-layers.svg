@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="2032" height="927" viewBox="0 0 2032 927" role="img" aria-label="Engineering Runtime Memory Layers">
+<svg xmlns="http://www.w3.org/2000/svg" width="2032" height="946" viewBox="0 0 2032 946" role="img" aria-label="Engineering Runtime Memory Layers">
 <rect width="100%" height="100%" fill="#ffffff"/>
-<rect x="42.0" y="42.0" width="430.0" height="682.7" rx="8" fill="#f8f1e7" fill-opacity="0.48" stroke="#c58b3a" stroke-width="2"/>
+<rect x="42.0" y="42.0" width="430.0" height="701.6" rx="8" fill="#f8f1e7" fill-opacity="0.48" stroke="#c58b3a" stroke-width="2"/>
 <text x="58.0" y="69.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#243b53">Request-Local And Short-Term</text>
-<rect x="548.0" y="42.0" width="430.0" height="682.7" rx="8" fill="#eef6ea" fill-opacity="0.48" stroke="#6a9b58" stroke-width="2"/>
+<rect x="548.0" y="42.0" width="430.0" height="701.6" rx="8" fill="#eef6ea" fill-opacity="0.48" stroke="#6a9b58" stroke-width="2"/>
 <text x="564.0" y="69.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#243b53">Runtime Helper Layers</text>
-<rect x="1054.0" y="42.0" width="430.0" height="682.7" rx="8" fill="#eaf3fb" fill-opacity="0.48" stroke="#4d7fb3" stroke-width="2"/>
+<rect x="1054.0" y="42.0" width="430.0" height="701.6" rx="8" fill="#eaf3fb" fill-opacity="0.48" stroke="#4d7fb3" stroke-width="2"/>
 <text x="1070.0" y="69.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#243b53">Durable Reviewed / Canonical</text>
-<rect x="1560.0" y="42.0" width="430.0" height="682.7" rx="8" fill="#f4eafa" fill-opacity="0.48" stroke="#8b63b6" stroke-width="2"/>
+<rect x="1560.0" y="42.0" width="430.0" height="701.6" rx="8" fill="#f4eafa" fill-opacity="0.48" stroke="#8b63b6" stroke-width="2"/>
 <text x="1576.0" y="69.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#243b53">Governed Control Surfaces</text>
 <polyline points="257.0,207.8 257.0,235.8 256.0,240.0 256.0,368.0 257.0,361.5 257.0,333.5" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="763.0,226.6 763.0,254.6 768.0,240.0 960.0,240.0 960.0,512.0 768.0,512.0 763.0,525.0 763.0,497.0" fill="none" stroke="#6a9b58" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
@@ -34,12 +34,12 @@
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1269.0" y="289.1"><tspan x="1269.0" dy="0.0">Reviewed episode cards</tspan><tspan x="1269.0" dy="16.5">trusted event memory</tspan></text>
 <rect x="1098.0" y="375.5" width="342.0" height="102.6" rx="12" fill="#eef7ff" stroke="#4d7fb3" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1269.0" y="416.1"><tspan x="1269.0" dy="0.0">Reviewed truth lineage</tspan><tspan x="1269.0" dy="16.5">truth_family_id, supersedes, superseded_by,</tspan><tspan x="1269.0" dy="16.5">current flag</tspan></text>
-<rect x="1098.0" y="520.2" width="342.0" height="121.5" rx="12" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1269.0" y="561.9"><tspan x="1269.0" dy="0.0">Runtime trust rules</tspan><tspan x="1269.0" dy="16.5">reviewed canonical &gt; evidence atom &gt;</tspan><tspan x="1269.0" dy="16.5">provisional consolidated &gt; observed</tspan><tspan x="1269.0" dy="16.5">STM/WSS are helper context, never evidence</tspan></text>
+<rect x="1098.0" y="520.2" width="342.0" height="140.4" rx="12" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1269.0" y="563.1"><tspan x="1269.0" dy="0.0">Runtime trust rules</tspan><tspan x="1269.0" dy="16.5">reviewed canonical &gt; evidence atom &gt;</tspan><tspan x="1269.0" dy="16.5">provisional authority family</tspan><tspan x="1269.0" dy="16.5">provisional maturity: observed / reinforced /</tspan><tspan x="1269.0" dy="16.5">consolidated; STM/WSS are never evidence</tspan></text>
 <rect x="1604.0" y="124.0" width="342.0" height="102.6" rx="12" fill="#faf5ff" stroke="#8b63b6" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="172.8"><tspan x="1775.0" dy="0.0">Mutation review queue</tspan><tspan x="1775.0" dy="16.5">human-gated canonical create/edit/delete bridge</tspan></text>
-<rect x="626.0" y="766.7" width="780.0" height="83.8" rx="12" fill="#fff7e6" stroke="#b7a26a" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1016.0" y="806.0"><tspan x="1016.0" dy="0.0">Read-time effect</tspan><tspan x="1016.0" dy="16.5">runtime can inspect original wording and current-vs-superseded reviewed truth without rewriting history</tspan></text>
+<rect x="626.0" y="785.6" width="780.0" height="83.8" rx="12" fill="#fff7e6" stroke="#b7a26a" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1016.0" y="824.9"><tspan x="1016.0" dy="0.0">Read-time effect</tspan><tspan x="1016.0" dy="16.5">runtime can inspect original wording and current-vs-superseded reviewed truth without rewriting history</tspan></text>
 <polygon points="257.0,333.5 262.3,344.3 251.7,344.3" fill="#d6b656"/>
 <polygon points="763.0,497.0 768.3,507.8 757.7,507.8" fill="#6a9b58"/>
 <polygon points="1219.3,333.5 1224.6,344.3 1214.1,344.3" fill="#4d7fb3"/>

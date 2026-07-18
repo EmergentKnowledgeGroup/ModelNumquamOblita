@@ -18,9 +18,9 @@
 <polyline points="1343.5,468.4 1343.5,496.4 1344.0,480.0 1488.0,480.0 1488.0,752.0 1216.0,752.0 1219.3,757.0 1219.3,729.0" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="1318.7,613.0 1318.7,641.0 1312.0,640.0 1312.0,752.0 1318.7,757.0 1318.7,729.0" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="1269.0,655.0 1269.0,627.0 1264.0,640.0 1584.0,640.0 1584.0,96.0 1775.0,96.0 1775.0,124.0" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="1775.0,207.8 1775.0,235.8 1776.0,240.0 1776.0,368.0 1728.0,368.0 1725.3,380.4 1725.3,352.4" fill="none" stroke="#b8549e" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1775.0,207.8 1775.0,235.8 1776.0,240.0 1776.0,400.0 1728.0,400.0 1725.3,418.2 1725.3,390.2" fill="none" stroke="#b8549e" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="257.0,207.8 257.0,235.8 256.0,240.0 256.0,352.0 257.0,361.5 257.0,333.5" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="1824.7,352.4 1824.7,380.4 1824.0,384.0 1824.0,496.0 1776.0,496.0 1775.0,506.2 1775.0,478.2" fill="none" stroke="#b8549e" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1824.7,390.2 1824.7,418.2 1824.0,416.0 1824.0,528.0 1776.0,528.0 1775.0,543.9 1775.0,515.9" fill="none" stroke="#b8549e" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="428.0,291.6 456.0,291.6 448.0,288.0 448.0,96.0 1472.0,96.0 1472.0,144.0 1468.0,149.6 1440.0,149.6" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="428.0,417.4 456.0,417.4 448.0,416.0 560.0,416.0 560.0,96.0 1456.0,96.0 1456.0,160.0 1472.0,160.0 1468.0,157.2 1440.0,157.2" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="428.0,543.2 456.0,543.2 448.0,544.0 448.0,624.0 1040.0,624.0 1040.0,176.0 1472.0,176.0 1472.0,160.0 1468.0,164.8 1440.0,164.8" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
@@ -62,12 +62,12 @@
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1269.0" y="697.8"><tspan x="1269.0" dy="0.0">Responder + verifier</tspan></text>
 <rect x="1604.0" y="124.0" width="342.0" height="83.8" rx="12" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="163.4"><tspan x="1775.0" dy="0.0">Response</tspan><tspan x="1775.0" dy="16.5">answer / abstain / clarify</tspan></text>
-<rect x="1604.0" y="249.8" width="342.0" height="102.6" rx="12" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="290.3"><tspan x="1775.0" dy="0.0">Remember-this writeback</tspan><tspan x="1775.0" dy="16.5">propose then human review_apply; applied</tspan><tspan x="1775.0" dy="16.5">result is evidence atom, not canonical truth</tspan></text>
-<rect x="1604.0" y="394.4" width="342.0" height="83.8" rx="12" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="433.8"><tspan x="1775.0" dy="0.0">Human review_apply resolve</tspan><tspan x="1775.0" dy="16.5">review queue stays authoritative</tspan></text>
-<rect x="1604.0" y="520.2" width="342.0" height="121.5" rx="12" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="561.9"><tspan x="1775.0" dy="0.0">Key runtime rule</tspan><tspan x="1775.0" dy="16.5">reviewed canonical &gt; evidence atom &gt;</tspan><tspan x="1775.0" dy="16.5">provisional; WSS/STM are work helpers, not</tspan><tspan x="1775.0" dy="16.5">evidence</tspan></text>
+<rect x="1604.0" y="249.8" width="342.0" height="140.4" rx="12" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="300.9"><tspan x="1775.0" dy="0.0">Remember-this writeback</tspan><tspan x="1775.0" dy="16.5">propose then human review_apply; create/edit</tspan><tspan x="1775.0" dy="16.5">materializes evidence, delete tombstones target;</tspan><tspan x="1775.0" dy="16.5">neither publishes canonical truth</tspan></text>
+<rect x="1604.0" y="432.2" width="342.0" height="83.8" rx="12" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="471.5"><tspan x="1775.0" dy="0.0">Human review_apply resolve</tspan><tspan x="1775.0" dy="16.5">review queue stays authoritative</tspan></text>
+<rect x="1604.0" y="557.9" width="342.0" height="121.5" rx="12" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="599.6"><tspan x="1775.0" dy="0.0">Key runtime rule</tspan><tspan x="1775.0" dy="16.5">reviewed canonical &gt; evidence atom &gt;</tspan><tspan x="1775.0" dy="16.5">provisional; WSS/STM are work helpers, not</tspan><tspan x="1775.0" dy="16.5">evidence</tspan></text>
 <polygon points="1440.0,561.7 1450.8,556.5 1450.8,567.0" fill="#82b366"/>
 <polygon points="1440.0,296.2 1450.8,290.9 1450.8,301.5" fill="#82b366"/>
 <polygon points="1269.0,240.0 1263.7,229.2 1274.3,229.2" fill="#82b366"/>
@@ -77,9 +77,9 @@
 <polygon points="1219.3,729.0 1224.6,739.8 1214.1,739.8" fill="#6c8ebf"/>
 <polygon points="1318.7,729.0 1323.9,739.8 1313.4,739.8" fill="#6c8ebf"/>
 <polygon points="1775.0,124.0 1769.7,113.2 1780.3,113.2" fill="#6c8ebf"/>
-<polygon points="1725.3,352.4 1730.6,363.2 1720.1,363.2" fill="#b8549e"/>
+<polygon points="1725.3,390.2 1730.6,400.9 1720.1,400.9" fill="#b8549e"/>
 <polygon points="257.0,333.5 262.3,344.3 251.7,344.3" fill="#d6b656"/>
-<polygon points="1775.0,478.2 1780.3,488.9 1769.7,488.9" fill="#b8549e"/>
+<polygon points="1775.0,515.9 1780.3,526.7 1769.7,526.7" fill="#b8549e"/>
 <polygon points="1440.0,149.6 1450.8,144.3 1450.8,154.9" fill="#d6b656"/>
 <polygon points="1440.0,157.2 1450.8,151.9 1450.8,162.5" fill="#d6b656"/>
 <polygon points="1440.0,164.8 1450.8,159.5 1450.8,170.1" fill="#d6b656"/>

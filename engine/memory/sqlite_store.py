@@ -154,6 +154,10 @@ class SqliteAtomStore:
         target.parent.mkdir(parents=True, exist_ok=True)
         with self._lock, sqlite3.connect(str(target)) as destination:
             self._conn.backup(destination)
+        try:
+            os.chmod(target, 0o600)
+        except OSError:
+            pass
         return target
 
     def schema_version(self) -> int:
@@ -430,16 +434,16 @@ class SqliteAtomStore:
                             ("signing_key_id", f"key_{uuid4().hex[:16]}"),
                         ),
                     )
-                try:
-                    os.chmod(self.db_path, 0o600)
-                except OSError:
-                    pass
             rows = {
                 str(row["control_key"]): str(row["control_value"])
                 for row in self._conn.execute(
                     "SELECT control_key, control_value FROM runtime_control"
                 ).fetchall()
             }
+        try:
+            os.chmod(self.db_path, 0o600)
+        except OSError:
+            pass
         try:
             key = bytes.fromhex(rows["signing_key_hex"])
         except (KeyError, ValueError) as exc:
@@ -969,6 +973,19 @@ class SqliteAtomStore:
         replacement_atom_id: str | None = None,
     ) -> MemoryAtom:
         old = self.get_atom(atom_id)
+        replacement_key = AtomStore._dedupe_key(
+            atom_type=replacement.atom_type,
+            canonical_text=replacement.canonical_text,
+            entities=replacement.entities,
+            topics=replacement.topics,
+        )
+        with self._lock:
+            target_key_row = self._conn.execute(
+                "SELECT dedupe_key FROM atoms WHERE atom_id = ?",
+                (old.atom_id,),
+            ).fetchone()
+        if target_key_row is not None and str(target_key_row["dedupe_key"]) == replacement_key:
+            raise ValueError("replacement must differ from target")
         now = self._now()
         with self._lock, self._write_scope():
             self._conn.execute(

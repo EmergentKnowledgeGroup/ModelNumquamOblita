@@ -124,7 +124,7 @@ The `--config` file selects the validated v0.2 runtime policy for both retrieval
 ### What live memory means
 
 - Importing a file creates durable evidence atoms.
-- Calling `memory.observe` after a live turn can create lower-authority provisional observations; it needs server-signed source registrations and retrieval receipts.
+- Calling `memory.observe` after a live turn can create lower-authority provisional observations. User, tool, and external candidates require server-signed source registrations; assistant candidates require a server-signed retrieval receipt to contribute support.
 - “Remember this” still needs `writeback.propose`, then a human holding `review_apply` to resolve/apply it. Apply creates an `evidence_atom` with `human_reviewed=false`, not canonical truth.
 - STM and WSS help the current work/session but are not evidence.
 

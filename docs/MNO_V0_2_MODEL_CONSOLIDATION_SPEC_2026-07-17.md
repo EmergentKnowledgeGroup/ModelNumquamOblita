@@ -399,8 +399,12 @@ High-risk proposal-only capture must not remain a write-only second queue. v0.2 
 
 MCP exposes parity tools for:
 
+- `integration.memory.source.register`
 - `integration.memory.observe`
 - `integration.memory.maintain`
+- `integration.memory.proposals.list`
+- `integration.memory.proposals.dismiss`
+- `integration.memory.proposals.bridge`
 - `integration.writeback.propose`
 - `integration.writeback.resolve` including `apply`
 

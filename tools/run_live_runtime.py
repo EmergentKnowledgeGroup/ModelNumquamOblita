@@ -188,10 +188,18 @@ def main() -> int:
         return 2
     if config_path is None and not args.plan_only:
         config_path = standard_config_path
-        config_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = config_path.with_name(f".{config_path.name}.{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(runtime_config.as_dict(), indent=2) + "\n", encoding="utf-8")
-        temporary.replace(config_path)
+        try:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(json.dumps(runtime_config.as_dict(), indent=2) + "\n", encoding="utf-8")
+            temporary.replace(config_path)
+        except OSError as exc:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            print(f"error=invalid runtime config: {exc}", file=sys.stderr)
+            return 2
 
     runtime_url = f"http://{args.host}:{int(args.port)}"
     if args.plan_only and args.setup_mode:

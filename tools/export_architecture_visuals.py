@@ -669,7 +669,7 @@ def runtime_retrieval() -> Diagram:
         Node("verifier", "Verifier and answer path\nPASS, ABSTAIN, or CLARIFY", 1205, 640, 250, 98, "decision"),
         Node("answer", "Final response\nanswer text plus evidence metadata", 1600, 225, 220, 96, "integration"),
         Node("why", "context.why\nIDs, citations, and reason trail", 1600, 430, 220, 96, "integration"),
-        Node("proposal", "Remember-this writeback\npropose → human review_apply → evidence atom; no canonical mutation", 1600, 635, 220, 96, "govern"),
+        Node("proposal", "Remember-this writeback\nreview_apply: create/edit → evidence; delete → tombstone; no canonical mutation", 1600, 635, 220, 96, "govern"),
     ]
     edges = [
         Edge("turn", "query", "#b97818", source_side="bottom", target_side="top"),
@@ -783,7 +783,7 @@ def integration_contract() -> Diagram:
         Node("contract_bus", "integration-v1\ncontract bus", 376, 205, 96, 450, "bus", 10, True),
         Node("turn", "Turn request\ninput, mode, scope, memory policy", 485, 185, 270, 82, "integration"),
         Node("context", "Context build\nread-only package plus signed registration/receipt; WSS only under strict active scope", 485, 315, 270, 82, "evidence"),
-        Node("propose", "Observe / writeback\nmemory.observe is provisional; review_apply writeback creates evidence atom", 485, 445, 270, 82, "govern"),
+        Node("propose", "Observe / writeback\nmemory.observe is provisional; review_apply create/edit → evidence, delete → tombstone", 485, 445, 270, 82, "govern"),
         Node("health", "Health and metadata\ncapabilities, version, diagnostics", 485, 575, 270, 82, "store"),
         Node("session", "RuntimeSession\nmain entry and orchestration", 925, 210, 260, 92, "runtime"),
         Node("retrieval", "Retrieval engine\nmemory fusion and evidence assembly", 925, 375, 260, 96, "runtime"),

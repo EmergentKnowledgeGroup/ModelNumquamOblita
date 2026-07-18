@@ -584,6 +584,15 @@ def test_high_risk_proposals_inspect_dismiss_and_bridge_without_truth_bypass(tmp
         assert content_status == 200, content
         assert all(row.get("summary_text") for row in content["data"]["records"])
 
+        consolidated_route_status, consolidated_route = _http_json(
+            method="POST",
+            url=f"{base}/api/integration/v1/memory/proposals/prov_con_deadbeef12345678/dismiss",
+            payload=envelope,
+            headers=reviewer,
+        )
+        assert consolidated_route_status == 404
+        assert consolidated_route["error"]["message"] == "proposal record not found"
+
         bridge_url = f"{base}/api/integration/v1/memory/proposals/{bridge_record_id}/bridge"
         denied_bridge_status, _ = _http_json(method="POST", url=bridge_url, payload=envelope, headers=operator)
         assert denied_bridge_status == 403

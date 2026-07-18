@@ -400,39 +400,47 @@ class SqliteProposalStore:
         metadata: dict[str, str] | None = None,
     ) -> None:
         with self._lock:
-            row = self._conn.execute("SELECT COUNT(*) AS count FROM proposal_events").fetchone()
-            ordinal = int(row["count"]) + 1 if row else 1
-        event = ProposalEvent(
-            event_id=_event_id(
-                event_type=event_type.value,
-                record_id=record_id,
-                reason=reason,
-                ordinal=ordinal,
-            ),
-            event_type=event_type,
-            record_id=record_id,
-            timestamp=_now_utc(),
-            reason=reason,
-            source_refs=list(source_refs),
-            metadata=dict(metadata or {}),
-        )
-        with self._lock, self._conn:
-            self._conn.execute(
-                """
-                INSERT INTO proposal_events (
-                    event_id, event_type, record_id, timestamp, reason, source_refs_json, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event.event_id,
-                    event.event_type.value,
-                    event.record_id,
-                    event.timestamp.isoformat(),
-                    event.reason,
-                    self._serialize_refs(event.source_refs),
-                    self._serialize_metadata(event.metadata),
-                ),
-            )
+            owns_transaction = not self._conn.in_transaction
+            try:
+                row = self._conn.execute("SELECT COUNT(*) AS count FROM proposal_events").fetchone()
+                ordinal = int(row["count"]) + 1 if row else 1
+                event = ProposalEvent(
+                    event_id=_event_id(
+                        event_type=event_type.value,
+                        record_id=record_id,
+                        reason=reason,
+                        ordinal=ordinal,
+                    ),
+                    event_type=event_type,
+                    record_id=record_id,
+                    timestamp=_now_utc(),
+                    reason=reason,
+                    source_refs=list(source_refs),
+                    metadata=dict(metadata or {}),
+                )
+                self._conn.execute(
+                    """
+                    INSERT INTO proposal_events (
+                        event_id, event_type, record_id, timestamp, reason, source_refs_json, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event.event_id,
+                        event.event_type.value,
+                        event.record_id,
+                        event.timestamp.isoformat(),
+                        event.reason,
+                        self._serialize_refs(event.source_refs),
+                        self._serialize_metadata(event.metadata),
+                    ),
+                )
+            except Exception:
+                if owns_transaction:
+                    self._conn.rollback()
+                raise
+            else:
+                if owns_transaction:
+                    self._conn.commit()
 
     def upsert_candidate(self, candidate: ProposalCandidate, *, reason: str) -> ProposalRecord:
         with self._lock:
@@ -542,13 +550,13 @@ class SqliteProposalStore:
                 "UPDATE proposal_records SET status = ?, updated_at = ?, metadata_json = ? WHERE record_id = ?",
                 (status.value, now.isoformat(), self._serialize_metadata(merged_metadata), record.record_id),
             )
-        self._append_event(
-            event_type=event_type,
-            record_id=record.record_id,
-            reason=reason,
-            source_refs=source_refs,
-            metadata=metadata,
-        )
+            self._append_event(
+                event_type=event_type,
+                record_id=record.record_id,
+                reason=reason,
+                source_refs=source_refs,
+                metadata=metadata,
+            )
         return self.get_record(record.record_id)
 
     def dismiss(self, record_id: str, *, actor: str, reason_code: str) -> ProposalRecord:

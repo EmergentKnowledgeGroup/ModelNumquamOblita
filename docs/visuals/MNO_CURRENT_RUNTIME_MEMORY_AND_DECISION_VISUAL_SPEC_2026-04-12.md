@@ -109,6 +109,6 @@ It should still explain:
 
 ## v0.2 authority and live-write update
 
-The runtime diagrams must order memory authority as `human_reviewed_canonical` → `evidence_atom` → `provisional_consolidated` → `provisional_observed`; maturity is not authority. STM and WSS `scratchpad_ephemeral` context are not evidence and must never be shown as claim support.
+The runtime diagrams must order authority families as `human_reviewed_canonical` → `evidence_atom` → `provisional`, then show `observed → reinforced → consolidated` as the separate provisional maturity axis. Consolidated artifacts may outrank direct observations inside provisional retrieval without crossing into evidence or canonical authority. STM and WSS `scratchpad_ephemeral` context are not evidence and must never be shown as claim support.
 
 The engineering path distinguishes raw import (durable atoms), post-turn HTTP `memory.observe` (signed source registration plus retrieval receipt, producing only provisional records), and explicit “remember this” writeback. `writeback.resolve` requires a human-held `review_apply` capability; `apply=true` materializes an evidence atom with `human_reviewed=false`, while publish remains the canonical truth gate. The caveman view must say the same thing in plain language.

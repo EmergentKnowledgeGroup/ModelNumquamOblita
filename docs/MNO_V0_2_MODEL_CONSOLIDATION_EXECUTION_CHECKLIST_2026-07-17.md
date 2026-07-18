@@ -227,14 +227,14 @@ State vocabulary: unchecked = `PENDING`; checked = `DONE`. Any blocked item must
 
 ## 12. GitHub PR/review/CI loop
 
-- [ ] Commit coherent implementation/docs/release slices.
-- [ ] Push `codex/mno-v0.2.0-model-consolidation`.
-- [ ] Open PR with spec, migration, risk, and test evidence.
-- [ ] Update PR-open checkpoint.
-- [ ] Inspect all checks, reviews, inline comments, and bots.
-- [ ] Classify every item as actionable, non-actionable, or already fixed.
-- [ ] Fix all actionable feedback, including sound nits.
-- [ ] Rerun proportional and full tests.
+- [x] Commit coherent implementation/docs/release slices.
+- [x] Push `codex/mno-v0.2.0-model-consolidation`.
+- [x] Open PR with spec, migration, risk, and test evidence.
+- [x] Update PR-open checkpoint.
+- [x] Inspect all checks, reviews, inline comments, and bots.
+- [x] Classify every item as actionable, non-actionable, or already fixed.
+- [x] Fix all actionable feedback, including sound nits.
+- [x] Rerun proportional and full tests.
 - [ ] Push fixes and wait for final CI/review state.
 - [ ] Resolve addressed threads.
 - [ ] Confirm mergeability and release metadata.

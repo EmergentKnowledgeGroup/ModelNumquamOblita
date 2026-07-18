@@ -23,8 +23,9 @@ human-reviewed canonical
   -> evidence atom
   -> consolidated provisional
   -> observed/reinforced provisional
-  -> STM/WSS helper context
 ```
+
+STM and WSS are scoped helper context outside the authority order. They cannot support durable claims by themselves.
 
 Fresh v0.2 setups write the safe standard provisional policy. Existing configurations that omit v0.2 fields preserve the v0.1 disabled posture until explicitly changed. Provisional sidecars migrate transactionally to schema v3; downgrade requires restoring a verified pre-migration backup.
 

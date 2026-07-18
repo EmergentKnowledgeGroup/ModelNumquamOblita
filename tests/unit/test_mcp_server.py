@@ -1690,6 +1690,7 @@ def test_mcp_integration_memory_tools_discover_and_proxy_canonical_envelopes() -
             runtime_base_url="http://127.0.0.1:7340",
             auth=AuthConfig(default_role="operator"),
             integration_operator_token="operator-token",
+            integration_review_apply_token="review-token",
         ),
         api_client=client,
     )
@@ -1725,6 +1726,7 @@ def test_mcp_integration_memory_tools_discover_and_proxy_canonical_envelopes() -
     assert resolve_properties["decided_by"]["type"] == "string"
     assert resolve_properties["reviewer"]["deprecated"] is True
     assert "decided_by" not in resolve_schema["required"]
+    assert resolve_schema["anyOf"] == [{"required": ["decided_by"]}, {"required": ["reviewer"]}]
 
     shared = {"request_id": "req_mcp_memory_1", "session_id": "session_1", "run_id": "run_1"}
     _call(
@@ -1833,7 +1835,8 @@ def test_mcp_integration_memory_tools_discover_and_proxy_canonical_envelopes() -
             continue
         assert call["method"] == "POST"
         assert call["query"] is None
-        assert call["headers"] == {"Authorization": "Bearer operator-token"}
+        expected_token = "review-token" if index in {4, 5, 6} else "operator-token"
+        assert call["headers"] == {"Authorization": f"Bearer {expected_token}"}
         envelope = dict(call["payload"])
         assert envelope["schema_version"] == "integration.v1"
         assert envelope["session_id"] == "session_1"
@@ -1870,6 +1873,39 @@ def test_mcp_integration_memory_tools_discover_and_proxy_canonical_envelopes() -
     viewer_tools = _call(viewer, 11, "tools/list", {})
     viewer_names = {str(item["name"]) for item in list(dict(viewer_tools["result"]).get("tools") or [])}
     assert "integration.memory.observe" not in viewer_names
+
+
+def test_integration_review_tools_require_dedicated_downstream_token() -> None:
+    class _Client:
+        def request_json(self, *_args, **_kwargs):
+            raise AssertionError("request must not be sent without reviewer capability")
+
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="operator"),
+            integration_operator_token="operator-token",
+        ),
+        api_client=_Client(),  # type: ignore[arg-type]
+    )
+    _call(server, 1, "initialize", {})
+
+    response = _call(
+        server,
+        2,
+        "tools/call",
+        {
+            "name": "integration.memory.proposals.dismiss",
+            "arguments": {
+                "session_id": "session_1",
+                "run_id": "run_1",
+                "record_id": "prop_record_1",
+            },
+        },
+    )
+
+    assert response["error"]["code"] == -32001
+    assert "review_apply integration token is required" in response["error"]["message"]
 
 
 _PHASE4_PERMISSION_TOOL_CALLS: list[tuple[str, dict[str, object]]] = [

@@ -98,7 +98,7 @@ The design goal is not to maximize the number of signals. The goal is to recover
 - verifier remains in the live answer path
 - work-session scratchpad rows are non-authoritative helper state and never support memory claims by themselves
 
-Authority is ordered: `human_reviewed_canonical` → `evidence_atom` → `provisional_consolidated` → `provisional_observed`. Consolidation changes provisional maturity, never authority. STM and WSS sit outside this order as scoped helper context, not evidence.
+Authority families are ordered: `human_reviewed_canonical` → `evidence_atom` → `provisional`. Within the provisional family, consolidated artifacts outrank direct observations for retrieval, while `observed → reinforced → consolidated` remains the separate maturity axis. No model-autonomous transition crosses into evidence or canonical authority. STM and WSS sit outside this order as scoped helper context, not evidence.
 
 Canonical WSS details live in [Work-Session Scratchpad](../WORK_SESSION_SCRATCHPAD.md).
 

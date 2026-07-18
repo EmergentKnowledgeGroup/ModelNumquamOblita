@@ -77,10 +77,16 @@ def run_maintenance(
     if not 1 <= int(cap) <= 100:
         raise ValueError("max_records must be in 1..100")
     transitions: list[MaintenanceTransition] = []
-    rows = sorted(store.list_records(status="all"), key=lambda r: (r.created_at, r.record_id))[: int(cap)]
+    terminal_statuses = {
+        ProvisionalMemoryStatus.SUPERSEDED,
+        ProvisionalMemoryStatus.CONFLICTED,
+        ProvisionalMemoryStatus.ARCHIVED,
+    }
+    rows = sorted(
+        (record for record in store.list_records(status="all") if record.status not in terminal_statuses),
+        key=lambda record: (record.created_at, record.record_id),
+    )[: int(cap)]
     for record in rows:
-        if record.status in {ProvisionalMemoryStatus.SUPERSEDED, ProvisionalMemoryStatus.CONFLICTED}:
-            continue
         last = record.last_independent_support_at or record.last_reinforced_at or record.updated_at
         age = server_now - last.astimezone(timezone.utc)
         if record.lifecycle is ProvisionalLifecycle.ACTIVE and age >= timedelta(days=policy.dormant_days):
@@ -97,6 +103,7 @@ def run_maintenance(
         if record.independent_support_count < required_support or record.distinct_session_count < required_sessions:
             continue
         if record.kind is ProvisionalMemoryKind.PLAN and age >= timedelta(days=policy.plan_currentness_days):
+            store.set_lifecycle(record.record_id, ProvisionalLifecycle.DORMANT, reason="plan_currentness_window")
             transitions.append(MaintenanceTransition(record.record_id, "historical_plan", "plan_currentness_window"))
             continue
         derived = store.create_consolidated_revision(record_ids=[record.record_id], policy_version=policy.policy_version)

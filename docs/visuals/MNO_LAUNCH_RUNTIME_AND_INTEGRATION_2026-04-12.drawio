@@ -67,7 +67,7 @@
         <mxCell id="r17" value="Response&amp;#10;answer / abstain / clarify" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
           <mxGeometry x="1135" y="110" width="240" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="r18" value="Remember-this writeback&amp;#10;propose then human review_apply; applied result is evidence atom, not canonical truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
+        <mxCell id="r18" value="Remember-this writeback&amp;#10;propose then human review_apply; create/edit materializes evidence, delete tombstones target; neither publishes canonical truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
           <mxGeometry x="1135" y="225" width="240" height="70" as="geometry" />
         </mxCell>
         <mxCell id="r19" value="Human review_apply resolve&amp;#10;review queue stays authoritative" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">

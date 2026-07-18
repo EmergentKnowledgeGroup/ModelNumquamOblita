@@ -1149,6 +1149,7 @@ class RuntimeSession:
             "run_id": str(run_id),
             "principal_id": str(principal_id),
             "provisional_store_uuid": store.store_uuid,
+            "registration_identity": registration.handle,
             "policy_version": str(self._provisional_policy.policy_version),
         }
         return signer.issue(
@@ -1201,6 +1202,15 @@ class RuntimeSession:
         total_bytes = sum(len(str(item.get("content") or "").encode("utf-8")) for item in messages)
         if total_bytes > 131_072:
             raise ValueError("message payload exceeds 128 KiB")
+        for raw in messages:
+            role = str(raw.get("role") or "").strip().lower()
+            content = str(raw.get("content") or "")
+            if not content.strip() or len(content.encode("utf-8")) > 32_768:
+                raise ValueError("each message requires content up to 32 KiB")
+            if role not in {"system", "developer", "user", "tool", "external", "assistant"}:
+                raise ValueError(f"unsupported source role: {role}")
+            if role not in {"system", "developer"}:
+                assert_safe_content(content)
 
         receipt_payload: dict[str, Any] | None = None
         if str(retrieval_receipt or "").strip():
@@ -1237,6 +1247,8 @@ class RuntimeSession:
                 )
                 if verified.get("source_role") != role or verified.get("content_digest") != normalized_content_digest(content):
                     raise IntegrationHandleError("SOURCE_REGISTRATION_MISMATCH")
+                if str(verified.get("provisional_store_uuid") or "") != store.store_uuid:
+                    raise IntegrationHandleError("HANDLE_STORE_MISMATCH")
                 source_id = str(verified.get("source_id") or "")
                 message_id = str(verified.get("message_id") or "")
                 registration = EvidenceRegistration(
@@ -1245,7 +1257,7 @@ class RuntimeSession:
                     source_role=role,
                     content_digest=str(verified.get("content_digest") or ""),
                     session_id=str(session_id),
-                    handle=handle,
+                    handle=str(verified.get("registration_identity") or ""),
                 )
             elif role == "assistant":
                 if receipt_payload is not None:
@@ -1367,9 +1379,15 @@ class RuntimeSession:
                 target = valid[min(len(valid) - 1, idx + 1)]
             else:
                 target = valid[max(0, idx - 1)]
-        self._provisional_policy.default_sensitivity = target
-        if self.config_path is not None:
-            self._persist_runtime_policy()
+        with self._lock:
+            previous = self._provisional_policy.default_sensitivity
+            self._provisional_policy.default_sensitivity = target
+            if self.config_path is not None:
+                try:
+                    self._persist_runtime_policy()
+                except Exception:
+                    self._provisional_policy.default_sensitivity = previous
+                    raise
         return self.provisional_settings()
 
     def _persist_runtime_policy(self) -> None:
@@ -3104,7 +3122,7 @@ class RuntimeSession:
                 pack = ltm_pack
                 retrieved_atom_ids = ltm_ids
 
-        if memory_route != "none" and self._provisional_retrieval_enabled:
+        if memory_route in {"ltm_light", "ltm_deep"} and self._provisional_retrieval_enabled:
             provisional_pack, provisional_ids, provisional_hits, _provisional_best = self._retrieve_provisional_memory(
                 retrieval_text
             )
@@ -5129,7 +5147,7 @@ class RuntimeSession:
         context_items: list[MemoryPackItem] = []
         ranked_ids: list[str] = []
         atom_store = getattr(self.retriever, "store", None)
-        for idx, hit in enumerate(hits):
+        for hit in hits:
             if isinstance(atom_store, SqliteAtomStore) and atom_store.is_provisional_bridge_suppressed(hit.record.record_id):
                 continue
             confidence = min(0.78, 0.32 + float(hit.score) * 0.70)
@@ -5149,7 +5167,7 @@ class RuntimeSession:
                 human_reviewed=False,
                 lineage_ids=list(hit.record.input_record_ids),
             )
-            if idx == 0:
+            if not core_items:
                 core_items.append(item)
             else:
                 context_items.append(item)
@@ -5207,6 +5225,12 @@ class RuntimeSession:
     @staticmethod
     def _memory_item_precedence_key(item: MemoryPackItem) -> tuple[int, int, str, str, str]:
         trust_tier = str(getattr(item, "trust_tier", "") or "").strip().lower()
+        explicit_authority = str(getattr(item, "authority_tier", "") or "").strip().lower()
+        rank_tier = (
+            explicit_authority
+            if explicit_authority in {"provisional_consolidated", "provisional_observed"}
+            else trust_tier
+        )
         authority_rank = {
             "human_reviewed_canonical": 4,
             "published": 4,
@@ -5215,7 +5239,7 @@ class RuntimeSession:
             "provisional_consolidated": 2,
             "provisional_observed": 1,
             "provisional": 1,
-        }.get(trust_tier, 0)
+        }.get(rank_tier, 0)
         conflict_state = str(getattr(item, "conflict_state", "active") or "active").strip().lower()
         status_rank = {
             "active": 3,

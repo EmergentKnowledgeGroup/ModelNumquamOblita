@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from hashlib import sha256
 
 import pytest
@@ -8,8 +9,11 @@ import pytest
 from engine.contracts import SourceRef
 from engine.memory.provisional_store import (
     ProvisionalAuthorityTier,
+    ProvisionalLifecycle,
     ProvisionalMemoryCandidate,
+    ProvisionalMemoryEventType,
     ProvisionalMemoryKind,
+    ProvisionalMemoryStatus,
     SqliteProvisionalMemoryStore,
 )
 
@@ -145,6 +149,94 @@ def test_registered_evidence_is_exact_once_and_identity_conflicts_are_atomic(tmp
     with pytest.raises(ValueError, match="EVIDENCE_IDENTITY_CONFLICT"):
         store.observe_candidate(changed, reason="turn", registration=changed_reg)
     assert len(store.list_records()) == 1  # identity conflict is atomic: no candidate row is added.
+
+
+def test_store_bound_registration_handle_is_validated_before_support_is_counted(tmp_path) -> None:
+    store = SqliteProvisionalMemoryStore(tmp_path / "store.sqlite3")
+    candidate = _candidate()
+    registration = store.register_source(
+        source_id=candidate.source_id,
+        message_id=candidate.message_id,
+        source_role=candidate.source_role,
+        content=candidate.content,
+        session_id=candidate.session_id,
+    )
+
+    disposition = store.observe_candidate(
+        candidate,
+        reason="turn",
+        registration=replace(registration, handle="0" * 64),
+    )
+
+    assert disposition.support_delta == 0
+    assert store.get_record(disposition.record_id).independent_support_count == 0
+    store.close()
+
+
+def test_registered_observation_rolls_back_candidate_and_event_when_evidence_insert_fails(tmp_path) -> None:
+    store = SqliteProvisionalMemoryStore(tmp_path / "atomic-observe.sqlite3")
+    candidate = _candidate()
+    registration = store.register_source(
+        source_id=candidate.source_id,
+        message_id=candidate.message_id,
+        source_role=candidate.source_role,
+        content=candidate.content,
+        session_id=candidate.session_id,
+    )
+    with store._conn:
+        store._conn.execute(
+            """
+            CREATE TRIGGER reject_evidence_insert
+            BEFORE INSERT ON provisional_evidence_units
+            BEGIN SELECT RAISE(ABORT, 'forced evidence failure'); END
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="forced evidence failure"):
+        store.observe_candidate(candidate, reason="turn", registration=registration)
+
+    assert store.list_records() == []
+    assert store.list_events() == []
+    store.close()
+
+
+@pytest.mark.parametrize("lifecycle", (ProvisionalLifecycle.DORMANT, ProvisionalLifecycle.ARCHIVED))
+def test_new_independent_evidence_durably_reactivates_non_live_record(tmp_path, lifecycle) -> None:
+    path = tmp_path / f"reactivate-{lifecycle.value}.sqlite3"
+    store = SqliteProvisionalMemoryStore(path)
+    original = _candidate()
+    original_registration = store.register_source(
+        source_id=original.source_id,
+        message_id=original.message_id,
+        source_role=original.source_role,
+        content=original.content,
+        session_id=original.session_id,
+    )
+    record_id = store.observe_candidate(original, reason="turn", registration=original_registration).record_id
+    store.set_lifecycle(record_id, lifecycle, reason="maintenance")
+
+    fresh = _candidate(source="source-2", message="message-2", session="s-2")
+    fresh_registration = store.register_source(
+        source_id=fresh.source_id,
+        message_id=fresh.message_id,
+        source_role=fresh.source_role,
+        content=fresh.content,
+        session_id=fresh.session_id,
+    )
+    disposition = store.observe_candidate(fresh, reason="new_independent_evidence", registration=fresh_registration)
+    assert disposition.support_delta == 1
+    reactivated = store.get_record(record_id)
+    assert reactivated.lifecycle is ProvisionalLifecycle.ACTIVE
+    assert reactivated.status is ProvisionalMemoryStatus.ACTIVE
+    assert store.list_events(record_id=record_id)[-1].event_type is ProvisionalMemoryEventType.REACTIVATE
+    store.close()
+
+    reopened = SqliteProvisionalMemoryStore(path)
+    try:
+        assert reopened.get_record(record_id).lifecycle is ProvisionalLifecycle.ACTIVE
+        assert reopened.list_events(record_id=record_id)[-1].event_type is ProvisionalMemoryEventType.REACTIVATE
+    finally:
+        reopened.close()
 
 
 def test_unregistered_evidence_cannot_create_support_and_exact_claim_key_consolidates_immutably(tmp_path) -> None:

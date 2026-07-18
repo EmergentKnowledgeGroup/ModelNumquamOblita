@@ -268,7 +268,7 @@
         <mxCell id="rj" value="Mutation review queue&amp;#10;human-gated canonical create/edit/delete bridge" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" vertex="1" parent="1">
           <mxGeometry x="1075" y="130" width="230" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="rk" value="Runtime trust rules&amp;#10;reviewed canonical &amp;gt; evidence atom &amp;gt; provisional consolidated &amp;gt; observed&amp;#10;STM/WSS are helper context, never evidence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+        <mxCell id="rk" value="Runtime trust rules&amp;#10;reviewed canonical &amp;gt; evidence atom &amp;gt; provisional authority family&amp;#10;provisional maturity: observed / reinforced / consolidated; STM/WSS are never evidence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
           <mxGeometry x="695" y="470" width="270" height="95" as="geometry" />
         </mxCell>
         <mxCell id="rl" value="Read-time effect&amp;#10;runtime can inspect original wording and current-vs-superseded reviewed truth without rewriting history" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7e6;strokeColor=#b7a26a;dashed=1;fontStyle=0;" vertex="1" parent="1">

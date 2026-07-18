@@ -181,6 +181,11 @@ def _parse_args() -> argparse.Namespace:
         help="Operator auth token (optional, falls back to NO_MCP_OPERATOR_TOKEN).",
     )
     parser.add_argument("--admin-token", default="", help="Admin auth token (optional, falls back to NO_MCP_ADMIN_TOKEN).")
+    parser.add_argument(
+        "--review-apply-token",
+        default="",
+        help="Dedicated downstream review_apply token (optional, falls back to NO_INTEGRATION_REVIEW_APPLY_TOKEN).",
+    )
     parser.add_argument("--mutations-enabled", action="store_true")
     parser.add_argument("--server-name", default="numquamoblita-live", help="Server key for generated Claude Desktop config.")
     parser.add_argument("--plan-only", action="store_true", help="Validate inputs and print resolved launch info.")
@@ -240,12 +245,23 @@ def main() -> int:
         return 2
     if config_path is None and not args.plan_only and not args.print_claude_config:
         config_path = standard_config_path
-        config_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = config_path.with_name(f".{config_path.name}.{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(runtime_config.as_dict(), indent=2) + "\n", encoding="utf-8")
-        temporary.replace(config_path)
+        try:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(json.dumps(runtime_config.as_dict(), indent=2) + "\n", encoding="utf-8")
+            temporary.replace(config_path)
+        except OSError as exc:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            print(f"error=invalid runtime config: {exc}", file=sys.stderr)
+            return 2
 
     viewer_token, operator_token, admin_token = _resolved_auth_tokens(args)
+    review_apply_token = str(
+        getattr(args, "review_apply_token", "") or os.environ.get("NO_INTEGRATION_REVIEW_APPLY_TOKEN") or ""
+    ).strip()
     config_payload = build_mcp_servers_payload(
         server_name=str(args.server_name),
         entry=build_posix_stdio_entry(
@@ -269,6 +285,7 @@ def main() -> int:
         print(f"viewer_token_configured={str(bool(viewer_token)).lower()}")
         print(f"operator_token_configured={str(bool(operator_token)).lower()}")
         print(f"admin_token_configured={str(bool(admin_token)).lower()}")
+        print(f"review_apply_token_configured={str(bool(review_apply_token)).lower()}")
         if args.print_claude_config:
             print("claude_desktop_config_json=")
             print(json.dumps(config_payload, indent=2))
@@ -336,6 +353,7 @@ def main() -> int:
             diagnostics_dir=str(args.diagnostics_dir),
             audit_log_path=str(args.audit_log_path),
             mutations_enabled=bool(args.mutations_enabled),
+            integration_review_apply_token=review_apply_token,
             auth=auth,
         )
         client = RuntimeApiClient(base_url=config.runtime_base_url, timeout_s=config.timeout_s)

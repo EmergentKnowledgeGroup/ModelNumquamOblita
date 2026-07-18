@@ -25,9 +25,18 @@ class SecretDetectedError(ValueError):
 
 _SECRET_PATTERNS = (
     re.compile(r"\b(?:api[_-]?key|access[_-]?token|bearer|password|secret)\s*[:=]\s*[^\s]{8,}", re.I),
+    re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{8,}", re.I),
     re.compile(r"\bsk-[A-Za-z0-9_-]{16,}\b"),
     re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----"),
 )
+_SENSITIVE_KEY_PATTERN = re.compile(
+    r"^(?:authorization|bearer|password|secret|api[_-]?key|access[_-]?token|client[_-]?secret)$",
+    re.I,
+)
+
+
+def _is_sensitive_key(value: str) -> bool:
+    return bool(_SENSITIVE_KEY_PATTERN.fullmatch(str(value or "").strip()))
 
 
 def _looks_secret(value: str) -> bool:
@@ -54,6 +63,8 @@ def assert_safe_content(value: Any) -> None:
         return
     if isinstance(value, Mapping):
         for key, item in value.items():
+            if _is_sensitive_key(str(key)):
+                raise SecretDetectedError()
             assert_safe_content(str(key))
             assert_safe_content(item)
         return
@@ -68,7 +79,10 @@ def scrub_content(value: Any, *, marker: str = "[REDACTED_LEGACY_SECRET]") -> An
     if isinstance(value, str):
         return marker if _looks_secret(value) else value
     if isinstance(value, Mapping):
-        return {str(key): scrub_content(item, marker=marker) for key, item in value.items()}
+        return {
+            str(key): marker if _is_sensitive_key(str(key)) else scrub_content(item, marker=marker)
+            for key, item in value.items()
+        }
     if isinstance(value, list):
         return [scrub_content(item, marker=marker) for item in value]
     if isinstance(value, tuple):

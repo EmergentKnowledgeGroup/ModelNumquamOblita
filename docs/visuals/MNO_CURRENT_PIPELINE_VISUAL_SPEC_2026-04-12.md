@@ -140,6 +140,6 @@ The caveman page should answer a basic user question:
 
 ## v0.2 authority and live-write update
 
-Every engineering and caveman page must keep this order visible: `human_reviewed_canonical` → `evidence_atom` → `provisional_consolidated` → `provisional_observed`. Provisional maturity (`observed → reinforced → consolidated`) never changes authority. STM and WSS are scoped helper context, not evidence tiers.
+Every engineering and caveman page must keep the authority families visible: `human_reviewed_canonical` → `evidence_atom` → `provisional`. Within the provisional family, consolidated artifacts have higher retrieval precedence than direct observations; the separate maturity axis is `observed → reinforced → consolidated`. Neither crosses into evidence or canonical authority. STM and WSS are scoped helper context, not evidence tiers.
 
 Show three distinct ingress paths: raw import creates evidence atoms; HTTP `memory.observe` records a completed live turn as signed, bounded provisional memory; user “remember this” uses `writeback.propose`, then a human `review_apply` resolve with `apply=true` may create a durable `human_reviewed=false` evidence atom. Normal build/review/publish is still the only path to human-reviewed canonical truth. Source registrations and retrieval receipts are signed evidence-integrity handles, not retrieval writes.

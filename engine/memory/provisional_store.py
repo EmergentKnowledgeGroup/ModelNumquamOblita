@@ -5,6 +5,7 @@ import re
 import sqlite3
 import threading
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -1070,6 +1071,23 @@ class SqliteProvisionalMemoryStore:
             metadata={str(k): str(v) for k, v in json.loads(row["metadata_json"] or "{}").items()},
         )
 
+    @contextmanager
+    def _write_transaction(self, *, immediate: bool = False):
+        """Join an active write or own one atomic SQLite transaction."""
+        with self._lock:
+            owns_transaction = not self._conn.in_transaction
+            if owns_transaction:
+                self._conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+            try:
+                yield
+            except Exception:
+                if owns_transaction:
+                    self._conn.rollback()
+                raise
+            else:
+                if owns_transaction:
+                    self._conn.commit()
+
     def _append_event(
         self,
         *,
@@ -1079,24 +1097,23 @@ class SqliteProvisionalMemoryStore:
         source_refs: list[SourceRef],
         metadata: dict[str, str] | None = None,
     ) -> None:
-        with self._lock:
+        with self._write_transaction():
             row = self._conn.execute("SELECT COUNT(*) AS count FROM provisional_events").fetchone()
             ordinal = int(row["count"]) + 1 if row else 1
-        event = ProvisionalMemoryEvent(
-            event_id=_event_id(
-                event_type=event_type.value,
+            event = ProvisionalMemoryEvent(
+                event_id=_event_id(
+                    event_type=event_type.value,
+                    record_id=record_id,
+                    reason=reason,
+                    ordinal=ordinal,
+                ),
+                event_type=event_type,
                 record_id=record_id,
+                timestamp=self._clock(),
                 reason=reason,
-                ordinal=ordinal,
-            ),
-            event_type=event_type,
-            record_id=record_id,
-            timestamp=self._clock(),
-            reason=reason,
-            source_refs=list(source_refs),
-            metadata=dict(metadata or {}),
-        )
-        with self._lock, self._conn:
+                source_refs=list(source_refs),
+                metadata=dict(metadata or {}),
+            )
             self._conn.execute(
                 """
                 INSERT INTO provisional_events (
@@ -1153,27 +1170,34 @@ class SqliteProvisionalMemoryStore:
         candidate: ProvisionalMemoryCandidate,
         *,
         reason: str,
+        _reactivate: bool = False,
     ) -> ProvisionalMemoryRecord:
-        with self._lock:
+        with self._write_transaction():
             row = self._conn.execute(
                 "SELECT * FROM provisional_records WHERE dedupe_key = ?",
                 (candidate.dedupe_key,),
             ).fetchone()
-        if row is not None:
-            record = self._row_to_record(row)
-            if record.status in _LIVE_STATUSES:
-                now = self._clock()
-                updated_refs = record.source_refs + list(candidate.source_refs)
-                updated_confidence = max(record.confidence, candidate.confidence)
-                updated_salience = max(record.salience, candidate.salience)
-                updated_stability = max(record.stability, candidate.stability)
-                updated_metadata = _metadata_with_session_ids(record.metadata, candidate.session_id)
-                with self._lock, self._conn:
+            if row is not None:
+                record = self._row_to_record(row)
+                reactivating = _reactivate and record.lifecycle in {
+                    ProvisionalLifecycle.DORMANT,
+                    ProvisionalLifecycle.ARCHIVED,
+                }
+                if record.status in _LIVE_STATUSES or reactivating:
+                    now = self._clock()
+                    updated_refs = record.source_refs + list(candidate.source_refs)
+                    updated_confidence = max(record.confidence, candidate.confidence)
+                    updated_salience = max(record.salience, candidate.salience)
+                    updated_stability = max(record.stability, candidate.stability)
+                    updated_metadata = _metadata_with_session_ids(record.metadata, candidate.session_id)
+                    next_status = ProvisionalMemoryStatus.ACTIVE if reactivating else record.status
+                    next_lifecycle = ProvisionalLifecycle.ACTIVE if reactivating else record.lifecycle
                     self._conn.execute(
                         """
                         UPDATE provisional_records
                         SET source_refs_json = ?, reinforcement_count = ?, confidence = ?, salience = ?,
-                            stability = ?, updated_at = ?, last_reinforced_at = ?, metadata_json = ?
+                            stability = ?, updated_at = ?, last_reinforced_at = ?, metadata_json = ?,
+                            status = ?, lifecycle = ?
                         WHERE record_id = ?
                         """,
                         (
@@ -1185,29 +1209,35 @@ class SqliteProvisionalMemoryStore:
                             now.isoformat(),
                             now.isoformat(),
                             self._serialize_metadata(updated_metadata),
+                            next_status.value,
+                            next_lifecycle.value,
                             record.record_id,
                         ),
                     )
-                self._append_event(
-                    event_type=ProvisionalMemoryEventType.REINFORCE,
-                    record_id=record.record_id,
-                    reason=reason,
-                    source_refs=candidate.source_refs,
-                    metadata={"dedupe_key": candidate.dedupe_key},
-                )
-                return self.get_record(record.record_id)
+                    self._append_event(
+                        event_type=(
+                            ProvisionalMemoryEventType.REACTIVATE
+                            if reactivating
+                            else ProvisionalMemoryEventType.REINFORCE
+                        ),
+                        record_id=record.record_id,
+                        reason=reason,
+                        source_refs=candidate.source_refs,
+                        metadata={"dedupe_key": candidate.dedupe_key},
+                    )
+                    return self.get_record(record.record_id)
+                return record
 
-        now = self._clock()
-        record = _build_record(
-            candidate,
-            record_id=_record_id_for_candidate(
-                kind=candidate.kind.value,
-                canonical_text=candidate.canonical_text,
-                source_role=candidate.source_role,
-            ),
-            now=now,
-        )
-        with self._lock, self._conn:
+            now = self._clock()
+            record = _build_record(
+                candidate,
+                record_id=_record_id_for_candidate(
+                    kind=candidate.kind.value,
+                    canonical_text=candidate.canonical_text,
+                    source_role=candidate.source_role,
+                ),
+                now=now,
+            )
             self._conn.execute(
                 """
                 INSERT INTO provisional_records (
@@ -1238,14 +1268,14 @@ class SqliteProvisionalMemoryStore:
                     candidate.dedupe_key,
                 ),
             )
-        self._append_event(
-            event_type=ProvisionalMemoryEventType.ADD,
-            record_id=record.record_id,
-            reason=reason,
-            source_refs=candidate.source_refs,
-            metadata={"dedupe_key": candidate.dedupe_key},
-        )
-        return self.get_record(record.record_id)
+            self._append_event(
+                event_type=ProvisionalMemoryEventType.ADD,
+                record_id=record.record_id,
+                reason=reason,
+                source_refs=candidate.source_refs,
+                metadata={"dedupe_key": candidate.dedupe_key},
+            )
+            return self.get_record(record.record_id)
 
     def register_source(
         self,
@@ -1279,9 +1309,26 @@ class SqliteProvisionalMemoryStore:
         assert_safe_content([candidate.canonical_text, candidate.metadata, candidate.content])
         content = candidate.content or candidate.canonical_text
         digest = _content_digest(content)
-        registered = registration is not None and registration.content_digest == digest and registration.source_role == candidate.source_role
+        registered = False
         if registration is not None:
-            registered = registered and registration.source_id == candidate.source_id and registration.message_id == candidate.message_id
+            expected_payload = "|".join(
+                (
+                    self.store_uuid,
+                    candidate.source_id,
+                    candidate.message_id,
+                    candidate.source_role,
+                    digest,
+                    candidate.session_id,
+                )
+            )
+            registered = (
+                registration.content_digest == digest
+                and registration.source_role == candidate.source_role
+                and registration.source_id == candidate.source_id
+                and registration.message_id == candidate.message_id
+                and registration.session_id == candidate.session_id
+                and registration.handle == sha256(expected_payload.encode("utf-8")).hexdigest()
+            )
         supporting = source_role_eligible(
             candidate.source_role,
             kind=candidate.kind,
@@ -1301,39 +1348,51 @@ class SqliteProvisionalMemoryStore:
                 source_role=candidate.source_role,
                 content_digest=digest,
             )
-            with self._lock:
+        if not supporting:
+            record = self.upsert_candidate(candidate, reason=reason)
+            return ObservationDisposition(record.record_id, 0, None, "unregistered_or_ineligible")
+
+        with self._write_transaction(immediate=True):
+            if fingerprint is not None:
                 collision = self._conn.execute(
                     "SELECT content_digest FROM provisional_evidence_units WHERE source_id=? AND message_id=? AND span_start=? AND span_end=? AND source_role=?",
                     (source_id, message_id, candidate.span_start, candidate.span_end, candidate.source_role),
                 ).fetchone()
-            if collision is not None and str(collision["content_digest"]) != digest:
-                raise ValueError("EVIDENCE_IDENTITY_CONFLICT")
-            with self._lock:
+                if collision is not None and str(collision["content_digest"]) != digest:
+                    raise ValueError("EVIDENCE_IDENTITY_CONFLICT")
                 present = self._conn.execute(
-                    "SELECT record_id FROM provisional_evidence_units WHERE evidence_fingerprint=?", (fingerprint,)
+                    "SELECT record_id FROM provisional_evidence_units WHERE evidence_fingerprint=?",
+                    (fingerprint,),
                 ).fetchone()
-            if present is not None:
-                return ObservationDisposition(str(present["record_id"]), 0, fingerprint, "replay")
-        record = self.upsert_candidate(candidate, reason=reason)
-        if not supporting:
-            return ObservationDisposition(record.record_id, 0, None, "unregistered_or_ineligible")
-        source_id = source_id or f"fallback:{record.record_id}"
-        message_id = message_id or f"fallback:{digest}"
-        fingerprint = fingerprint or _evidence_fingerprint(
-            store_uuid=self.store_uuid, source_id=source_id, message_id=message_id,
-            span_start=candidate.span_start, span_end=candidate.span_end,
-            source_role=candidate.source_role, content_digest=digest,
-        )
-        with self._lock, self._conn:
+                if present is not None:
+                    return ObservationDisposition(str(present["record_id"]), 0, fingerprint, "replay")
+
+            record = self.upsert_candidate(candidate, reason=reason, _reactivate=True)
+            if record.status is ProvisionalMemoryStatus.SUPERSEDED:
+                return ObservationDisposition(record.record_id, 0, None, "superseded")
+            source_id = source_id or f"fallback:{record.record_id}"
+            message_id = message_id or f"fallback:{digest}"
+            fingerprint = fingerprint or _evidence_fingerprint(
+                store_uuid=self.store_uuid,
+                source_id=source_id,
+                message_id=message_id,
+                span_start=candidate.span_start,
+                span_end=candidate.span_end,
+                source_role=candidate.source_role,
+                content_digest=digest,
+            )
             collision = self._conn.execute(
                 "SELECT content_digest FROM provisional_evidence_units WHERE source_id=? AND message_id=? AND span_start=? AND span_end=? AND source_role=?",
                 (source_id, message_id, candidate.span_start, candidate.span_end, candidate.source_role),
             ).fetchone()
             if collision is not None and str(collision["content_digest"]) != digest:
                 raise ValueError("EVIDENCE_IDENTITY_CONFLICT")
-            present = self._conn.execute("SELECT record_id FROM provisional_evidence_units WHERE evidence_fingerprint=?", (fingerprint,)).fetchone()
+            present = self._conn.execute(
+                "SELECT record_id FROM provisional_evidence_units WHERE evidence_fingerprint=?",
+                (fingerprint,),
+            ).fetchone()
             if present is not None:
-                return ObservationDisposition(record.record_id, 0, fingerprint, "replay")
+                return ObservationDisposition(str(present["record_id"]), 0, fingerprint, "replay")
             now = self._clock()
             self._conn.execute(
                 "INSERT INTO provisional_evidence_units VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
@@ -1344,8 +1403,8 @@ class SqliteProvisionalMemoryStore:
             sessions = self._conn.execute("SELECT COUNT(DISTINCT session_id) FROM provisional_evidence_units WHERE record_id=?", (record.record_id,)).fetchone()[0]
             maturity = ProvisionalMaturity.REINFORCED.value if supports >= 2 else ProvisionalMaturity.OBSERVED.value
             self._conn.execute(
-                "UPDATE provisional_records SET independent_support_count=?, distinct_session_count=?, maturity=?, last_independent_support_at=?, lifecycle=?, status=? WHERE record_id=?",
-                (supports, sessions, maturity, now.isoformat(), ProvisionalLifecycle.ACTIVE.value, ProvisionalMemoryStatus.ACTIVE.value, record.record_id),
+                "UPDATE provisional_records SET independent_support_count=?, distinct_session_count=?, maturity=?, last_independent_support_at=? WHERE record_id=?",
+                (supports, sessions, maturity, now.isoformat(), record.record_id),
             )
         return ObservationDisposition(record.record_id, 1, fingerprint, "accepted")
 
@@ -1359,15 +1418,23 @@ class SqliteProvisionalMemoryStore:
             ProvisionalLifecycle.ARCHIVED: ProvisionalMemoryStatus.ARCHIVED,
         }[lifecycle]
         now = self._clock()
-        with self._lock, self._conn:
+        event_type = {
+            ProvisionalLifecycle.ACTIVE: ProvisionalMemoryEventType.REACTIVATE,
+            ProvisionalLifecycle.DORMANT: ProvisionalMemoryEventType.DORMANT,
+            ProvisionalLifecycle.ARCHIVED: ProvisionalMemoryEventType.ARCHIVE,
+        }[lifecycle]
+        with self._write_transaction():
             self._conn.execute(
                 "UPDATE provisional_records SET lifecycle=?, status=?, updated_at=? WHERE record_id=?",
                 (lifecycle.value, status.value, now.isoformat(), record_id),
             )
-        self._append_event(
-            event_type=ProvisionalMemoryEventType.ARCHIVE if lifecycle is ProvisionalLifecycle.ARCHIVED else ProvisionalMemoryEventType.DORMANT,
-            record_id=record_id, reason=reason, source_refs=[], metadata={"lifecycle": lifecycle.value},
-        )
+            self._append_event(
+                event_type=event_type,
+                record_id=record_id,
+                reason=reason,
+                source_refs=[],
+                metadata={"lifecycle": lifecycle.value},
+            )
         return self.get_record(record_id)
 
     def create_consolidated_revision(

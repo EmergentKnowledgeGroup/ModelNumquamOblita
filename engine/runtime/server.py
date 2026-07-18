@@ -7349,7 +7349,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
         route = operation_map.get((method_upper, path))
         proposal_record_id = ""
         proposal_route = re.fullmatch(
-            r"/api/integration/v1/memory/proposals/(prop_[A-Za-z0-9_-]{1,96})/(dismiss|bridge)",
+            r"/api/integration/v1/memory/proposals/((?:prop_|prov_con_)[A-Za-z0-9_-]{1,96})/(dismiss|bridge)",
             path,
         )
         if route is None and method_upper == "POST" and proposal_route is not None:

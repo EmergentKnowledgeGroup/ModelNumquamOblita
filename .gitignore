@@ -42,3 +42,5 @@ runtime/setup/*
 !runtime/setup/.gitkeep
 runtime/packaging/*
 !runtime/packaging/.gitkeep
+runtime/tmp/*
+!runtime/tmp/.gitkeep

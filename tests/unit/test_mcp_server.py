@@ -1657,6 +1657,221 @@ def _call(server: MCPServer, request_id: int, method: str, params: dict[str, obj
     return result
 
 
+def test_mcp_integration_memory_tools_discover_and_proxy_canonical_envelopes() -> None:
+    class _IntegrationProxyClient:
+        def __init__(self) -> None:
+            self.requests: list[dict[str, object]] = []
+
+        def request_json(
+            self,
+            method: str,
+            path: str,
+            *,
+            query: dict[str, object] | None = None,
+            payload: dict[str, object] | None = None,
+            headers: dict[str, object] | None = None,
+            allow_error_status: bool = False,
+        ) -> tuple[int, dict[str, object]]:
+            self.requests.append(
+                {
+                    "method": method,
+                    "path": path,
+                    "query": query,
+                    "payload": dict(payload or {}),
+                    "headers": dict(headers or {}),
+                    "allow_error_status": allow_error_status,
+                }
+            )
+            return 200, {"schema_version": "integration.v1", "ok": True, "data": {"path": path}}
+
+    client = _IntegrationProxyClient()
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="operator"),
+            integration_operator_token="operator-token",
+        ),
+        api_client=client,
+    )
+
+    _call(server, 1, "initialize", {})
+    listed = _call(server, 2, "tools/list", {})
+    tool_schemas = {
+        str(item["name"]): dict(item["inputSchema"])
+        for item in list(dict(listed["result"]).get("tools") or [])
+    }
+    assert {
+        "integration.memory.source.register",
+        "integration.memory.observe",
+        "integration.memory.maintain",
+        "integration.memory.proposals.list",
+        "integration.memory.proposals.dismiss",
+        "integration.memory.proposals.bridge",
+    } <= set(tool_schemas)
+    assert tool_schemas["integration.memory.source.register"]["required"] == [
+        "session_id",
+        "run_id",
+        "content",
+        "source_role",
+    ]
+    assert tool_schemas["integration.memory.maintain"]["properties"]["max_records"] == {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+    }
+    resolve_schema = tool_schemas["integration.writeback.resolve"]
+    resolve_properties = dict(resolve_schema["properties"])
+    assert resolve_properties["apply"] == {"type": "boolean", "default": False}
+    assert resolve_properties["decided_by"]["type"] == "string"
+    assert resolve_properties["reviewer"]["deprecated"] is True
+    assert "decided_by" not in resolve_schema["required"]
+
+    shared = {"request_id": "req_mcp_memory_1", "session_id": "session_1", "run_id": "run_1"}
+    _call(
+        server,
+        3,
+        "tools/call",
+        {
+            "name": "integration.memory.source.register",
+            "arguments": {
+                **shared,
+                "content": "I prefer peppermint tea after dinner.",
+                "source_role": "user",
+                "source_id": "conversation_1",
+                "message_id": "message_1",
+            },
+        },
+    )
+    receipt = {"handle": "retrieval_1", "signature": "sig"}
+    _call(
+        server,
+        4,
+        "tools/call",
+        {
+            "name": "integration.memory.observe",
+            "arguments": {
+                **shared,
+                "messages": [{"role": "user", "content": "I prefer peppermint tea after dinner."}],
+                "retrieval_receipt": receipt,
+                "remember_intent": "model_observed",
+                "boundary": {"kind": "turn"},
+            },
+        },
+    )
+    _call(
+        server,
+        5,
+        "tools/call",
+        {
+            "name": "integration.memory.maintain",
+            "arguments": {**shared, "max_records": 25, "dry_run": True},
+        },
+    )
+    _call(
+        server,
+        6,
+        "tools/call",
+        {
+            "name": "integration.memory.proposals.list",
+            "arguments": {"request_id": "req_mcp_memory_list", "status": "pending", "include_content": False},
+        },
+    )
+    _call(
+        server,
+        7,
+        "tools/call",
+        {
+            "name": "integration.memory.proposals.dismiss",
+            "arguments": {**shared, "record_id": "prop_record_1", "reason_code": "not_useful"},
+        },
+    )
+    _call(
+        server,
+        8,
+        "tools/call",
+        {
+            "name": "integration.memory.proposals.bridge",
+            "arguments": {**shared, "record_id": "prop_record_2"},
+        },
+    )
+    _call(
+        server,
+        9,
+        "tools/call",
+        {
+            "name": "integration.writeback.resolve",
+            "arguments": {
+                **shared,
+                "proposal_id": "proposal_1",
+                "decision": "approve",
+                "reviewer": "reviewer_1",
+                "apply": True,
+            },
+        },
+    )
+
+    assert [str(call["path"]) for call in client.requests] == [
+        "/api/integration/v1/memory/source/register",
+        "/api/integration/v1/memory/observe",
+        "/api/integration/v1/memory/maintain",
+        "/api/integration/v1/memory/proposals",
+        "/api/integration/v1/memory/proposals/prop_record_1/dismiss",
+        "/api/integration/v1/memory/proposals/prop_record_2/bridge",
+        "/api/integration/v1/writeback/resolve",
+    ]
+    for index, call in enumerate(client.requests):
+        if index == 3:
+            assert call["method"] == "GET"
+            assert call["payload"] == {}
+            assert call["query"] == {
+                "schema_version": "integration.v1",
+                "request_id": "req_mcp_memory_list",
+                "status": "pending",
+                "include_content": "false",
+            }
+            assert call["headers"] == {"Authorization": "Bearer operator-token"}
+            continue
+        assert call["method"] == "POST"
+        assert call["query"] is None
+        assert call["headers"] == {"Authorization": "Bearer operator-token"}
+        envelope = dict(call["payload"])
+        assert envelope["schema_version"] == "integration.v1"
+        assert envelope["session_id"] == "session_1"
+        assert envelope["run_id"] == "run_1"
+        assert isinstance(envelope["data"], dict)
+
+    assert client.requests[0]["payload"]["data"] == {
+        "content": "I prefer peppermint tea after dinner.",
+        "source_role": "user",
+        "source_id": "conversation_1",
+        "message_id": "message_1",
+    }
+    assert client.requests[1]["payload"]["data"] == {
+        "messages": [{"role": "user", "content": "I prefer peppermint tea after dinner."}],
+        "retrieval_receipt": receipt,
+        "remember_intent": "model_observed",
+        "boundary": {"kind": "turn"},
+    }
+    assert client.requests[2]["payload"]["data"] == {"max_records": 25, "dry_run": True}
+    assert client.requests[4]["payload"]["data"] == {"reason_code": "not_useful"}
+    assert client.requests[5]["payload"]["data"] == {}
+    assert client.requests[6]["payload"]["data"] == {
+        "proposal_id": "proposal_1",
+        "decision": "approve",
+        "decided_by": "reviewer_1",
+        "apply": True,
+    }
+
+    viewer = MCPServer(
+        config=ServerConfig(runtime_base_url="http://127.0.0.1:7340", auth=AuthConfig(default_role="viewer")),
+        api_client=client,
+    )
+    _call(viewer, 10, "initialize", {})
+    viewer_tools = _call(viewer, 11, "tools/list", {})
+    viewer_names = {str(item["name"]) for item in list(dict(viewer_tools["result"]).get("tools") or [])}
+    assert "integration.memory.observe" not in viewer_names
+
+
 _PHASE4_PERMISSION_TOOL_CALLS: list[tuple[str, dict[str, object]]] = [
     ("memory.disable_episode", {"episode_id": "ep_1", "reason": "test"}),
     ("memory.enable_episode", {"episode_id": "ep_1"}),

@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from engine.continuity import ContinuityBuilder, ContinuityStore
+from engine.config import default_config, load_config
 from engine.mcp import AuthConfig, MCPServer, RuntimeApiClient, ServerConfig, run_http_server, run_stdio_server
 from engine.memory import MutationReviewQueue, SqliteAtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
@@ -117,6 +118,7 @@ def _build_claude_config(
     default_role: str,
     compat_mode: str,
     mutations_enabled: bool,
+    config_path: Path | None = None,
 ) -> dict[str, object]:
     return build_mcp_servers_payload(
         server_name=str(server_name),
@@ -127,6 +129,7 @@ def _build_claude_config(
             default_role=str(default_role),
             compat_mode=str(compat_mode),
             mutations_enabled=bool(mutations_enabled),
+            config_path=config_path,
         ),
     )
 
@@ -149,6 +152,11 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--episodes", default="", help="Optional path to episode_cards JSON artifact.")
     parser.add_argument("--model-name", default="numquam-oblita-runtime")
+    parser.add_argument(
+        "--config",
+        default="",
+        help="Optional path to the MNO runtime policy JSON. Defaults to the built-in policy.",
+    )
     parser.add_argument("--runtime-host", default="127.0.0.1")
     parser.add_argument("--runtime-port", type=int, default=0, help="Loopback runtime API port (0 = ephemeral).")
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio", help="MCP transport mode.")
@@ -219,6 +227,24 @@ def main() -> int:
         print(f"error=episode cards path not found: {episodes_path}", file=sys.stderr)
         return 2
 
+    requested_config_path = Path(args.config).expanduser().resolve() if str(args.config).strip() else None
+    if requested_config_path is not None and not requested_config_path.exists():
+        print(f"error=config path not found: {requested_config_path}", file=sys.stderr)
+        return 2
+    standard_config_path = (REPO_ROOT / "runtime" / "state" / "mno-runtime-policy.v1.json").resolve()
+    config_path = requested_config_path or (standard_config_path if standard_config_path.exists() else None)
+    try:
+        runtime_config = load_config(config_path, strict=True, upgrade=config_path is not None) if config_path else default_config()
+    except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        print(f"error=invalid runtime config: {exc}", file=sys.stderr)
+        return 2
+    if config_path is None and not args.plan_only and not args.print_claude_config:
+        config_path = standard_config_path
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = config_path.with_name(f".{config_path.name}.{os.getpid()}.tmp")
+        temporary.write_text(json.dumps(runtime_config.as_dict(), indent=2) + "\n", encoding="utf-8")
+        temporary.replace(config_path)
+
     viewer_token, operator_token, admin_token = _resolved_auth_tokens(args)
     config_payload = build_mcp_servers_payload(
         server_name=str(args.server_name),
@@ -229,6 +255,7 @@ def main() -> int:
             default_role=str(args.default_role),
             compat_mode=str(args.compat_mode),
             mutations_enabled=bool(args.mutations_enabled),
+            config_path=config_path,
         ),
     )
 
@@ -238,6 +265,7 @@ def main() -> int:
         print(f"default_role={args.default_role}")
         print(f"transport={args.transport}")
         print(f"server_name={args.server_name}")
+        print(f"config_path={config_path if config_path is not None else ''}")
         print(f"viewer_token_configured={str(bool(viewer_token)).lower()}")
         print(f"operator_token_configured={str(bool(operator_token)).lower()}")
         print(f"admin_token_configured={str(bool(admin_token)).lower()}")
@@ -265,6 +293,8 @@ def main() -> int:
             retriever=MemoryRetriever(store),
             verifier=ClaimVerifier(),
             continuity_store=continuity,
+            config=runtime_config,
+            config_path=config_path,
             model_name=str(args.model_name).strip() or "numquam-oblita-runtime",
             episode_cards_path=str(episodes_path) if episodes_path is not None else None,
         )

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
+import secrets
 import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
-from ..contracts import AtomType, CandidateAtom, NormalizedTurn, SourceRef, contract_to_dict, source_ref_from_dict
+from ..contracts import AtomType, CandidateAtom, NormalizedTurn, contract_to_dict, source_ref_from_dict
 from .store import (
     AtomStatus,
     AtomStore,
@@ -135,11 +138,23 @@ class SqliteAtomStore:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
         self._init_schema()
+        self._ensure_runtime_control_schema()
         self.ledger = SqliteProvenanceLedger(self._conn, self._lock, batch_active=lambda: self._batch_depth > 0)
 
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    def backup_to(self, target_path: str | Path) -> Path:
+        """Create a transactionally consistent SQLite backup without copying live WAL files."""
+        target = Path(target_path).expanduser().resolve()
+        source = self.db_path.expanduser().resolve()
+        if target == source:
+            raise ValueError("backup target must differ from the live store")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock, sqlite3.connect(str(target)) as destination:
+            self._conn.backup(destination)
+        return target
 
     def schema_version(self) -> int:
         with self._lock:
@@ -182,21 +197,19 @@ class SqliteAtomStore:
             self._create_schema_v2()
             with self._conn:
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-            return
-        if version == 1:
+        elif version == 1:
             self._migrate_1_to_2()
             self._migrate_2_to_3()
             with self._conn:
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-            return
-        if version == 2:
+        elif version == 2:
             self._migrate_2_to_3()
             with self._conn:
                 self._conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-            return
-        if version != SCHEMA_VERSION:
+        elif version != SCHEMA_VERSION:
             raise RuntimeError(f"unsupported schema version: {version}")
         self._ensure_raw_context_schema()
+        self._ensure_mutation_review_schema()
 
     def _create_schema_v2(self) -> None:
         with self._conn:
@@ -346,6 +359,320 @@ class SqliteAtomStore:
                 """
             )
 
+    def _ensure_mutation_review_schema(self) -> None:
+        """Install durable reviewer-controlled mutation state in the atom database."""
+
+        with self._conn:
+            self._conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS mutation_review_proposals (
+                    proposal_id TEXT PRIMARY KEY,
+                    action TEXT NOT NULL,
+                    target_atom_id TEXT NOT NULL,
+                    reason_code TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    replacement_candidate_json TEXT,
+                    retention_days INTEGER NOT NULL,
+                    metadata_json TEXT NOT NULL,
+                    created_by TEXT,
+                    reviewer TEXT,
+                    reviewed_at TEXT,
+                    applied_atom_id TEXT,
+                    apply_identity TEXT,
+                    applied_at TEXT,
+                    refresh_pending INTEGER NOT NULL DEFAULT 0
+                );
+
+                CREATE TABLE IF NOT EXISTS mutation_review_audit_events (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id TEXT NOT NULL UNIQUE,
+                    proposal_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    actor_id TEXT,
+                    timestamp TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS mutation_review_bridge_state (
+                    proposal_id TEXT PRIMARY KEY,
+                    provisional_record_id TEXT NOT NULL,
+                    applied_atom_id TEXT NOT NULL,
+                    actor_id TEXT NOT NULL,
+                    applied_at TEXT NOT NULL,
+                    bridge_sync_pending INTEGER NOT NULL DEFAULT 1
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_mutation_review_status
+                    ON mutation_review_proposals(status, created_at);
+                CREATE INDEX IF NOT EXISTS idx_mutation_review_bridge_provisional
+                    ON mutation_review_bridge_state(provisional_record_id);
+                """
+            )
+
+    def _ensure_runtime_control_schema(self) -> None:
+        """Create or validate protected, store-stable integration signing state."""
+
+        with self._lock:
+            exists = self._conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_control'"
+            ).fetchone()
+            if exists is None:
+                with self._conn:
+                    self._conn.execute(
+                        "CREATE TABLE runtime_control (control_key TEXT PRIMARY KEY, control_value TEXT NOT NULL)"
+                    )
+                    self._conn.executemany(
+                        "INSERT INTO runtime_control(control_key, control_value) VALUES (?, ?)",
+                        (
+                            ("store_uuid", str(uuid4())),
+                            ("signing_key_hex", secrets.token_hex(32)),
+                            ("signing_key_id", f"key_{uuid4().hex[:16]}"),
+                        ),
+                    )
+                try:
+                    os.chmod(self.db_path, 0o600)
+                except OSError:
+                    pass
+            rows = {
+                str(row["control_key"]): str(row["control_value"])
+                for row in self._conn.execute(
+                    "SELECT control_key, control_value FROM runtime_control"
+                ).fetchall()
+            }
+        try:
+            key = bytes.fromhex(rows["signing_key_hex"])
+        except (KeyError, ValueError) as exc:
+            raise RuntimeError("CONTROL_KEY_UNAVAILABLE") from exc
+        if len(key) != 32 or not rows.get("store_uuid") or not rows.get("signing_key_id"):
+            raise RuntimeError("CONTROL_KEY_UNAVAILABLE")
+
+    def runtime_control_identity(self) -> dict[str, str]:
+        with self._lock:
+            rows = {
+                str(row["control_key"]): str(row["control_value"])
+                for row in self._conn.execute(
+                    "SELECT control_key, control_value FROM runtime_control WHERE control_key IN ('store_uuid', 'signing_key_id')"
+                ).fetchall()
+            }
+        if not rows.get("store_uuid") or not rows.get("signing_key_id"):
+            raise RuntimeError("CONTROL_KEY_UNAVAILABLE")
+        return rows
+
+    def runtime_signing_key(self) -> bytes:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT control_value FROM runtime_control WHERE control_key='signing_key_hex'"
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("CONTROL_KEY_UNAVAILABLE")
+        try:
+            key = bytes.fromhex(str(row[0]))
+        except ValueError as exc:
+            raise RuntimeError("CONTROL_KEY_UNAVAILABLE") from exc
+        if len(key) != 32:
+            raise RuntimeError("CONTROL_KEY_UNAVAILABLE")
+        return key
+
+    def rotate_runtime_signing_key(self) -> dict[str, str]:
+        """Rotate the store-local signing key while the caller owns offline store access."""
+        key_id = f"key_{uuid4().hex[:16]}"
+        key_hex = secrets.token_hex(32)
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE runtime_control SET control_value=? WHERE control_key='signing_key_hex'",
+                (key_hex,),
+            )
+            self._conn.execute(
+                "UPDATE runtime_control SET control_value=? WHERE control_key='signing_key_id'",
+                (key_id,),
+            )
+        return self.runtime_control_identity()
+
+    def mutation_review_create(self, record: dict[str, Any]) -> dict[str, Any]:
+        """Persist a proposed mutation without changing atom or review truth."""
+
+        with self._lock, self._write_scope():
+            self._conn.execute(
+                """
+                INSERT INTO mutation_review_proposals (
+                    proposal_id, action, target_atom_id, reason_code, created_at, status,
+                    replacement_candidate_json, retention_days, metadata_json, created_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record["proposal_id"], record["action"], record["target_atom_id"], record["reason_code"],
+                    record["created_at"], record["status"], record.get("replacement_candidate_json"),
+                    int(record["retention_days"]), record["metadata_json"], record.get("created_by"),
+                ),
+            )
+            self._mutation_review_audit(record["proposal_id"], "PROPOSED", record.get("created_by"), {})
+        return self.mutation_review_get(str(record["proposal_id"]))
+
+    def mutation_review_get(self, proposal_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM mutation_review_proposals WHERE proposal_id = ?", (proposal_id,)
+            ).fetchone()
+        if row is None:
+            raise KeyError(proposal_id)
+        return {key: row[key] for key in row.keys()}
+
+    def mutation_review_list(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM mutation_review_proposals ORDER BY created_at ASC, proposal_id ASC"
+            ).fetchall()
+        return [{key: row[key] for key in row.keys()} for row in rows]
+
+    def mutation_review_resolve(
+        self,
+        proposal_id: str,
+        *,
+        decision: str,
+        actor_id: str,
+        rejection_reason: str = "",
+        apply: bool = False,
+    ) -> dict[str, Any]:
+        """Resolve/apply a proposal atomically; callers map conflicts to their public contract."""
+
+        if decision not in {"approve", "reject"}:
+            raise ValueError("decision must be approve or reject")
+        if not actor_id.strip():
+            raise ValueError("actor_id is required")
+        if apply and decision != "approve":
+            raise ValueError("reject decisions cannot apply")
+
+        with self._lock, self.write_batch():
+            row = self.mutation_review_get(proposal_id)
+            status = str(row["status"])
+            persisted_decision = "approve" if status in {"approved", "applied"} else "reject" if status == "rejected" else ""
+            if persisted_decision and persisted_decision != decision:
+                return {"decision_conflict": persisted_decision, "proposal": row}
+            if status == "pending":
+                metadata = json.loads(str(row["metadata_json"]))
+                if decision == "reject":
+                    metadata["rejection_reason"] = rejection_reason
+                now = self._now().isoformat()
+                next_status = "approved" if decision == "approve" else "rejected"
+                self._conn.execute(
+                    """
+                    UPDATE mutation_review_proposals
+                    SET status = ?, reviewer = ?, reviewed_at = ?, metadata_json = ?
+                    WHERE proposal_id = ?
+                    """,
+                    (next_status, actor_id, now, json.dumps(metadata, ensure_ascii=False), proposal_id),
+                )
+                self._mutation_review_audit(proposal_id, "APPROVED" if decision == "approve" else "REJECTED", actor_id, {})
+                row = self.mutation_review_get(proposal_id)
+
+            if not apply:
+                return {"proposal": self.mutation_review_get(proposal_id)}
+            if str(row["status"]) == "applied":
+                return {"proposal": self.mutation_review_get(proposal_id)}
+
+            applied_atom_id = self._mutation_review_apply_atom(row, actor_id)
+            now = self._now().isoformat()
+            apply_identity = f"mra_{sha256(proposal_id.encode('utf-8')).hexdigest()[:24]}"
+            self._conn.execute(
+                """
+                UPDATE mutation_review_proposals
+                SET status = 'applied', applied_atom_id = ?, apply_identity = ?, applied_at = ?
+                WHERE proposal_id = ?
+                """,
+                (applied_atom_id, apply_identity, now, proposal_id),
+            )
+            self._mutation_review_audit(
+                proposal_id, "APPLIED", actor_id, {"applied_atom_id": applied_atom_id, "apply_identity": apply_identity}
+            )
+            metadata = json.loads(str(row["metadata_json"]))
+            provisional_record_id = str(metadata.get("provisional_record_id") or "").strip()
+            if provisional_record_id:
+                self._conn.execute(
+                    """
+                    INSERT INTO mutation_review_bridge_state (
+                        proposal_id, provisional_record_id, applied_atom_id, actor_id, applied_at, bridge_sync_pending
+                    ) VALUES (?, ?, ?, ?, ?, 1)
+                    ON CONFLICT(proposal_id) DO NOTHING
+                    """,
+                    (proposal_id, provisional_record_id, applied_atom_id, actor_id, now),
+                )
+                self._mutation_review_audit(
+                    proposal_id, "BRIDGE_SUPPRESSED", actor_id, {"provisional_record_id": provisional_record_id}
+                )
+            return {"proposal": self.mutation_review_get(proposal_id)}
+
+    def _mutation_review_apply_atom(self, row: dict[str, Any], actor_id: str) -> str:
+        action = str(row["action"])
+        proposal_id = str(row["proposal_id"])
+        reason = f"proposal:{proposal_id}"
+        if action == "PROPOSE_DELETE":
+            self.tombstone_atom(str(row["target_atom_id"]), reason=reason, retention_days=int(row["retention_days"]))
+            return str(row["target_atom_id"])
+        candidate_payload = json.loads(str(row["replacement_candidate_json"] or "{}"))
+        candidate = CandidateAtom(
+            candidate_id=str(candidate_payload["candidate_id"]),
+            atom_type=AtomType(str(candidate_payload["atom_type"])),
+            canonical_text=str(candidate_payload["canonical_text"]),
+            source_refs=[source_ref_from_dict(item) for item in candidate_payload["source_refs"]],
+            entities=[str(item) for item in candidate_payload.get("entities") or []],
+            topics=[str(item) for item in candidate_payload.get("topics") or []],
+            confidence=float(candidate_payload["confidence"]),
+            salience=float(candidate_payload["salience"]),
+        )
+        stable_atom_id = f"mem_mra_{sha256(proposal_id.encode('utf-8')).hexdigest()[:24]}"
+        if action == "PROPOSE_CREATE":
+            return self.add_candidate(candidate, reason=reason, atom_id=stable_atom_id).atom_id
+        if action == "PROPOSE_EDIT":
+            return self.supersede_atom(
+                str(row["target_atom_id"]), candidate, reason=reason, replacement_atom_id=stable_atom_id
+            ).atom_id
+        raise ValueError(f"unsupported mutation action: {action}")
+
+    def _mutation_review_audit(
+        self, proposal_id: str, event_type: str, actor_id: str | None, metadata: dict[str, str]
+    ) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO mutation_review_audit_events (event_id, proposal_id, event_type, actor_id, timestamp, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (f"mra_evt_{uuid4().hex}", proposal_id, event_type, actor_id, self._now().isoformat(), json.dumps(metadata)),
+        )
+
+    def mutation_review_mark_refresh_pending(self, proposal_id: str) -> None:
+        with self._lock, self._write_scope():
+            self._conn.execute(
+                "UPDATE mutation_review_proposals SET refresh_pending = 1 WHERE proposal_id = ?", (proposal_id,)
+            )
+            self._mutation_review_audit(proposal_id, "REFRESH_PENDING", None, {})
+
+    def mutation_bridge_state(self, proposal_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM mutation_review_bridge_state WHERE proposal_id = ?", (proposal_id,)
+            ).fetchone()
+        if row is None:
+            raise KeyError(proposal_id)
+        result = {key: row[key] for key in row.keys()}
+        result["bridge_sync_pending"] = bool(result["bridge_sync_pending"])
+        return result
+
+    def is_provisional_bridge_suppressed(self, provisional_record_id: str) -> bool:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM mutation_review_bridge_state WHERE provisional_record_id = ? LIMIT 1",
+                (provisional_record_id,),
+            ).fetchone()
+        return row is not None
+
+    def mutation_bridge_mark_reconciled(self, proposal_id: str) -> None:
+        with self._lock, self._write_scope():
+            self._conn.execute(
+                "UPDATE mutation_review_bridge_state SET bridge_sync_pending = 0 WHERE proposal_id = ?", (proposal_id,)
+            )
+            self._mutation_review_audit(proposal_id, "BRIDGE_RECONCILED", None, {})
+
     def _row_to_atom(self, row: sqlite3.Row) -> MemoryAtom:
         source_refs = [source_ref_from_dict(item) for item in json.loads(row["source_refs_json"] or "[]")]
         entities = [str(item) for item in json.loads(row["entities_json"] or "[]")]
@@ -382,7 +709,13 @@ class SqliteAtomStore:
             timestamp=datetime.fromisoformat(str(row["timestamp"])),
         )
 
-    def add_candidate(self, candidate: CandidateAtom, *, reason: str = "extractor_add") -> MemoryAtom:
+    def add_candidate(
+        self,
+        candidate: CandidateAtom,
+        *,
+        reason: str = "extractor_add",
+        atom_id: str | None = None,
+    ) -> MemoryAtom:
         now = self._now()
         key = AtomStore._dedupe_key(
             atom_type=candidate.atom_type,
@@ -391,10 +724,14 @@ class SqliteAtomStore:
             topics=candidate.topics,
         )
         with self._lock, self._write_scope():
+            if atom_id:
+                persisted = self._conn.execute("SELECT * FROM atoms WHERE atom_id = ?", (atom_id,)).fetchone()
+                if persisted is not None:
+                    return self._row_to_atom(persisted)
             row = self._conn.execute("SELECT atom_id FROM atoms WHERE dedupe_key = ?", (key,)).fetchone()
             if row is None:
                 atom = MemoryAtom(
-                    atom_id=f"mem_{uuid4().hex}",
+                    atom_id=atom_id or f"mem_{uuid4().hex}",
                     atom_type=candidate.atom_type,
                     canonical_text=candidate.canonical_text.strip(),
                     source_refs=list(candidate.source_refs),
@@ -623,33 +960,39 @@ class SqliteAtomStore:
             chars_used += len(text)
         return bounded
 
-    def supersede_atom(self, atom_id: str, replacement: CandidateAtom, *, reason: str = "manual_update") -> MemoryAtom:
+    def supersede_atom(
+        self,
+        atom_id: str,
+        replacement: CandidateAtom,
+        *,
+        reason: str = "manual_update",
+        replacement_atom_id: str | None = None,
+    ) -> MemoryAtom:
         old = self.get_atom(atom_id)
         now = self._now()
-        with self._lock, self._conn:
+        with self._lock, self._write_scope():
             self._conn.execute(
                 "UPDATE atoms SET status = ?, updated_at = ? WHERE atom_id = ?",
                 (AtomStatus.SUPERSEDED.value, now.isoformat(), old.atom_id),
             )
-        replacement_atom = self.add_candidate(replacement, reason=reason)
-        replacement_atom.version_of = old.atom_id
-        replacement_atom.updated_at = self._now()
-        with self._lock, self._conn:
+            replacement_atom = self.add_candidate(replacement, reason=reason, atom_id=replacement_atom_id)
+            replacement_atom.version_of = old.atom_id
+            replacement_atom.updated_at = self._now()
             self._conn.execute(
                 "UPDATE atoms SET version_of = ?, updated_at = ? WHERE atom_id = ?",
                 (replacement_atom.version_of, replacement_atom.updated_at.isoformat(), replacement_atom.atom_id),
             )
-        self.ledger.append(
-            ProvenanceEvent(
-                event_id=f"evt_{uuid4().hex}",
-                event_type=EventType.SUPERSEDE,
-                atom_id=old.atom_id,
-                timestamp=self._now(),
-                source_refs=list(replacement.source_refs),
-                reason=reason,
-                metadata={"replacement_atom_id": replacement_atom.atom_id},
+            self.ledger.append(
+                ProvenanceEvent(
+                    event_id=f"evt_{uuid4().hex}",
+                    event_type=EventType.SUPERSEDE,
+                    atom_id=old.atom_id,
+                    timestamp=self._now(),
+                    source_refs=list(replacement.source_refs),
+                    reason=reason,
+                    metadata={"replacement_atom_id": replacement_atom.atom_id},
+                )
             )
-        )
         return replacement_atom
 
     def mark_conflict(self, left_atom_id: str, right_atom_id: str, *, reason: str) -> ContradictionEdge:
@@ -658,7 +1001,7 @@ class SqliteAtomStore:
         left = self.get_atom(left_atom_id)
         right = self.get_atom(right_atom_id)
         now = self._now()
-        with self._lock, self._conn:
+        with self._lock, self._write_scope():
             self._conn.execute(
                 "UPDATE atoms SET status = ?, contradiction_count = contradiction_count + 1, updated_at = ? WHERE atom_id = ?",
                 (AtomStatus.CONFLICTED.value, now.isoformat(), left.atom_id),
@@ -768,7 +1111,7 @@ class SqliteAtomStore:
         atom = self.get_atom(atom_id)
         now = self._now()
         purge_after = now + timedelta(days=retention_days)
-        with self._lock, self._conn:
+        with self._lock, self._write_scope():
             self._conn.execute(
                 """
                 UPDATE atoms

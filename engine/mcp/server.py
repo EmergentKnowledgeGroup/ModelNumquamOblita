@@ -140,7 +140,7 @@ class ServerConfig:
     audit_max_events: int = 300
     protocol_version: str = "2025-03-26"
     toolset_version: str = "phase8.v1"
-    server_version: str = "0.1.0"
+    server_version: str = "0.2.0"
     compat_mode: str = "strict"
     diagnostics_dir: str = "runtime/reports/mcp_diagnostics"
     audit_log_path: str = ""
@@ -532,6 +532,127 @@ class MCPServer:
                 handler=self._tool_integration_context_why,
             ),
             ToolSpec(
+                name="integration.memory.source.register",
+                description="Register a signed source span through the canonical integration.v1 runtime API.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "request_id": {"type": "string"},
+                        "session_id": {"type": "string"},
+                        "run_id": {"type": "string"},
+                        "principal": {"type": "object"},
+                        "content": {"type": "string"},
+                        "source_role": {"type": "string", "enum": ["user", "tool", "external"]},
+                        "source_id": {"type": "string"},
+                        "message_id": {"type": "string"},
+                    },
+                    "required": ["session_id", "run_id", "content", "source_role"],
+                    "additionalProperties": False,
+                },
+                permission="operator",
+                handler=self._tool_integration_memory_source_register,
+            ),
+            ToolSpec(
+                name="integration.memory.observe",
+                description="Record an externally observed turn through the canonical integration.v1 runtime API.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "request_id": {"type": "string"},
+                        "session_id": {"type": "string"},
+                        "run_id": {"type": "string"},
+                        "principal": {"type": "object"},
+                        "messages": {"type": "array"},
+                        "retrieval_receipt": {
+                            "description": "Optional server-issued retrieval receipt object or handle string.",
+                            "anyOf": [{"type": "object"}, {"type": "string"}],
+                        },
+                        "remember_intent": {"type": "string"},
+                        "boundary": {"type": "object"},
+                    },
+                    "required": ["session_id", "run_id", "messages"],
+                    "additionalProperties": False,
+                },
+                permission="operator",
+                handler=self._tool_integration_memory_observe,
+            ),
+            ToolSpec(
+                name="integration.memory.maintain",
+                description="Run bounded provisional-memory maintenance through the canonical integration.v1 runtime API.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "request_id": {"type": "string"},
+                        "session_id": {"type": "string"},
+                        "run_id": {"type": "string"},
+                        "principal": {"type": "object"},
+                        "max_records": {"type": "integer", "minimum": 1, "maximum": 100},
+                        "dry_run": {"type": "boolean", "default": False},
+                    },
+                    "required": ["session_id", "run_id"],
+                    "additionalProperties": False,
+                },
+                permission="operator",
+                handler=self._tool_integration_memory_maintain,
+            ),
+            ToolSpec(
+                name="integration.memory.proposals.list",
+                description="List high-risk proposal-only captures; content requires the runtime review_apply capability.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "request_id": {"type": "string"},
+                        "status": {
+                            "type": "string",
+                            "enum": ["all", "pending", "reviewed", "dismissed"],
+                            "default": "all",
+                        },
+                        "include_content": {"type": "boolean", "default": False},
+                    },
+                    "required": [],
+                    "additionalProperties": False,
+                },
+                permission="operator",
+                handler=self._tool_integration_memory_proposals_list,
+            ),
+            ToolSpec(
+                name="integration.memory.proposals.dismiss",
+                description="Dismiss a high-risk proposal-only capture with reviewer capability; never mutates evidence truth.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "request_id": {"type": "string"},
+                        "session_id": {"type": "string"},
+                        "run_id": {"type": "string"},
+                        "principal": {"type": "object"},
+                        "record_id": {"type": "string"},
+                        "reason_code": {"type": "string"},
+                    },
+                    "required": ["session_id", "run_id", "record_id"],
+                    "additionalProperties": False,
+                },
+                permission="operator",
+                handler=self._tool_integration_memory_proposals_dismiss,
+            ),
+            ToolSpec(
+                name="integration.memory.proposals.bridge",
+                description="Bridge a source-backed high-risk capture into pending human review; never applies or publishes it.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "request_id": {"type": "string"},
+                        "session_id": {"type": "string"},
+                        "run_id": {"type": "string"},
+                        "principal": {"type": "object"},
+                        "record_id": {"type": "string"},
+                    },
+                    "required": ["session_id", "run_id", "record_id"],
+                    "additionalProperties": False,
+                },
+                permission="operator",
+                handler=self._tool_integration_memory_proposals_bridge,
+            ),
+            ToolSpec(
                 name="integration.writeback.propose",
                 description="Create integration mutation proposal via runtime integration API.",
                 input_schema={
@@ -553,7 +674,7 @@ class MCPServer:
             ),
             ToolSpec(
                 name="integration.writeback.resolve",
-                description="Resolve integration mutation proposal via runtime integration API.",
+                description="Resolve an integration mutation proposal via the runtime API; apply remains capability-gated by the runtime.",
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -563,10 +684,16 @@ class MCPServer:
                         "principal": {"type": "object"},
                         "proposal_id": {"type": "string"},
                         "decision": {"type": "string", "enum": ["approve", "reject"]},
-                        "decided_by": {"type": "string"},
+                        "decided_by": {"type": "string", "description": "Canonical decision actor label."},
+                        "reviewer": {
+                            "type": "string",
+                            "description": "Deprecated alias for decided_by.",
+                            "deprecated": True,
+                        },
+                        "apply": {"type": "boolean", "default": False},
                         "reason": {"type": "string"},
                     },
-                    "required": ["session_id", "proposal_id", "decision", "decided_by"],
+                    "required": ["session_id", "proposal_id", "decision"],
                     "additionalProperties": False,
                 },
                 permission="operator",
@@ -2146,11 +2273,19 @@ class MCPServer:
             raise MCPRequestError(-32003, "runtime returned invalid integration payload")
         return dict(response)
 
-    def _integration_get(self, *, path: str, args: dict[str, Any]) -> dict[str, Any]:
+    def _integration_get(
+        self,
+        *,
+        path: str,
+        args: dict[str, Any],
+        extra_query: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         query = {
             "schema_version": self.config.integration_schema_version,
             "request_id": self._integration_request_id(args.get("request_id")),
         }
+        if extra_query:
+            query.update({str(key): value for key, value in extra_query.items()})
         _status, response = self.api_client.request_json(
             "GET",
             path,
@@ -2197,6 +2332,84 @@ class MCPServer:
             data=data,
         )
 
+    def _tool_integration_memory_source_register(self, args: dict[str, Any]) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "content": str(args.get("content") or ""),
+            "source_role": str(args.get("source_role") or ""),
+        }
+        for key in ("source_id", "message_id"):
+            if key in args:
+                data[key] = str(args.get(key) or "")
+        return self._integration_post(
+            path="/api/integration/v1/memory/source/register",
+            args=args,
+            data=data,
+        )
+
+    def _tool_integration_memory_observe(self, args: dict[str, Any]) -> dict[str, Any]:
+        messages = args.get("messages")
+        if not isinstance(messages, list):
+            raise MCPRequestError(-32602, "messages must be an array")
+        data: dict[str, Any] = {"messages": list(messages)}
+        for key in ("retrieval_receipt", "remember_intent"):
+            if key in args:
+                data[key] = args[key]
+        if "boundary" in args:
+            boundary = args.get("boundary")
+            if not isinstance(boundary, Mapping):
+                raise MCPRequestError(-32602, "boundary must be an object")
+            data["boundary"] = dict(boundary)
+        return self._integration_post(
+            path="/api/integration/v1/memory/observe",
+            args=args,
+            data=data,
+        )
+
+    def _tool_integration_memory_maintain(self, args: dict[str, Any]) -> dict[str, Any]:
+        data: dict[str, Any] = {}
+        if "max_records" in args:
+            data["max_records"] = int(args.get("max_records") or 0)
+        if "dry_run" in args:
+            data["dry_run"] = bool(args.get("dry_run"))
+        return self._integration_post(
+            path="/api/integration/v1/memory/maintain",
+            args=args,
+            data=data,
+        )
+
+    def _tool_integration_memory_proposals_list(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self._integration_get(
+            path="/api/integration/v1/memory/proposals",
+            args=args,
+            extra_query={
+                "status": str(args.get("status") or "all"),
+                "include_content": "true" if bool(args.get("include_content", False)) else "false",
+            },
+        )
+
+    def _tool_integration_memory_proposals_dismiss(self, args: dict[str, Any]) -> dict[str, Any]:
+        record_id = str(args.get("record_id") or "").strip()
+        if not record_id:
+            raise MCPRequestError(-32602, "record_id is required")
+        data: dict[str, Any] = {}
+        if "reason_code" in args:
+            data["reason_code"] = str(args.get("reason_code") or "")
+        return self._integration_post(
+            path=f"/api/integration/v1/memory/proposals/{record_id}/dismiss",
+            args=args,
+            data=data,
+        )
+
+    def _tool_integration_memory_proposals_bridge(self, args: dict[str, Any]) -> dict[str, Any]:
+        record_id = str(args.get("record_id") or "").strip()
+        if not record_id:
+            raise MCPRequestError(-32602, "record_id is required")
+        return self._integration_post(
+            path=f"/api/integration/v1/memory/proposals/{record_id}/bridge",
+            args=args,
+            data={},
+        )
+
     def _tool_integration_writeback_propose(self, args: dict[str, Any]) -> dict[str, Any]:
         idempotency_key = str(args.get("idempotency_key") or "").strip()
         if not idempotency_key:
@@ -2220,7 +2433,7 @@ class MCPServer:
     def _tool_integration_writeback_resolve(self, args: dict[str, Any]) -> dict[str, Any]:
         proposal_id = str(args.get("proposal_id") or "").strip()
         decision = str(args.get("decision") or "").strip()
-        decided_by = str(args.get("decided_by") or "").strip()
+        decided_by = str(args.get("decided_by") or args.get("reviewer") or "").strip()
         if not proposal_id or not decision or not decided_by:
             raise MCPRequestError(-32602, "proposal_id, decision, and decided_by are required")
         data = {
@@ -2228,6 +2441,8 @@ class MCPServer:
             "decision": decision,
             "decided_by": decided_by,
         }
+        if "apply" in args:
+            data["apply"] = bool(args.get("apply"))
         if "reason" in args:
             data["reason"] = str(args.get("reason") or "")
         return self._integration_post(

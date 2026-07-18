@@ -27,7 +27,7 @@ NO_INTEGRATION_OPERATOR_TOKEN=<operator-token>
 NO_INTEGRATION_ADMIN_TOKEN=<admin-token>
 ```
 
-## Role Matrix
+## Authority And Permission Matrix
 
 | Operation | Viewer | Operator | Admin |
 | --- | --- | --- | --- |
@@ -35,10 +35,13 @@ NO_INTEGRATION_ADMIN_TOKEN=<admin-token>
 | `capabilities.get` | yes | yes | yes |
 | `context.build` | yes | yes | yes |
 | `context.why` | yes | yes | yes |
+| `memory.source.register` | no | yes | yes |
+| `memory.observe` | no | yes | yes |
+| `memory.maintain` | no | yes | yes |
 | `writeback.propose` | no | yes | yes |
-| `writeback.resolve` | no | yes | yes |
+| `writeback.resolve` | no | only with `review_apply` | only with `review_apply` |
 
-Viewer can read context and explanations. Operator can propose and resolve writeback through the review contract. Admin is reserved for trusted local operators and future privileged controls.
+`review_apply` is a separate, non-inherited capability. A role alone does not grant it, and model/integration bundles must not receive it. `decided_by` is display metadata; the authenticated principal is the authoritative reviewer identity.
 
 ## Envelope Rules
 
@@ -79,7 +82,9 @@ Example response:
     "schema_version": "integration.v1",
     "operations": {
       "context.build": {"required_roles": ["admin", "operator", "viewer"]},
-      "writeback.propose": {"required_roles": ["admin", "operator"]}
+      "memory.observe": {"required_roles": ["admin", "operator"]},
+      "writeback.propose": {"required_roles": ["admin", "operator"]},
+      "writeback.resolve": {"required_capability": "review_apply"}
     }
   }
 }
@@ -137,6 +142,8 @@ Example response:
 
 Use `agent_context` when you want a ready-to-inject prompt block. Use `context_text` when your orchestrator already has its own memory wrapper.
 
+`context.build` is read-only. In a SQLite runtime with integration handles available, it also returns a signed `source_registration` for the sanitized user message and a signed `retrieval_receipt`. They bind later observation to the authenticated principal, store, session/run, and the evidence actually retrieved; they are not memory writes.
+
 ### Work-Session Scratchpad In Context Packages
 
 WSS is not retrieval evidence and is not part of the `integration-v1` memory evidence contract. Runtime v2 context-package paths can include:
@@ -165,7 +172,36 @@ Context-package callers can provide:
 }
 ```
 
-Never use `work_session_context` to support a memory claim. Use it only to help an agent continue its own work. See [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md).
+Never use `work_session_context` to support a memory claim. STM/session state and WSS are helper context, not evidence tiers. Use WSS only to help an agent continue its own work. See [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md).
+
+## Observe A Completed Turn
+
+`POST /api/integration/v1/memory/observe` is the explicit live-turn write path. It is not raw import: import materializes source evidence atoms; `memory.observe` can capture bounded, evidence-backed **provisional** observations from a completed live turn.
+
+User, tool, and external messages that may count as independent support carry a server-issued signed `source_registration`. Assistant candidates are constrained by the signed `retrieval_receipt` from `context.build`; replaying, quoting, retrieval, or model-generated summaries do not create independent support.
+
+```json
+{
+  "schema_version": "integration.v1",
+  "request_id": "req_observe_0123456789abcdef",
+  "session_id": "session_local_1",
+  "run_id": "run_local_1",
+  "data": {
+    "turn_id": "turn_001",
+    "messages": [{"role": "user", "content": "I prefer tea.", "source_registration": {"handle": "..."}}],
+    "retrieval_receipt": {"handle": "..."},
+    "remember_intent": "model_observed"
+  }
+}
+```
+
+Accepted records remain `provisional_observed`, may become `reinforced`, and may become a separately derived `provisional_consolidated` record. They remain below `evidence_atom` and human-reviewed canonical truth. `remember_intent=user_explicit` only sets `writeback_required=true`; it does not propose, apply, publish, or activate a memory.
+
+## Maintain Provisional Memory
+
+`POST /api/integration/v1/memory/maintain` runs an explicit bounded consolidation/decay pass. The current HTTP surface accepts `max_records` (1–100) and `dry_run`; it never mutates review, publish, activation, or canonical truth.
+
+`context.why` can resolve durable provisional identifiers after restart and reports their authority tier, maturity, lifecycle, and conflict state.
 
 ## Context Why
 
@@ -216,7 +252,7 @@ Example response:
 
 ## Writeback Propose
 
-Writeback is proposal-only unless an operator resolves it. `writeback.propose` requires `Idempotency-Key`.
+Writeback is proposal-only unless a reviewer resolves it. `writeback.propose` requires `Idempotency-Key`.
 
 ```bash
 curl -X POST "http://127.0.0.1:7340/api/integration/v1/writeback/propose" \
@@ -265,11 +301,12 @@ Example response:
 
 If the same operation and idempotency key are replayed inside the idempotency window, MNO returns the original proposal response with `idempotent_replay: true` instead of creating a duplicate.
 
-## Writeback Resolve
+## Writeback Resolve And Apply
 
 ```bash
 curl -X POST "http://127.0.0.1:7340/api/integration/v1/writeback/resolve" \
-  -H "Authorization: Bearer $NO_INTEGRATION_OPERATOR_TOKEN" \
+  -H "Authorization: Bearer $NO_INTEGRATION_REVIEW_APPLY_TOKEN" \
+  -H "Idempotency-Key: launch-note-2026-04-23-resolve-001" \
   -H "Content-Type: application/json" \
   -d '{
     "schema_version": "integration.v1",
@@ -278,13 +315,14 @@ curl -X POST "http://127.0.0.1:7340/api/integration/v1/writeback/resolve" \
     "run_id": "run_local_1",
     "data": {
       "proposal_id": "proposal_...",
-      "decision": "reject",
-      "reviewer": "operator"
+      "decision": "approve",
+      "decided_by": "local reviewer",
+      "apply": true
     }
   }'
 ```
 
-Resolve is safe to retry for the same final decision. A conflicting later decision is rejected rather than silently rewriting reviewed truth.
+`apply` defaults to `false`. With `decision=approve`, `apply=true`, and the separate `review_apply` capability, MNO atomically approves and applies once to a durable `evidence_atom` (`human_reviewed=false`). That atom is evidence substrate, not published canonical truth. The normal build → human review → publish path is still required for canonical truth. Reject decisions cannot apply; retries return the same result and an opposite decision is rejected.
 
 ## Error Shape
 
@@ -307,7 +345,11 @@ Common error codes:
 
 - `INVALID_INPUT`
 - `AUTH_REQUIRED`
-- `AUTH_FORBIDDEN`
+- `PERMISSION_DENIED`
+- `IDEMPOTENCY_CONFLICT`
+- `EVIDENCE_IDENTITY_CONFLICT`
+- `DECISION_CONFLICT`
+- `MAINTENANCE_IN_PROGRESS`
 - `RATE_LIMITED`
 - `DEPENDENCY_UNAVAILABLE`
 - `TIMEOUT`
@@ -316,14 +358,22 @@ Common error codes:
 
 ## MCP Parity
 
-The MCP server exposes parity tool names:
+The currently implemented MCP parity tools are:
 
 - `integration.context.build`
 - `integration.context.why`
+- `integration.memory.source.register`
+- `integration.memory.observe`
+- `integration.memory.maintain`
+- `integration.memory.proposals.list`
+- `integration.memory.proposals.dismiss`
+- `integration.memory.proposals.bridge`
 - `integration.writeback.propose`
 - `integration.writeback.resolve`
 - `integration.capabilities.get`
 - `integration.health.get`
+
+The matching high-risk HTTP routes are `GET /api/integration/v1/memory/proposals` plus `POST .../{record_id}/dismiss` and `POST .../{record_id}/bridge`. Operator list access is metadata-only. Content-bearing list, dismissal, and bridge require the non-inherited `review_apply` capability. Bridge creates a source-backed pending review proposal and never applies or publishes it.
 
 ## Local Operator Surfaces
 

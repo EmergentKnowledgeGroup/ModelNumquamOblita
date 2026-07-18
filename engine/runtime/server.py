@@ -37,7 +37,8 @@ from ..continuity import Consolidator, ContinuityBuilder, SharedLanguageRegistry
 from ..contracts import AtomType, CandidateAtom, RetrievalOverrideRequestContract, SourceRef
 from ..ingest import summarize_source_input
 from ..ingest.parser import ConversationIngestor
-from ..memory import AtomStatus, MutationReviewQueue, ProposalStatus, SqliteAtomStore
+from ..memory import AtomStatus, DecisionConflictError, MutationReviewQueue, ProposalStatus, SqliteAtomStore
+from ..memory.content_safety import SecretDetectedError, assert_safe_content
 from .adapters import AdapterRegistry, build_default_registry
 from .methodology import (
     build_operator_readout,
@@ -61,6 +62,7 @@ from .continuity_adds import (
     record_retrieval_feedback,
 )
 from .session import RuntimeSession
+from .integration_handles import IntegrationHandleError
 from .live_eval import load_inmemory_store_from_json
 
 UI_ROOT = Path(__file__).resolve().parent / "ui"
@@ -260,6 +262,7 @@ WIZARD_STAGE_BYPASS_ACTIONS = {"start", "import_validate", "import_run"}
 INTEGRATION_SCHEMA_VERSION = "integration.v1"
 INTEGRATION_REQUEST_ID_RE = re.compile(r"^req_[A-Za-z0-9_-]{16,64}$")
 INTEGRATION_ALLOWED_ROLES = {"viewer", "operator", "admin"}
+INTEGRATION_ALLOWED_CAPABILITIES = {"review_apply"}
 INTEGRATION_MAX_GENERIC_STRING = 4096
 INTEGRATION_MAX_CONTEXT_TEXT = 120000
 INTEGRATION_MAX_ARRAY_ITEMS = 100
@@ -273,7 +276,7 @@ INTEGRATION_AUTH_CACHE_TTL_S = 60.0
 INTEGRATION_ERROR_HTTP_STATUS: dict[str, HTTPStatus] = {
     "INVALID_INPUT": HTTPStatus.BAD_REQUEST,
     "AUTH_REQUIRED": HTTPStatus.UNAUTHORIZED,
-    "AUTH_FORBIDDEN": HTTPStatus.FORBIDDEN,
+    "PERMISSION_DENIED": HTTPStatus.FORBIDDEN,
     "RATE_LIMITED": HTTPStatus.TOO_MANY_REQUESTS,
     "DEPENDENCY_UNAVAILABLE": HTTPStatus.SERVICE_UNAVAILABLE,
     "TIMEOUT": HTTPStatus.GATEWAY_TIMEOUT,
@@ -287,10 +290,22 @@ INTEGRATION_OPERATION_SLA_MS: dict[str, int] = {
     "writeback.propose": 1500,
     "writeback.resolve": 2500,
     "context.why": 2000,
+    "memory.source.register": 500,
+    "memory.observe": 2500,
+    "memory.maintain": 2500,
+    "memory.proposals.list": 1000,
+    "memory.proposals.dismiss": 1500,
+    "memory.proposals.bridge": 2000,
 }
 INTEGRATION_OPERATION_TIMEOUT_MS: dict[str, int] = {
     "context.build": 4000,
     "context.why": 4000,
+    "memory.source.register": 1500,
+    "memory.observe": 5000,
+    "memory.maintain": 5000,
+    "memory.proposals.list": 2500,
+    "memory.proposals.dismiss": 3000,
+    "memory.proposals.bridge": 4000,
     "writeback.propose": 3000,
     "writeback.resolve": 2500,
 }
@@ -299,6 +314,12 @@ INTEGRATION_REQUIRED_ROLES: dict[str, set[str]] = {
     "context.why": {"viewer", "operator", "admin"},
     "writeback.propose": {"operator", "admin"},
     "writeback.resolve": {"operator", "admin"},
+    "memory.source.register": {"operator", "admin"},
+    "memory.observe": {"operator", "admin"},
+    "memory.maintain": {"operator", "admin"},
+    "memory.proposals.list": {"operator", "admin"},
+    "memory.proposals.dismiss": {"operator", "admin"},
+    "memory.proposals.bridge": {"operator", "admin"},
     "health.get": {"viewer", "operator", "admin"},
     "capabilities.get": {"viewer", "operator", "admin"},
 }
@@ -402,6 +423,7 @@ class IntegrationAuthManager:
             viewer_token = str(os.getenv("NO_INTEGRATION_VIEWER_TOKEN", "local-integration-viewer-token") or "").strip()
             operator_token = str(os.getenv("NO_INTEGRATION_OPERATOR_TOKEN", "local-integration-operator-token") or "").strip()
             admin_token = str(os.getenv("NO_INTEGRATION_ADMIN_TOKEN", "local-integration-admin-token") or "").strip()
+            review_apply_token = str(os.getenv("NO_INTEGRATION_REVIEW_APPLY_TOKEN", "") or "").strip()
             if viewer_token:
                 default_tokens[viewer_token] = {
                     "principal_id": "integration_viewer",
@@ -416,6 +438,12 @@ class IntegrationAuthManager:
                 default_tokens[admin_token] = {
                     "principal_id": "integration_admin",
                     "roles": ["admin"],
+                }
+            if review_apply_token:
+                default_tokens[review_apply_token] = {
+                    "principal_id": "human_reviewer",
+                    "roles": ["operator"],
+                    "capabilities": ["review_apply"],
                 }
         jwt_secret = str(os.getenv("NO_INTEGRATION_JWT_HS256_SECRET", "") or "").strip()
         return cls(
@@ -627,6 +655,20 @@ class IntegrationAuthManager:
                 if operation and operation not in allowed_operations:
                     allowed_operations.append(operation)
         principal: dict[str, Any] = {"principal_id": principal_id, "roles": roles}
+        capabilities_raw = row.get("capabilities")
+        capabilities: list[str] = []
+        if isinstance(capabilities_raw, list):
+            for item in capabilities_raw:
+                capability = str(item or "").strip().lower()
+                if capability in INTEGRATION_ALLOWED_CAPABILITIES and capability not in capabilities:
+                    capabilities.append(capability)
+        elif isinstance(capabilities_raw, str):
+            for item in capabilities_raw.replace(";", ",").split(","):
+                capability = str(item or "").strip().lower()
+                if capability in INTEGRATION_ALLOWED_CAPABILITIES and capability not in capabilities:
+                    capabilities.append(capability)
+        if capabilities:
+            principal["capabilities"] = capabilities
         if allowed_operations:
             principal["allowed_operations"] = allowed_operations
         return principal
@@ -844,6 +886,10 @@ def _integration_redact_value(value: Any, *, key_name: str | None = None, depth:
         return [_integration_redact_value(item, key_name=key_name, depth=depth + 1) for item in clipped]
     if isinstance(value, str):
         text = str(value)
+        try:
+            assert_safe_content(text)
+        except SecretDetectedError:
+            return "<redacted_secret_like_content>"
         text = INTEGRATION_EMAIL_RE.sub(lambda match: _integration_hash_identifier(match.group(0)), text)
         text = INTEGRATION_PHONE_RE.sub(lambda match: _integration_hash_identifier(match.group(0)), text)
         max_chars = 300 if str(key_name or "").lower().endswith("excerpt") else INTEGRATION_MAX_GENERIC_STRING
@@ -5596,6 +5642,31 @@ def _serialize_proposal(proposal: Any) -> dict[str, Any]:
     }
 
 
+def _serialize_memory_proposal(proposal: Any, *, include_content: bool) -> dict[str, Any]:
+    payload = {
+        "record_id": str(getattr(proposal, "record_id", "")),
+        "kind": str(getattr(getattr(proposal, "kind", ""), "value", getattr(proposal, "kind", ""))),
+        "reason_code": str(getattr(proposal, "reason_code", "")),
+        "status": str(getattr(getattr(proposal, "status", ""), "value", getattr(proposal, "status", ""))),
+        "reinforcement_count": int(getattr(proposal, "reinforcement_count", 0)),
+        "created_at": getattr(getattr(proposal, "created_at", None), "isoformat", lambda: None)(),
+        "updated_at": getattr(getattr(proposal, "updated_at", None), "isoformat", lambda: None)(),
+        "bridge_proposal_id": str(dict(getattr(proposal, "metadata", {}) or {}).get("bridge_proposal_id") or ""),
+    }
+    if include_content:
+        payload.update(
+            {
+                "summary_text": str(getattr(proposal, "canonical_text", "")),
+                "source_role": str(getattr(proposal, "source_role", "")),
+                "source_refs": [
+                    _serialize_source_ref(item) for item in list(getattr(proposal, "source_refs", []) or [])[:64]
+                ],
+                "confidence": float(getattr(proposal, "confidence", 0.0)),
+            }
+        )
+    return payload
+
+
 def _proposal_by_id(queue: MutationReviewQueue, proposal_id: str) -> Any:
     for proposal in queue.list_all():
         if str(getattr(proposal, "proposal_id", "")) == proposal_id:
@@ -6931,7 +7002,7 @@ def _integration_require_role(*, principal: dict[str, Any], operation: str) -> N
     required = INTEGRATION_REQUIRED_ROLES.get(normalized_operation, {"viewer", "operator", "admin"})
     if not _integration_role_allowed(principal=principal, required_roles=required):
         raise IntegrationContractError(
-            code="AUTH_FORBIDDEN",
+            code="PERMISSION_DENIED",
             message="principal role is not authorized for this operation",
             retryable=False,
             operator_action="use_operator_or_admin_token",
@@ -6944,12 +7015,26 @@ def _integration_require_role(*, principal: dict[str, Any], operation: str) -> N
     ]
     if allowed_operations and normalized_operation not in allowed_operations:
         raise IntegrationContractError(
-            code="AUTH_FORBIDDEN",
+            code="PERMISSION_DENIED",
             message="token scope is not authorized for this operation",
             retryable=False,
             operator_action="use_scoped_token_for_requested_operation",
             status=HTTPStatus.FORBIDDEN,
         )
+    if normalized_operation in {"writeback.resolve", "memory.proposals.dismiss", "memory.proposals.bridge"}:
+        capabilities = {
+            str(item or "").strip().lower()
+            for item in list(principal.get("capabilities") or [])
+            if str(item or "").strip()
+        }
+        if "review_apply" not in capabilities:
+            raise IntegrationContractError(
+                code="PERMISSION_DENIED",
+                message=f"{normalized_operation} requires the non-inherited review_apply capability",
+                retryable=False,
+                operator_action="use_an_authenticated_human_reviewer_credential",
+                status=HTTPStatus.FORBIDDEN,
+            )
 
 
 def _integration_parse_get_envelope(
@@ -7252,12 +7337,25 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
         operation_map = {
             ("POST", "/api/integration/v1/context/build"): ("context.build", True, True),
             ("POST", "/api/integration/v1/context/why"): ("context.why", True, True),
+            ("POST", "/api/integration/v1/memory/source/register"): ("memory.source.register", True, True),
+            ("POST", "/api/integration/v1/memory/observe"): ("memory.observe", True, True),
+            ("POST", "/api/integration/v1/memory/maintain"): ("memory.maintain", True, True),
+            ("GET", "/api/integration/v1/memory/proposals"): ("memory.proposals.list", False, False),
             ("POST", "/api/integration/v1/writeback/propose"): ("writeback.propose", True, True),
             ("POST", "/api/integration/v1/writeback/resolve"): ("writeback.resolve", True, False),
             ("GET", "/api/integration/v1/health"): ("health.get", False, False),
             ("GET", "/api/integration/v1/capabilities"): ("capabilities.get", False, False),
         }
         route = operation_map.get((method_upper, path))
+        proposal_record_id = ""
+        proposal_route = re.fullmatch(
+            r"/api/integration/v1/memory/proposals/(prop_[A-Za-z0-9_-]{1,96})/(dismiss|bridge)",
+            path,
+        )
+        if route is None and method_upper == "POST" and proposal_route is not None:
+            proposal_record_id = str(proposal_route.group(1))
+            proposal_action = str(proposal_route.group(2))
+            route = (f"memory.proposals.{proposal_action}", True, True)
         if route is None:
             _json_response(self, HTTPStatus.NOT_FOUND, {"error": "not found"})
             return True
@@ -7295,6 +7393,14 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             session_id = str(envelope.get("session_id") or "")
             run_id = str(envelope.get("run_id") or "")
             request_payload = dict(envelope.get("data") or {})
+            if operation == "memory.proposals.list":
+                query = parse_qs(str(parsed.query or ""))
+                request_payload = {
+                    "include_content": _to_bool((query.get("include_content") or [False])[0], default=False),
+                    "status": str((query.get("status") or ["all"])[0]).strip().lower() or "all",
+                }
+            if proposal_record_id:
+                request_payload["record_id"] = proposal_record_id
 
             principal_row, auth_error = self.server.integration_auth.resolve_authorization(self.headers.get("Authorization"))
             if auth_error is not None:
@@ -7323,7 +7429,218 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         payload={"envelope_principal_id": envelope_principal_id},
                     )
 
-            if operation == "context.build":
+            try:
+                assert_safe_content(request_payload)
+            except SecretDetectedError as exc:
+                raise IntegrationContractError(
+                    code="INVALID_INPUT",
+                    message="SECRET_LIKE_CONTENT_REJECTED",
+                    retryable=False,
+                    operator_action="remove_credentials_or_secret_material",
+                ) from exc
+
+            if operation == "memory.proposals.list":
+                include_content = _to_bool(request_payload.get("include_content"), default=False)
+                status_filter = str(request_payload.get("status") or "all").strip().lower()
+                if status_filter not in {"all", "pending", "reviewed", "dismissed"}:
+                    raise IntegrationContractError(
+                        code="INVALID_INPUT",
+                        message="status must be all|pending|reviewed|dismissed",
+                        retryable=False,
+                        operator_action="set_supported_proposal_status",
+                    )
+                capabilities = {
+                    str(item or "").strip().lower()
+                    for item in list(principal.get("capabilities") or [])
+                    if str(item or "").strip()
+                }
+                if include_content and "review_apply" not in capabilities:
+                    raise IntegrationContractError(
+                        code="PERMISSION_DENIED",
+                        message="content-bearing proposal inspection requires review_apply",
+                        retryable=False,
+                        operator_action="use_an_authenticated_human_reviewer_credential",
+                        status=HTTPStatus.FORBIDDEN,
+                    )
+                all_records = self.server.runtime.list_memory_proposals()
+                records = [
+                    record
+                    for record in all_records
+                    if status_filter == "all"
+                    or str(getattr(getattr(record, "status", ""), "value", getattr(record, "status", ""))).lower()
+                    == status_filter
+                ][:100]
+                reason_counts: dict[str, int] = {}
+                status_counts: dict[str, int] = {}
+                for record in all_records:
+                    reason = str(getattr(record, "reason_code", "") or "unknown")
+                    record_status = str(
+                        getattr(getattr(record, "status", ""), "value", getattr(record, "status", "")) or "unknown"
+                    )
+                    reason_counts[reason] = reason_counts.get(reason, 0) + 1
+                    status_counts[record_status] = status_counts.get(record_status, 0) + 1
+                response_data = {
+                    "include_content": include_content,
+                    "total_count": len(all_records),
+                    "returned_count": len(records),
+                    "truncated": len(records) < len(
+                        [
+                            row
+                            for row in all_records
+                            if status_filter == "all"
+                            or str(getattr(getattr(row, "status", ""), "value", getattr(row, "status", ""))).lower()
+                            == status_filter
+                        ]
+                    ),
+                    "reason_counts": reason_counts,
+                    "status_counts": status_counts,
+                    "records": [
+                        _serialize_memory_proposal(record, include_content=include_content) for record in records
+                    ],
+                }
+            elif operation == "memory.proposals.dismiss":
+                record_id = str(request_payload.get("record_id") or "").strip()
+                reason_code = str(request_payload.get("reason_code") or "reviewer_dismissed").strip().lower()
+                if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", reason_code):
+                    raise IntegrationContractError(
+                        code="INVALID_INPUT",
+                        message="reason_code must be a safe lowercase identifier",
+                        retryable=False,
+                        operator_action="provide_safe_reason_code",
+                    )
+                actor_id = str(principal.get("principal_id") or "").strip()
+                try:
+                    record = self.server.runtime.dismiss_memory_proposal(
+                        record_id, actor=actor_id, reason_code=reason_code
+                    )
+                except KeyError as exc:
+                    raise IntegrationContractError(
+                        code="INVALID_INPUT",
+                        message="proposal record not found",
+                        retryable=False,
+                        operator_action="use_existing_record_id",
+                        status=HTTPStatus.NOT_FOUND,
+                    ) from exc
+                except ValueError as exc:
+                    raise IntegrationContractError(
+                        code="DECISION_CONFLICT",
+                        message=str(exc),
+                        retryable=False,
+                        operator_action="inspect_existing_proposal_state",
+                        status=HTTPStatus.CONFLICT,
+                    ) from exc
+                proposal_id = record_id
+                response_data = {
+                    "record_id": record_id,
+                    "status": str(getattr(getattr(record, "status", ""), "value", getattr(record, "status", ""))),
+                    "reason_code": reason_code,
+                    "actor": actor_id,
+                }
+            elif operation == "memory.proposals.bridge":
+                queue = self.server.review_queue
+                if queue is None:
+                    raise IntegrationContractError(
+                        code="DEPENDENCY_UNAVAILABLE",
+                        message="proposal queue unavailable",
+                        retryable=True,
+                        operator_action="restore_mutation_queue_and_retry",
+                        status=HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
+                record_id = str(request_payload.get("record_id") or "").strip()
+                actor_id = str(principal.get("principal_id") or "").strip()
+                try:
+                    record = self.server.runtime.get_memory_proposal(record_id)
+                except KeyError as exc:
+                    raise IntegrationContractError(
+                        code="INVALID_INPUT",
+                        message="proposal record not found",
+                        retryable=False,
+                        operator_action="use_existing_record_id",
+                        status=HTTPStatus.NOT_FOUND,
+                    ) from exc
+                record_status = str(
+                    getattr(getattr(record, "status", ""), "value", getattr(record, "status", ""))
+                ).lower()
+                if record_status == "dismissed":
+                    raise IntegrationContractError(
+                        code="DECISION_CONFLICT",
+                        message="dismissed proposal cannot be bridged",
+                        retryable=False,
+                        operator_action="inspect_existing_proposal_state",
+                        status=HTTPStatus.CONFLICT,
+                    )
+                record_kind = str(getattr(getattr(record, "kind", ""), "value", getattr(record, "kind", "")))
+                if record_kind == "self_claim" or str(getattr(record, "reason_code", "")) == "self_claim":
+                    raise IntegrationContractError(
+                        code="PERMISSION_DENIED",
+                        message="self-claims are not eligible for the direct bridge",
+                        retryable=False,
+                        operator_action="use_the_normal_human_review_pipeline",
+                        status=HTTPStatus.FORBIDDEN,
+                    )
+                existing_bridge_id = str(dict(getattr(record, "metadata", {}) or {}).get("bridge_proposal_id") or "")
+                bridge = None
+                if existing_bridge_id:
+                    try:
+                        bridge = queue.get(existing_bridge_id)
+                    except KeyError:
+                        bridge = None
+                if bridge is None:
+                    for queued in queue.list_all():
+                        metadata = dict(getattr(queued, "metadata", {}) or {})
+                        if str(metadata.get("high_risk_record_id") or "") == record_id:
+                            bridge = queued
+                            break
+                if bridge is None:
+                    atom_type = {
+                        "relationship_summary": AtomType.RELATIONAL,
+                        "inferred_motive": AtomType.AFFECTIVE,
+                        "other_person_internal_state": AtomType.AFFECTIVE,
+                        "life_story_claim": AtomType.EPISODE,
+                    }.get(record_kind, AtomType.ATOMIC_FACT)
+                    candidate = CandidateAtom(
+                        candidate_id=f"cand_bridge_{hashlib.sha256(record_id.encode('utf-8')).hexdigest()[:16]}",
+                        atom_type=atom_type,
+                        canonical_text=str(getattr(record, "canonical_text", "")),
+                        source_refs=list(getattr(record, "source_refs", []) or []),
+                        entities=[],
+                        topics=[],
+                        confidence=max(0.0, min(1.0, float(getattr(record, "confidence", 0.0)))),
+                        salience=0.5,
+                    )
+                    bridge = queue.propose_create(
+                        candidate=candidate,
+                        reason_code="high_risk_source_backed_bridge",
+                        metadata={
+                            "high_risk_record_id": record_id,
+                            "source_role": str(getattr(record, "source_role", "")),
+                            "authority_tier": "proposal_pending",
+                        },
+                        actor=actor_id,
+                    )
+                proposal_id = str(getattr(bridge, "proposal_id", "") or "")
+                try:
+                    self.server.runtime.mark_memory_proposal_bridged(
+                        record_id, proposal_id=proposal_id, actor=actor_id
+                    )
+                except ValueError as exc:
+                    raise IntegrationContractError(
+                        code="DECISION_CONFLICT",
+                        message=str(exc),
+                        retryable=False,
+                        operator_action="inspect_existing_proposal_state",
+                        status=HTTPStatus.CONFLICT,
+                    ) from exc
+                response_data = {
+                    "record_id": record_id,
+                    "proposal_id": proposal_id,
+                    "status": "pending_review",
+                    "applied": False,
+                    "published": False,
+                    "human_reviewed": False,
+                    "authority_tier": "proposal_pending",
+                }
+            elif operation == "context.build":
                 message = str(request_payload.get("message") or "").strip()
                 message_window_raw = request_payload.get("message_window")
                 window_snapshot = ""
@@ -7447,6 +7764,12 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     default_reason="integration_requested_override",
                     default_auth_context="integration_context_build",
                 )
+                (
+                    work_session_scope,
+                    include_work_session_context,
+                    include_work_session_diagnostics,
+                    explicit_work_session_resume,
+                ) = _parse_work_session_request(request_payload)
                 package = self.server.runtime.build_context_package(
                     message,
                     high_risk=high_risk,
@@ -7456,6 +7779,10 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     retrieval_query=retrieval_query,
                     retrieval_override=retrieval_override,
                     render_citations=False,
+                    include_work_session_context=include_work_session_context,
+                    include_work_session_diagnostics=include_work_session_diagnostics,
+                    work_session_scope=work_session_scope,
+                    explicit_resume=explicit_work_session_resume,
                 )
                 evidence_rows = []
                 for row in list(package.get("ltm_evidence") or []):
@@ -7470,6 +7797,15 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                             "summary": str(row.get("summary") or ""),
                             "citations": citations[:INTEGRATION_MAX_EVIDENCE],
                             "confidence": float(row.get("confidence") or 0.0),
+                            "memory_layer": str(row.get("memory_layer") or "atom"),
+                            "trust_tier": str(row.get("trust_tier") or "evidence"),
+                            "authority_tier": str(row.get("authority_tier") or "evidence_atom"),
+                            "maturity": str(row.get("maturity") or "evidence"),
+                            "lifecycle": str(row.get("lifecycle") or "active"),
+                            "conflict_state": str(row.get("conflict_state") or "active"),
+                            "conflict_with_ids": list(row.get("conflict_with_ids") or []),
+                            "human_reviewed": bool(row.get("human_reviewed")),
+                            "lineage_ids": list(row.get("lineage_ids") or []),
                         }
                     )
                     if len(evidence_rows) >= top_k:
@@ -7483,6 +7819,11 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     context_segments.append(f"Recent window:\n{window_snapshot}")
                 if rolling_summary:
                     context_segments.append(f"Session summary: {rolling_summary}")
+                work_session_context = package.get("work_session_context")
+                if isinstance(work_session_context, dict):
+                    work_summary = str(work_session_context.get("summary") or "").strip()
+                    if work_summary:
+                        context_segments.append(f"Non-authoritative work-session scratchpad: {work_summary}")
                 for row in evidence_rows:
                     summary = str(row.get("summary") or "").strip()
                     if summary:
@@ -7517,6 +7858,113 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         "returned_size_bytes": int(returned_size),
                     },
                 }
+                if isinstance(work_session_context, dict):
+                    response_data["work_session_context"] = work_session_context
+                try:
+                    principal_id = str(principal.get("principal_id") or "")
+                    response_data["source_registration"] = self.server.runtime.issue_integration_source_registration(
+                        content=message,
+                        source_role="user",
+                        session_id=session_id,
+                        run_id=run_id,
+                        principal_id=principal_id,
+                    )
+                    response_data["retrieval_receipt"] = self.server.runtime.issue_integration_retrieval_receipt(
+                        retrieved_evidence_ids=[str(row.get("evidence_id") or "") for row in evidence_rows],
+                        session_id=session_id,
+                        run_id=run_id,
+                        principal_id=principal_id,
+                    )
+                except RuntimeError:
+                    response_data["signed_observation_handles_available"] = False
+            elif operation == "memory.source.register":
+                content = str(request_payload.get("content") or "")
+                source_role = str(request_payload.get("source_role") or "").strip().lower()
+                if not content.strip() or source_role not in {"user", "tool", "external"}:
+                    raise IntegrationContractError(
+                        code="INVALID_INPUT",
+                        message="content and source_role=user|tool|external are required",
+                        retryable=False,
+                        operator_action="provide_a_supported_source_span",
+                    )
+                try:
+                    registration = self.server.runtime.issue_integration_source_registration(
+                        content=content,
+                        source_role=source_role,
+                        source_id=str(request_payload.get("source_id") or ""),
+                        message_id=str(request_payload.get("message_id") or ""),
+                        session_id=session_id,
+                        run_id=run_id,
+                        principal_id=str(principal.get("principal_id") or ""),
+                    )
+                except RuntimeError as exc:
+                    raise IntegrationContractError(
+                        code="DEPENDENCY_UNAVAILABLE",
+                        message="signed source registration is unavailable",
+                        retryable=False,
+                        operator_action="use_an_enabled_sqlite_runtime",
+                        status=HTTPStatus.SERVICE_UNAVAILABLE,
+                    ) from exc
+                response_data = {"source_registration": registration}
+            elif operation == "memory.observe":
+                messages = request_payload.get("messages")
+                if not isinstance(messages, list):
+                    raise IntegrationContractError(
+                        code="INVALID_INPUT",
+                        message="data.messages must be an array",
+                        retryable=False,
+                        operator_action="provide_completed_turn_messages",
+                    )
+                raw_receipt = request_payload.get("retrieval_receipt")
+                receipt_handle = str(
+                    (raw_receipt or {}).get("handle") if isinstance(raw_receipt, dict) else raw_receipt or ""
+                )
+                try:
+                    response_data = self.server.runtime.observe_external_turn(
+                        messages=[dict(item) for item in messages if isinstance(item, dict)],
+                        session_id=session_id,
+                        run_id=run_id,
+                        principal_id=str(principal.get("principal_id") or ""),
+                        retrieval_receipt=receipt_handle,
+                        remember_intent=str(request_payload.get("remember_intent") or "none"),
+                        boundary=dict(request_payload.get("boundary") or {}) if request_payload.get("boundary") else None,
+                    )
+                except IntegrationHandleError as exc:
+                    raise IntegrationContractError(
+                        code="INVALID_INPUT",
+                        message=exc.code,
+                        retryable=False,
+                        operator_action="use_unmodified_server_issued_handles",
+                        status=HTTPStatus.CONFLICT if "MISMATCH" in exc.code else HTTPStatus.BAD_REQUEST,
+                    ) from exc
+                except (ValueError, RuntimeError) as exc:
+                    raise IntegrationContractError(
+                        code="INVALID_INPUT",
+                        message=str(exc),
+                        retryable=False,
+                        operator_action="correct_the_observation_envelope",
+                    ) from exc
+            elif operation == "memory.maintain":
+                try:
+                    max_records = int(request_payload.get("max_records") or 25)
+                    dry_run = bool(request_payload.get("dry_run", False))
+                    transitions = (
+                        []
+                        if dry_run
+                        else self.server.runtime.maintain_provisional_memory(max_records=max_records)
+                    )
+                except (ValueError, RuntimeError) as exc:
+                    raise IntegrationContractError(
+                        code="INVALID_INPUT",
+                        message=str(exc),
+                        retryable=False,
+                        operator_action="set_max_records_in_range_1_to_100",
+                    ) from exc
+                response_data = {
+                    "transitions": transitions,
+                    "processed_count": len(transitions),
+                    "dry_run": dry_run,
+                }
             elif operation == "context.why":
                 evidence_ids = request_payload.get("evidence_ids")
                 if not isinstance(evidence_ids, list) or not evidence_ids:
@@ -7546,6 +7994,35 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     except Exception:
                         atom = None
                     if atom is None:
+                        try:
+                            provisional = self.server.runtime.get_provisional_record_detail(evidence_id)
+                        except Exception:
+                            provisional = None
+                        if provisional:
+                            summary = str(provisional.get("canonical_text") or "").strip()
+                            citations = [
+                                str(item).strip()
+                                for item in list(provisional.get("source_refs") or [])
+                                if str(item).strip()
+                            ]
+                            reasons.append(
+                                {"evidence_id": evidence_id, "reason": summary or "durable provisional memory"}
+                            )
+                            evidence_rows.append(
+                                {
+                                    "evidence_id": evidence_id,
+                                    "excerpt": summary,
+                                    "citations": citations[:INTEGRATION_MAX_EVIDENCE],
+                                    "confidence": float(provisional.get("confidence") or 0.0),
+                                    "section": "provisional",
+                                    "kind": str(provisional.get("kind") or ""),
+                                    "authority_tier": str(provisional.get("authority_tier") or "provisional_observed"),
+                                    "maturity": str(provisional.get("maturity") or "observed"),
+                                    "lifecycle": str(provisional.get("lifecycle") or "active"),
+                                    "conflict_state": str(provisional.get("status") or "active"),
+                                }
+                            )
+                            continue
                         cached = _integration_cached_evidence(self.server, evidence_id)
                         if cached:
                             summary = str(cached.get("summary") or "").strip()
@@ -7903,7 +8380,8 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     )
                 proposal_id = str(request_payload.get("proposal_id") or "").strip()
                 decision = str(request_payload.get("decision") or "").strip().lower()
-                decided_by = str(request_payload.get("decided_by") or "").strip()
+                decided_by = str(request_payload.get("decided_by") or request_payload.get("reviewer") or "").strip()
+                apply_requested = _to_bool(request_payload.get("apply"), default=False)
                 reason = str(request_payload.get("reason") or "").strip() or "resolved_by_operator"
                 if not proposal_id:
                     raise IntegrationContractError(
@@ -7919,13 +8397,6 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         retryable=False,
                         operator_action="set_valid_resolution_decision",
                     )
-                if not decided_by:
-                    raise IntegrationContractError(
-                        code="INVALID_INPUT",
-                        message="data.decided_by is required",
-                        retryable=False,
-                        operator_action="provide_resolver_identity",
-                    )
                 try:
                     current = _proposal_by_id(queue, proposal_id)
                 except KeyError as exc:
@@ -7937,11 +8408,24 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     ) from exc
                 raw_status = str(getattr(getattr(current, "status", ""), "value", getattr(current, "status", ""))).strip().lower()
                 already_resolved = raw_status in {"approved", "rejected", "applied"}
-                if not already_resolved:
-                    if decision == "approve":
-                        current = queue.approve(proposal_id, reviewer=decided_by)
-                    else:
-                        current = queue.reject(proposal_id, reviewer=decided_by, reason=reason)
+                actor_id = str(principal.get("principal_id") or "").strip()
+                try:
+                    current = queue.resolve(
+                        proposal_id,
+                        decision=decision,
+                        actor=actor_id,
+                        apply=bool(apply_requested),
+                        reason=reason,
+                        refresh_cache=(lambda: _rebuild_snapshot(self.server.runtime)) if apply_requested else None,
+                    )
+                except DecisionConflictError as exc:
+                    raise IntegrationContractError(
+                        code="DECISION_CONFLICT",
+                        message="proposal already has the opposite immutable decision",
+                        retryable=False,
+                        operator_action="inspect_the_existing_decision",
+                        status=HTTPStatus.CONFLICT,
+                    ) from exc
                 current_status = str(getattr(getattr(current, "status", ""), "value", getattr(current, "status", ""))).strip().lower()
                 final_status = "approved" if current_status in {"approved", "applied"} else "rejected"
                 reviewed_at = getattr(current, "reviewed_at", None)
@@ -7953,6 +8437,15 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     "already_resolved": bool(already_resolved),
                     "resolved_at_utc": resolved_at_utc,
                     "audit_ref": audit_ref,
+                    "decided_by": decided_by,
+                    "reviewer_principal_id": actor_id,
+                    "applied": current_status == "applied",
+                    "applied_atom_id": str(getattr(current, "applied_atom_id", "") or ""),
+                    "apply_identity": str(getattr(current, "apply_identity", "") or ""),
+                    "refresh_pending": bool(getattr(current, "refresh_pending", False)),
+                    "trust_tier": "evidence" if current_status == "applied" else "proposal_pending",
+                    "authority_tier": "evidence_atom" if current_status == "applied" else "proposal_pending",
+                    "human_reviewed": False,
                 }
                 _integration_append_audit(
                     self.server,
@@ -7993,7 +8486,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                 }
             elif operation == "capabilities.get":
                 operations: list[dict[str, Any]] = []
-                for name in ["context.build", "context.why", "writeback.propose", "writeback.resolve", "health.get", "capabilities.get"]:
+                for name in ["context.build", "context.why", "memory.source.register", "memory.observe", "memory.maintain", "memory.proposals.list", "memory.proposals.dismiss", "memory.proposals.bridge", "writeback.propose", "writeback.resolve", "health.get", "capabilities.get"]:
                     enabled = True
                     if name in {"writeback.propose", "writeback.resolve"} and self.server.review_queue is None:
                         enabled = False
@@ -8003,6 +8496,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                             "enabled": enabled,
                             "requires_auth": True,
                             "required_roles": sorted(INTEGRATION_REQUIRED_ROLES.get(name, {"viewer", "operator", "admin"})),
+                            "required_capability": "review_apply" if name in {"writeback.resolve", "memory.proposals.dismiss", "memory.proposals.bridge"} else "",
                             "idempotent": name in {"writeback.propose", "writeback.resolve", "health.get", "capabilities.get"},
                         }
                     )

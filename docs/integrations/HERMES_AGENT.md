@@ -22,6 +22,8 @@ Why:
 - explicit writeback proposal path
 - no dependency on a Hermes-only shim
 
+After a completed turn, Hermes may call HTTP `memory.observe` using server-issued signed registration/receipt handles. That creates revisable provisional memory only; it cannot publish truth. Explicit user writeback remains `writeback.propose` then human `review_apply` resolution.
+
 ## Fastest setup
 
 Use the setup workspace and export the `Hermes Agent bundle` target.

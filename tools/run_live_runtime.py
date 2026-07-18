@@ -17,7 +17,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from engine.continuity import ContinuityBuilder, ContinuityStore, SharedLanguageRegistry
+from engine.continuity import ContinuityBuilder, ContinuityStore
+from engine.config import default_config, load_config
 from engine.memory import MutationReviewQueue, SqliteAtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
 from engine.runtime import RuntimeSession, load_inmemory_store_from_json, start_runtime_server, stop_runtime_server
@@ -137,6 +138,11 @@ def main() -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=7340)
     parser.add_argument("--model-name", default="numquam-oblita-runtime")
+    parser.add_argument(
+        "--config",
+        default="",
+        help="Optional path to the MNO runtime policy JSON. Defaults to the built-in policy.",
+    )
     parser.add_argument("--episodes", default="", help="Optional path to episode_cards JSON artifact.")
     parser.add_argument("--setup-mode", action="store_true", help="Start the runtime only for setup/wizard flows.")
     parser.add_argument("--setup-store", default="", help="Optional sqlite path to use for setup-mode runtime state.")
@@ -169,6 +175,24 @@ def main() -> int:
         print(f"error=episode cards path not found: {episode_cards_path}")
         return 2
 
+    requested_config_path = Path(args.config).expanduser().resolve() if str(args.config).strip() else None
+    if requested_config_path is not None and not requested_config_path.exists():
+        print(f"error=config path not found: {requested_config_path}")
+        return 2
+    standard_config_path = (REPO_ROOT / "runtime" / "state" / "mno-runtime-policy.v1.json").resolve()
+    config_path = requested_config_path or (standard_config_path if standard_config_path.exists() else None)
+    try:
+        runtime_config = load_config(config_path, strict=True, upgrade=config_path is not None) if config_path else default_config()
+    except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        print(f"error=invalid runtime config: {exc}")
+        return 2
+    if config_path is None and not args.plan_only:
+        config_path = standard_config_path
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = config_path.with_name(f".{config_path.name}.{os.getpid()}.tmp")
+        temporary.write_text(json.dumps(runtime_config.as_dict(), indent=2) + "\n", encoding="utf-8")
+        temporary.replace(config_path)
+
     runtime_url = f"http://{args.host}:{int(args.port)}"
     if args.plan_only and args.setup_mode:
         try:
@@ -183,6 +207,7 @@ def main() -> int:
         print("atom_count=0")
         print(f"episode_cards_path={episode_cards_path if episode_cards_path is not None else ''}")
         print(f"runtime_url={runtime_url}")
+        print(f"config_path={config_path if config_path is not None else ''}")
         return 0
 
     if args.setup_mode:
@@ -208,6 +233,7 @@ def main() -> int:
             print(f"atom_count={atom_count}")
             print(f"episode_cards_path={episode_cards_path if episode_cards_path is not None else ''}")
             print(f"runtime_url={runtime_url}")
+            print(f"config_path={config_path if config_path is not None else ''}")
             return 0
 
         continuity = ContinuityStore()
@@ -219,6 +245,8 @@ def main() -> int:
             retriever=MemoryRetriever(store),
             verifier=ClaimVerifier(),
             continuity_store=continuity,
+            config=runtime_config,
+            config_path=config_path,
             model_name=str(args.model_name).strip() or "numquam-oblita-runtime",
             episode_cards_path=str(episode_cards_path) if episode_cards_path is not None else None,
         )

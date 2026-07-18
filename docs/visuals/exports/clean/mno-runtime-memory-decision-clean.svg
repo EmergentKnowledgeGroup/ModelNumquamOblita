@@ -14,7 +14,7 @@
 <rect x="350" y="180" width="250" height="90" rx="9" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
 <text x="475.0" y="231.8" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="475.0" dy="0.0">Route + query shape</tspan></text>
 <rect x="680" y="150" width="330" height="130" rx="9" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
-<text x="845.0" y="199.5" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="845.0" dy="0.0">Retrieve candidates</tspan><tspan x="845.0" dy="22.3">STM, reviewed cards, atoms, ANN</tspan><tspan x="845.0" dy="22.3">helper, raw context if asked</tspan></text>
+<text x="845.0" y="188.4" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="845.0" dy="0.0">Retrieve candidates</tspan><tspan x="845.0" dy="22.3">reviewed canonical, evidence atoms,</tspan><tspan x="845.0" dy="22.3">provisional; raw context if asked;</tspan><tspan x="845.0" dy="22.3">STM/WSS only help continuity</tspan></text>
 <rect x="1090" y="160" width="320" height="110" rx="9" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
 <text x="1250.0" y="210.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="1250.0" dy="0.0">Fusion + guarded shortlist</tspan><tspan x="1250.0" dy="22.3">rank, dedupe, support checks</tspan></text>
 <rect x="1090" y="380" width="320" height="100" rx="9" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
@@ -24,9 +24,9 @@
 <rect x="350" y="390" width="250" height="100" rx="9" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>
 <text x="475.0" y="424.5" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="475.0" dy="0.0">Final output</tspan><tspan x="475.0" dy="22.3">answer text + evidence</tspan><tspan x="475.0" dy="22.3">metadata</tspan></text>
 <rect x="680" y="610" width="330" height="100" rx="9" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
-<text x="845.0" y="655.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="845.0" dy="0.0">Risky new memory</tspan><tspan x="845.0" dy="22.3">proposal-only writeback</tspan></text>
+<text x="845.0" y="646.2" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="500" fill="#1f2933"><tspan x="845.0" dy="0.0">Explicit ‘remember this’</tspan><tspan x="845.0" dy="19.8">writeback.propose → human review_apply</tspan><tspan x="845.0" dy="19.8">→ evidence atom, not canonical truth</tspan></text>
 <rect x="310" y="780" width="860" height="92" rx="9" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
-<text x="740.0" y="821.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="740.0" dy="0.0">Decision rule</tspan><tspan x="740.0" dy="22.3">retrieval success is not truth authority; WSS helps work continuity, not memory proof</tspan></text>
+<text x="740.0" y="810.5" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="740.0" dy="0.0">Decision rule</tspan><tspan x="740.0" dy="22.3">retrieval, replay, and summary never create independent support; WSS helps continuity, not memory</tspan><tspan x="740.0" dy="22.3">proof</tspan></text>
 <polygon points="350.0,225.0 339.2,230.3 339.2,219.7" fill="#d6b656"/>
 <polygon points="680.0,215.0 669.2,220.3 669.2,209.7" fill="#6c8ebf"/>
 <polygon points="1090.0,215.0 1079.2,220.3 1079.2,209.7" fill="#82b366"/>

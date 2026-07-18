@@ -47,6 +47,8 @@ Use `integration-v1` instead of the adapter when you want:
 - proposal/resolve writeback flow
 - a stable orchestration contract that is not shaped like chat completions
 
+For external live memory, use the HTTP `integration-v1` sequence: `context.build` (receive signed registration/receipt) → OpenClaw turn → `memory.observe`. It produces only revisable provisional memory. Do not use WSS/STM as evidence or treat “remember this” as an automatic write; explicit writeback remains human-controlled.
+
 ## Prompt insertion
 
 When OpenClaw frontloads memory before the model call, prefer the `agent_context` field returned by `context.build`.

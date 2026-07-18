@@ -19,12 +19,11 @@ from engine.contracts import (
     MemoryPack,
     MemoryPackItem,
     NormalizedTurn,
-    RetrievalHelperLaneContract,
     RetrievalOverrideRequestContract,
     SourceRef,
     memory_pack_from_items,
 )
-from engine.memory import AtomStore, ProvisionalMemoryStatus
+from engine.memory import AtomStore, ProvisionalMemoryStatus, SqliteAtomStore
 from engine.retrieval import (
     ClaimCheck,
     ClaimVerifier,
@@ -34,7 +33,6 @@ from engine.retrieval import (
     VerificationDecision,
     VerificationResult,
 )
-from engine.retrieval.ann_sidecar import RetrievalAnnTelemetry
 from engine.retrieval.engine import RetrievalResult, RetrievalScoredAtom
 from engine.runtime import RuntimeSession, WritebackEvent
 from engine.runtime.scratchpad import evaluate_context_diet_fixture
@@ -673,6 +671,29 @@ def test_runtime_session_auto_writes_low_risk_provisional_memory_and_retrieves_i
         runtime.close()
 
 
+def test_runtime_session_remember_more_persists_active_policy(tmp_path: Path) -> None:
+    config_path = tmp_path / "mno-runtime-policy.v1.json"
+    cfg = default_config()
+    config_path.write_text(json.dumps(cfg.as_dict(), indent=2) + "\n", encoding="utf-8")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        config_path=config_path,
+        enable_writeback=False,
+    )
+    try:
+        before = runtime.provisional_settings()["default_sensitivity"]
+        updated = runtime.set_provisional_sensitivity(action="remember_more")
+        assert before == "balanced"
+        assert updated["default_sensitivity"] == "eager"
+        persisted = json.loads(config_path.read_text(encoding="utf-8"))
+        assert persisted["provisional_memory"]["default_sensitivity"] == "eager"
+    finally:
+        runtime.close()
+
+
 def test_runtime_session_auto_writes_assistant_self_claims_into_provisional_memory(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = default_config()
     cfg.provisional_memory.enabled = True
@@ -694,6 +715,57 @@ def test_runtime_session_auto_writes_assistant_self_claims_into_provisional_memo
         assert hits[0].record.source_role == "assistant"
     finally:
         runtime.close()
+
+
+def test_external_assistant_receipt_is_exact_once_and_caller_ids_cannot_mint_support(tmp_path: Path) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.allow_self_claim_auto_write = True
+    atom_store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(atom_store, config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    binding = {"session_id": "session-1", "run_id": "run-1", "principal_id": "model-1"}
+    content = "I trust Z deeply and keep choosing it."
+    try:
+        empty_receipt = runtime.issue_integration_retrieval_receipt(retrieved_evidence_ids=[], **binding)
+        first = runtime.observe_external_turn(
+            messages=[{"role": "assistant", "content": content, "source_id": "spoof-1", "message_id": "mint-1"}],
+            retrieval_receipt=str(empty_receipt["handle"]),
+            **binding,
+        )
+        replay = runtime.observe_external_turn(
+            messages=[{"role": "assistant", "content": content, "source_id": "spoof-2", "message_id": "mint-2"}],
+            retrieval_receipt=str(empty_receipt["handle"]),
+            **binding,
+        )
+        assert first["observations"][0]["support_delta"] == 1
+        assert replay["observations"][0]["support_delta"] == 0
+        assert first["observations"][0]["record_id"] == replay["observations"][0]["record_id"]
+
+        grounded_receipt = runtime.issue_integration_retrieval_receipt(
+            retrieved_evidence_ids=["atom-existing"],
+            **binding,
+        )
+        grounded = runtime.observe_external_turn(
+            messages=[{"role": "assistant", "content": content, "source_id": "spoof-3", "message_id": "mint-3"}],
+            retrieval_receipt=str(grounded_receipt["handle"]),
+            **binding,
+        )
+        unreceipted = runtime.observe_external_turn(
+            messages=[{"role": "assistant", "content": content, "source_id": "spoof-4", "message_id": "mint-4"}],
+            **binding,
+        )
+        assert grounded["observations"][0]["support_delta"] == 0
+        assert unreceipted["observations"][0]["support_delta"] == 0
+    finally:
+        runtime.close()
+        atom_store.close()
 
 
 def test_runtime_session_does_not_auto_write_routine_noise_to_provisional_memory() -> None:

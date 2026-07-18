@@ -6,13 +6,14 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2f7d4f?style=for-the-badge"></a>
-  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases/tag/v0.1.0"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
+  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases/tag/v0.2.0"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
   <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge"></a>
   <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=ask"></a>
 </p>
 
 <p align="center">
   <a href="#-start-here">Start Here</a> |
+  <a href="LLMS.md">LLM Read First</a> |
   <a href="#-retrieval-stack">Retrieval Stack</a> |
   <a href="#-benchmark-snapshot">Benchmarks</a> |
   <a href="#-quick-start">Quick Start</a> |
@@ -35,6 +36,8 @@ Memories are not loose notes floating around in a prompt. MNO imports source mat
 ## ✨ Start Here
 
 MNO is for people building agents who need memory to be inspectable, correctable, and local.
+
+**If you are an LLM or agent exploring this repository, start with [LLMS.md](LLMS.md).** It is the compact system contract: what MNO is, which memory tiers exist, how retrieval/observation/writeback work, and which boundaries you must never blur.
 
 | You want... | MNO gives you... |
 | --- | --- |
@@ -88,18 +91,18 @@ Full lane-by-lane notes live in the [retrieval signal map](docs/public/ARCHITECT
 ## 🧭 How It Flows
 
 ```text
-raw source
-  -> import / normalize
-  -> atoms.sqlite3
-  -> draft episode cards
-  -> human review
-  -> reviewed episode cards
-  -> local runtime
-  -> evidence pack
-  -> answer or abstain
+raw source -> import/normalize -> evidence atoms -> build/review/publish -> human-reviewed canonical memory
+
+live signed turn -> observed provisional -> reinforced provisional -> consolidated provisional
+                                                           (never auto-canonical)
+
+"remember this" -> writeback proposal -> human review_apply -> evidence atom
+                                                        (still not canonical)
 ```
 
 Runtime helpers can assist recall, but they do not outrank reviewed truth. Draft proposals stay separate from `review_decisions` until explicit promotion. The built-in work-session scratchpad is project-local helper state that attaches to strict-scope context packages; it is not evidence.
+
+The v0.2 authority order is: **human-reviewed canonical → evidence atom → consolidated provisional → observed/reinforced provisional → helper context**. Repetition can mature provisional memory autonomously, but no reinforcement threshold crosses into canonical truth.
 
 WSS, short for work-session scratchpad, is live-on for strict project/thread/workstream scoped v2 context packages. It appears as `work_session_context` with trust tier `scratchpad_ephemeral`. It helps an agent resume work, but it cannot prove a memory or bypass review.
 

@@ -228,6 +228,7 @@ def build_launcher_cli_args(
     default_role: str,
     compat_mode: str,
     mutations_enabled: bool,
+    config_path: str | Path | None = None,
 ) -> list[str]:
     args = [
         str(launcher_path),
@@ -240,6 +241,8 @@ def build_launcher_cli_args(
     ]
     if episodes_path is not None and _path_text(episodes_path):
         args.extend(["--episodes", _path_text(episodes_path)])
+    if config_path is not None and _path_text(config_path):
+        args.extend(["--config", _path_text(config_path)])
     if mutations_enabled:
         args.append("--mutations-enabled")
     return args
@@ -255,6 +258,7 @@ def build_posix_stdio_entry(
     compat_mode: str,
     mutations_enabled: bool,
     launcher_path: str | None = None,
+    config_path: str | Path | None = None,
 ) -> dict[str, Any]:
     command = str(python_path or "python3").strip() or "python3"
     if "/" in command or "\\" in command:
@@ -273,6 +277,7 @@ def build_posix_stdio_entry(
             default_role=default_role,
             compat_mode=compat_mode,
             mutations_enabled=mutations_enabled,
+            config_path=config_path,
         ),
         "env": {},
     }
@@ -343,13 +348,17 @@ def build_windows_wsl_stdio_entry(
     mutations_enabled: bool,
     distro_name: str,
     runner: Any | None = None,
+    config_path: str | Path | None = None,
 ) -> dict[str, Any]:
     runner = runner or run_subprocess_hidden_on_windows
     repo_root_arg, distro = wsl_path_from_windows(repo_root, distro_name=distro_name, runner=runner)
     memories_arg, distro = wsl_path_from_windows(memories_path, distro_name=distro, runner=runner)
     episodes_arg: str | None = None
+    config_arg: str | None = None
     if episodes_path is not None and _path_text(episodes_path):
         episodes_arg, distro = wsl_path_from_windows(episodes_path, distro_name=distro, runner=runner)
+    if config_path is not None and _path_text(config_path):
+        config_arg, distro = wsl_path_from_windows(config_path, distro_name=distro, runner=runner)
     args: list[str] = []
     if distro:
         args.extend(["-d", distro])
@@ -362,6 +371,7 @@ def build_windows_wsl_stdio_entry(
             default_role=default_role,
             compat_mode=compat_mode,
             mutations_enabled=mutations_enabled,
+            config_path=config_arg,
         )
     )
     return {

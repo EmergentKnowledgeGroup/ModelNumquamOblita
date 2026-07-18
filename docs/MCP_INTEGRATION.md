@@ -73,12 +73,20 @@ The config-print flag keeps its older internal name for compatibility.
 The clean repo ships stable MCP parity tools for the public integration contract:
 - `integration.context.build`
 - `integration.context.why`
+- `integration.memory.source.register`
+- `integration.memory.observe`
+- `integration.memory.maintain`
+- `integration.memory.proposals.list`
+- `integration.memory.proposals.dismiss`
+- `integration.memory.proposals.bridge`
 - `integration.writeback.propose`
 - `integration.writeback.resolve`
 - `integration.capabilities.get`
 - `integration.health.get`
 
 These mirror the `integration-v1` HTTP contract.
+
+High-risk proposal listing is metadata-only with an operator token. Content-bearing listing, dismissal, and source-backed bridge require the separate `review_apply` capability. Bridge stops at a pending review proposal; it does not apply or publish memory.
 
 ## Work-session scratchpad
 
@@ -90,7 +98,7 @@ More detail: [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md).
 
 ## Roles and auth
 
-MCP can run with viewer, operator, and admin roles.
+MCP can run with viewer, operator, and admin roles. `integration.writeback.resolve` additionally requires the distinct `review_apply` capability; role rank, a model-held token, and `decided_by` display text do not substitute for it.
 
 Useful token env vars:
 - `NO_MCP_AUTH_TOKEN`

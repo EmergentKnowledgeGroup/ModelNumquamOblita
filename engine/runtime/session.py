@@ -33,6 +33,7 @@ from ..contracts import (
     memory_pack_from_items,
 )
 from ..memory import (
+    EvidenceRegistration,
     InMemoryProvisionalMemoryStore,
     ProvisionalMemoryCandidate,
     ProvisionalMemoryEvent,
@@ -44,6 +45,8 @@ from ..memory import (
     SqliteAtomStore,
     SqliteProvisionalMemoryStore,
     MutationReviewQueue,
+    MaintenancePolicy,
+    run_maintenance,
 )
 from ..memory.proposal_store import (
     InMemoryProposalStore,
@@ -58,6 +61,7 @@ from ..retrieval import (
     EpisodeCardIndex,
     EpisodeHit,
     MemoryRetriever,
+    RetrievalResult,
     VerificationDecision,
     VerificationResult,
 )
@@ -69,6 +73,8 @@ from .scratchpad import (
     resolve_scope,
     resolve_scratchpad_root,
 )
+from ..memory.content_safety import SecretDetectedError, assert_safe_content
+from .integration_handles import IntegrationHandleError, IntegrationHandleSigner, normalized_content_digest
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9']+")
 _QUOTE_RE = re.compile(r"['\"]([^'\"]{2,120})['\"]")
@@ -775,9 +781,11 @@ class RuntimeSession:
         prewarm_caches: bool | None = None,
         project_root: str | Path | None = None,
         runtime_state_root: str | Path | None = None,
+        config_path: str | Path | None = None,
     ) -> None:
         self.retriever = retriever
         self.config = config or getattr(retriever, "config", None) or default_config()
+        self.config_path = Path(config_path).expanduser().resolve() if config_path else None
         if config is not None and hasattr(self.retriever, "config"):
             try:
                 setattr(self.retriever, "config", self.config)
@@ -924,6 +932,10 @@ class RuntimeSession:
             getattr(provisional_policy, "proposal_capture_enabled", False)
         )
         self._provisional_store = self._build_provisional_store() if self._provisional_memory_enabled else None
+        atom_store = getattr(self.retriever, "store", None)
+        self._integration_handle_signer = (
+            IntegrationHandleSigner(atom_store) if isinstance(atom_store, SqliteAtomStore) else None
+        )
         self._proposal_store = self._build_proposal_store() if self._proposal_capture_enabled else None
         self._sessions["default"] = self._new_session_state("default", label="default")
         self._hydrate_recognition_from_store()
@@ -1098,7 +1110,239 @@ class RuntimeSession:
             "review_worthiness_enabled": bool(getattr(self._provisional_policy.review_worthiness, "enabled", True)),
             "near_duplicate_enabled": bool(getattr(self._provisional_policy.near_duplicate, "enabled", True)),
             "inactivity_gap_seconds": int(self._provisional_policy.inactivity_gap_seconds),
+            "policy_source": str(getattr(self._provisional_policy, "policy_source", "") or "built_in"),
+            "config_path": str(self.config_path) if self.config_path is not None else "",
         }
+
+    def issue_integration_source_registration(
+        self,
+        *,
+        content: str,
+        source_role: str,
+        session_id: str,
+        run_id: str,
+        principal_id: str,
+        source_id: str = "",
+        message_id: str = "",
+    ) -> dict[str, Any]:
+        signer = self._integration_handle_signer
+        store = self._provisional_store
+        if signer is None or not isinstance(store, SqliteProvisionalMemoryStore):
+            raise RuntimeError("signed source registration requires a SQLite runtime")
+        assert_safe_content(content)
+        role = str(source_role or "").strip().lower()
+        resolved_source_id = str(source_id or f"src_{uuid4().hex[:20]}").strip()
+        resolved_message_id = str(message_id or f"msg_{uuid4().hex[:20]}").strip()
+        registration = store.register_source(
+            source_id=resolved_source_id,
+            message_id=resolved_message_id,
+            source_role=role,
+            content=content,
+            session_id=session_id,
+        )
+        payload = {
+            "source_id": registration.source_id,
+            "message_id": registration.message_id,
+            "source_role": registration.source_role,
+            "content_digest": registration.content_digest,
+            "session_id": str(session_id),
+            "run_id": str(run_id),
+            "principal_id": str(principal_id),
+            "provisional_store_uuid": store.store_uuid,
+            "policy_version": str(self._provisional_policy.policy_version),
+        }
+        return signer.issue(
+            "source_registration",
+            payload,
+            ttl_seconds=int(self._provisional_policy.source_registration_ttl_seconds),
+        )
+
+    def issue_integration_retrieval_receipt(
+        self,
+        *,
+        retrieved_evidence_ids: list[str],
+        session_id: str,
+        run_id: str,
+        principal_id: str,
+    ) -> dict[str, Any]:
+        signer = self._integration_handle_signer
+        if signer is None:
+            raise RuntimeError("signed retrieval receipts require a SQLite runtime")
+        payload = {
+            "retrieved_evidence_ids": [str(item) for item in retrieved_evidence_ids[:64] if str(item).strip()],
+            "session_id": str(session_id),
+            "run_id": str(run_id),
+            "principal_id": str(principal_id),
+            "policy_version": str(self._provisional_policy.policy_version),
+        }
+        return signer.issue(
+            "retrieval_receipt",
+            payload,
+            ttl_seconds=int(self._provisional_policy.source_registration_ttl_seconds),
+        )
+
+    def observe_external_turn(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        session_id: str,
+        run_id: str,
+        principal_id: str,
+        retrieval_receipt: str = "",
+        remember_intent: str = "none",
+        boundary: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        store = self._provisional_store
+        signer = self._integration_handle_signer
+        if not self._provisional_memory_enabled or not isinstance(store, SqliteProvisionalMemoryStore) or signer is None:
+            raise RuntimeError("external observation requires enabled SQLite provisional memory")
+        if not 1 <= len(messages) <= 8:
+            raise ValueError("messages must contain 1..8 items")
+        total_bytes = sum(len(str(item.get("content") or "").encode("utf-8")) for item in messages)
+        if total_bytes > 131_072:
+            raise ValueError("message payload exceeds 128 KiB")
+
+        receipt_payload: dict[str, Any] | None = None
+        if str(retrieval_receipt or "").strip():
+            receipt_payload = signer.verify(str(retrieval_receipt), expected_kind="retrieval_receipt")
+            self._validate_handle_binding(
+                receipt_payload,
+                session_id=session_id,
+                run_id=run_id,
+                principal_id=principal_id,
+            )
+        retrieved_ids = list((receipt_payload or {}).get("retrieved_evidence_ids") or [])
+        results: list[dict[str, Any]] = []
+        now = _utc_now()
+        for index, raw in enumerate(messages):
+            role = str(raw.get("role") or "").strip().lower()
+            content = str(raw.get("content") or "")
+            if not content.strip() or len(content.encode("utf-8")) > 32_768:
+                raise ValueError("each message requires content up to 32 KiB")
+            if role in {"system", "developer"}:
+                results.append({"index": index, "support_delta": 0, "reason": "ineligible_source_role"})
+                continue
+            source_id = str(raw.get("source_id") or "").strip()
+            message_id = str(raw.get("message_id") or "").strip()
+            registration: EvidenceRegistration | None = None
+            if role in {"user", "tool", "external"}:
+                raw_registration = raw.get("source_registration")
+                handle = str((raw_registration or {}).get("handle") if isinstance(raw_registration, dict) else raw_registration or "")
+                verified = signer.verify(handle, expected_kind="source_registration")
+                self._validate_handle_binding(
+                    verified,
+                    session_id=session_id,
+                    run_id=run_id,
+                    principal_id=principal_id,
+                )
+                if verified.get("source_role") != role or verified.get("content_digest") != normalized_content_digest(content):
+                    raise IntegrationHandleError("SOURCE_REGISTRATION_MISMATCH")
+                source_id = str(verified.get("source_id") or "")
+                message_id = str(verified.get("message_id") or "")
+                registration = EvidenceRegistration(
+                    source_id=source_id,
+                    message_id=message_id,
+                    source_role=role,
+                    content_digest=str(verified.get("content_digest") or ""),
+                    session_id=str(session_id),
+                    handle=handle,
+                )
+            elif role == "assistant":
+                if receipt_payload is not None:
+                    receipt_identity = hashlib.sha256(str(retrieval_receipt).encode("utf-8")).hexdigest()[:24]
+                    source_id = f"assistant:{principal_id}"
+                    message_id = f"receipt:{receipt_identity}:{index}"
+            else:
+                raise ValueError(f"unsupported source role: {role}")
+            candidate, drop_reason = self._provisional_candidate_with_reason(
+                text=content,
+                source_role=role,
+                source_id=source_id or f"assistant:{session_id}",
+                message_id=message_id or f"assistant:{run_id}:{index}",
+                timestamp=now,
+                session_id=session_id,
+            )
+            if candidate is None:
+                results.append({"index": index, "support_delta": 0, "reason": drop_reason or "not_captured"})
+                continue
+            candidate.source_id = source_id
+            candidate.message_id = message_id
+            candidate.span_start = 0
+            candidate.span_end = len(content)
+            candidate.content = content
+            assistant_eligible = bool(role == "assistant" and receipt_payload is not None and not retrieved_ids)
+            disposition = store.observe_candidate(
+                candidate,
+                reason="external_turn_observe",
+                registration=registration,
+                assistant_receipt_valid=assistant_eligible,
+            )
+            results.append(
+                {
+                    "index": index,
+                    "record_id": disposition.record_id,
+                    "support_delta": disposition.support_delta,
+                    "reason": disposition.reason,
+                }
+            )
+
+        transitions = self.maintain_provisional_memory(max_records=int(self._provisional_policy.maintenance_max_records))
+        boundary_replayed = False
+        if boundary:
+            boundary_new = store.record_boundary(
+                event_id=str(boundary.get("event_id") or ""),
+                event_type=str(boundary.get("event_type") or ""),
+                observed_at_utc=str(boundary.get("observed_at_utc") or ""),
+                metadata={str(key): str(value) for key, value in dict(boundary.get("metadata") or {}).items()},
+            )
+            boundary_replayed = not boundary_new
+            if boundary_new:
+                transitions = self.maintain_provisional_memory(
+                    max_records=int(self._provisional_policy.maintenance_max_records)
+                )
+        return {
+            "observations": results,
+            "accepted_support_count": sum(int(item.get("support_delta") or 0) for item in results),
+            "maintenance": transitions,
+            "boundary_replayed": boundary_replayed,
+            "writeback_required": str(remember_intent or "none").strip().lower() == "user_explicit",
+        }
+
+    @staticmethod
+    def _validate_handle_binding(
+        payload: dict[str, Any], *, session_id: str, run_id: str, principal_id: str
+    ) -> None:
+        expected = {
+            "session_id": str(session_id),
+            "run_id": str(run_id),
+            "principal_id": str(principal_id),
+        }
+        if any(str(payload.get(key) or "") != value for key, value in expected.items()):
+            raise IntegrationHandleError("HANDLE_BINDING_MISMATCH")
+
+    def maintain_provisional_memory(self, *, max_records: int | None = None) -> list[dict[str, str]]:
+        store = self._provisional_store
+        if not isinstance(store, SqliteProvisionalMemoryStore):
+            return []
+        if not bool(self._provisional_policy.maintenance_enabled):
+            return []
+        policy = MaintenancePolicy(
+            dormant_days=int(self._provisional_policy.dormant_days),
+            archive_days=int(self._provisional_policy.archive_days),
+            plan_currentness_days=int(self._provisional_policy.plan_currentness_days),
+            max_records=int(self._provisional_policy.maintenance_max_records),
+            policy_version=str(self._provisional_policy.policy_version),
+        )
+        transitions = run_maintenance(
+            store,
+            policy=policy,
+            max_records=max_records,
+            consolidation_enabled=bool(self._provisional_policy.consolidation_enabled),
+        )
+        return [
+            {"record_id": item.record_id, "disposition": item.disposition, "reason": item.reason}
+            for item in transitions
+        ]
 
     def set_provisional_sensitivity(
         self,
@@ -1124,12 +1368,46 @@ class RuntimeSession:
             else:
                 target = valid[max(0, idx - 1)]
         self._provisional_policy.default_sensitivity = target
+        if self.config_path is not None:
+            self._persist_runtime_policy()
         return self.provisional_settings()
+
+    def _persist_runtime_policy(self) -> None:
+        path = self.config_path
+        if path is None:
+            raise RuntimeError("active runtime policy has no writable config path")
+        payload = json.dumps(self.config.as_dict(), indent=2, ensure_ascii=False) + "\n"
+        temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(payload, encoding="utf-8")
+            temporary.replace(path)
+        except OSError as exc:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise RuntimeError("active runtime policy is not writable") from exc
 
     def list_memory_proposals(self) -> list[ProposalRecord]:
         if self._proposal_store is None:
             return []
         return list(self._proposal_store.list_records())
+
+    def get_memory_proposal(self, record_id: str) -> ProposalRecord:
+        if self._proposal_store is None:
+            raise KeyError(str(record_id))
+        return self._proposal_store.get_record(str(record_id))
+
+    def dismiss_memory_proposal(self, record_id: str, *, actor: str, reason_code: str) -> ProposalRecord:
+        if self._proposal_store is None:
+            raise KeyError(str(record_id))
+        return self._proposal_store.dismiss(str(record_id), actor=actor, reason_code=reason_code)
+
+    def mark_memory_proposal_bridged(self, record_id: str, *, proposal_id: str, actor: str) -> ProposalRecord:
+        if self._proposal_store is None:
+            raise KeyError(str(record_id))
+        return self._proposal_store.mark_bridged(str(record_id), proposal_id=proposal_id, actor=actor)
 
     def memory_capture_diagnostics(self) -> dict[str, Any]:
         return {
@@ -1248,6 +1526,9 @@ class RuntimeSession:
 
     @staticmethod
     def _provisional_distinct_session_count(record: ProvisionalMemoryRecord) -> int:
+        stored = int(getattr(record, "distinct_session_count", 0) or 0)
+        if stored > 0:
+            return stored
         raw = str(dict(record.metadata or {}).get("distinct_session_count") or "").strip()
         try:
             value = int(raw)
@@ -1509,8 +1790,17 @@ class RuntimeSession:
             "salience": float(record.salience),
             "stability": float(record.stability),
             "reinforcement_count": int(record.reinforcement_count),
+            "independent_support_count": int(record.independent_support_count),
             "distinct_session_count": int(self._provisional_distinct_session_count(record)),
             "status": str(getattr(record.status, "value", record.status) or ""),
+            "authority_tier": str(getattr(record.authority_tier, "value", record.authority_tier) or ""),
+            "maturity": str(getattr(record.maturity, "value", record.maturity) or ""),
+            "lifecycle": str(getattr(record.lifecycle, "value", record.lifecycle) or ""),
+            "human_reviewed": False,
+            "derived": bool(record.derived),
+            "input_record_ids": list(record.input_record_ids),
+            "claim_key": str(record.claim_key or ""),
+            "policy_version": str(record.policy_version or ""),
             "supersedes_record_id": str(record.supersedes_record_id or "") or None,
             "superseded_by_record_id": str(record.superseded_by_record_id or "") or None,
             "conflict_with_record_ids": list(record.conflict_with_record_ids),
@@ -2814,6 +3104,17 @@ class RuntimeSession:
                 pack = ltm_pack
                 retrieved_atom_ids = ltm_ids
 
+        if memory_route != "none" and self._provisional_retrieval_enabled:
+            provisional_pack, provisional_ids, provisional_hits, _provisional_best = self._retrieve_provisional_memory(
+                retrieval_text
+            )
+            if provisional_hits:
+                pack = self._merge_long_term_with_provisional(pack, provisional_pack)
+                seen_ids = set(retrieved_atom_ids)
+                retrieved_atom_ids.extend(item for item in provisional_ids if item not in seen_ids)
+                if memory_mode == "none":
+                    memory_mode = "ltm_only"
+
         # Keep retrieved_atom_ids aligned with the evidence pack (not broad rerank candidate lists).
         if pack.core or pack.context or pack.continuity or pack.conflict:
             pack = self._prune_consumer_meta_evidence(
@@ -3177,6 +3478,18 @@ class RuntimeSession:
                         "anchors": anchors,
                         "confidence": _clamp01(item.confidence),
                         "contradiction": contradiction,
+                        "memory_layer": str(getattr(item, "memory_layer", "atom") or "atom"),
+                        "trust_tier": str(getattr(item, "trust_tier", "evidence") or "evidence"),
+                        "authority_tier": self._memory_item_authority_tier(item),
+                        "maturity": str(getattr(item, "maturity", "evidence") or "evidence"),
+                        "lifecycle": str(getattr(item, "lifecycle", "active") or "active"),
+                        "conflict_state": str(getattr(item, "conflict_state", "active") or "active"),
+                        "conflict_with_ids": list(getattr(item, "conflict_with_ids", []) or []),
+                        "human_reviewed": bool(
+                            getattr(item, "human_reviewed", False)
+                            or str(getattr(item, "trust_tier", "")).lower() in {"published", "human_reviewed_canonical"}
+                        ),
+                        "lineage_ids": list(getattr(item, "lineage_ids", []) or []),
                     }
                 )
 
@@ -3185,6 +3498,18 @@ class RuntimeSession:
         _push("continuity", list(pack.continuity))
         _push("conflict", list(pack.conflict))
         return out[:16]
+
+    @staticmethod
+    def _memory_item_authority_tier(item: MemoryPackItem) -> str:
+        explicit = str(getattr(item, "authority_tier", "") or "").strip().lower()
+        trust = str(getattr(item, "trust_tier", "") or "").strip().lower()
+        if trust in {"published", "human_reviewed_canonical"}:
+            return "human_reviewed_canonical"
+        if trust in {"provisional_consolidated", "provisional_observed"}:
+            return trust
+        if trust == "provisional":
+            return explicit if explicit.startswith("provisional_") else "provisional_observed"
+        return explicit or "evidence_atom"
 
     @staticmethod
     def _evidence_sections_present(ltm_evidence: list[dict[str, Any]]) -> dict[str, bool]:
@@ -4596,6 +4921,11 @@ class RuntimeSession:
     ) -> int:
         if self._provisional_store is None:
             return 0
+        try:
+            assert_safe_content(text)
+        except SecretDetectedError:
+            self._record_memory_capture_drop("secret_like_content_rejected")
+            return 0
         profile = self._provisional_profile()
         with self._lock:
             if session.provisional_write_count >= profile.max_auto_writes_per_session:
@@ -4798,7 +5128,10 @@ class RuntimeSession:
         core_items: list[MemoryPackItem] = []
         context_items: list[MemoryPackItem] = []
         ranked_ids: list[str] = []
+        atom_store = getattr(self.retriever, "store", None)
         for idx, hit in enumerate(hits):
+            if isinstance(atom_store, SqliteAtomStore) and atom_store.is_provisional_bridge_suppressed(hit.record.record_id):
+                continue
             confidence = min(0.78, 0.32 + float(hit.score) * 0.70)
             item = MemoryPackItem(
                 atom_id=hit.record.record_id,
@@ -4810,17 +5143,24 @@ class RuntimeSession:
                 conflict_with_ids=list(hit.record.conflict_with_record_ids),
                 memory_layer="provisional",
                 trust_tier="provisional",
+                authority_tier=hit.record.authority_tier.value,
+                maturity=hit.record.maturity.value,
+                lifecycle=hit.record.lifecycle.value,
+                human_reviewed=False,
+                lineage_ids=list(hit.record.input_record_ids),
             )
             if idx == 0:
                 core_items.append(item)
             else:
                 context_items.append(item)
             ranked_ids.append(item.atom_id)
+        if not core_items and not context_items:
+            return MemoryPack(), [], 0, 0.0
         pack_confidence = _clamp01(max(item.confidence for item in list(core_items) + list(context_items)))
         return (
             memory_pack_from_items(core_items, context=context_items, pack_confidence=pack_confidence),
             ranked_ids,
-            len(hits),
+            len(ranked_ids),
             pack_confidence,
         )
 
@@ -4868,8 +5208,12 @@ class RuntimeSession:
     def _memory_item_precedence_key(item: MemoryPackItem) -> tuple[int, int, str, str, str]:
         trust_tier = str(getattr(item, "trust_tier", "") or "").strip().lower()
         authority_rank = {
-            "published": 3,
-            "evidence": 2,
+            "human_reviewed_canonical": 4,
+            "published": 4,
+            "evidence_atom": 3,
+            "evidence": 3,
+            "provisional_consolidated": 2,
+            "provisional_observed": 1,
             "provisional": 1,
         }.get(trust_tier, 0)
         conflict_state = str(getattr(item, "conflict_state", "active") or "active").strip().lower()

@@ -101,6 +101,31 @@ def test_print_claude_config_exits_without_starting_runtime(tmp_path: Path) -> N
     assert "runtime_url=" not in result.stderr
 
 
+def test_plan_only_loads_explicit_runtime_config(tmp_path: Path) -> None:
+    store = tmp_path / "demo.sqlite3"
+    store.write_text("", encoding="utf-8")
+    config = tmp_path / "runtime-policy.json"
+    config.write_text('{"provisional_memory":{"enabled":true}}', encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--memories",
+            str(store),
+            "--config",
+            str(config),
+            "--plan-only",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"config_path={config.resolve()}" in result.stdout
+
+
 def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
     store = tmp_path / "demo.sqlite3"
     store.write_text("", encoding="utf-8")

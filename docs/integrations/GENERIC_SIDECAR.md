@@ -18,6 +18,8 @@ That gives you:
 - proposal-only writeback
 - explicit resolve flow
 
+For live turns, use `context.build` first, retain its signed `source_registration` and `retrieval_receipt`, then call HTTP `memory.observe` after the turn if you want MNO to capture bounded provisional memory. This cannot create evidence atoms or reviewed truth. A user’s explicit “remember this” still goes through `writeback.propose` and a human `review_apply` decision.
+
 ## WSS continuity helper
 
 If your sidecar builds v2 context packages and can provide stable project/thread/workstream scope, MNO can attach WSS as `work_session_context` with trust tier `scratchpad_ephemeral`.

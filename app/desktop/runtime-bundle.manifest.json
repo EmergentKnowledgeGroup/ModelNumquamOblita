@@ -3,7 +3,7 @@
   "bundle_mode": "python_entrypoint",
   "runtime_version": "cpython-3.12.13+20260303",
   "allowed_app_versions": [
-    "0.1.0"
+    "0.2.0"
   ],
   "entrypoint": "tools/run_live_runtime.py",
   "python_commands": {

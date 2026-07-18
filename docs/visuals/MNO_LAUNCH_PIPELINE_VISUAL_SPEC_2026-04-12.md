@@ -76,3 +76,9 @@ This page should explain the same flow in plain language while still teaching th
 - raw-context sidecar should be visible but clearly non-authoritative
 - WSS should be visible as `scratchpad_ephemeral` work-session continuity support, not reviewed truth
 - human review remains the truth gate
+
+## v0.2 launch posture
+
+The startup command must show the shared policy source: `tools/run_live_runtime.py --config <json>`. Fresh standard policy enables low-risk provisional capture/retrieval/maintenance/consolidation; upgraded configurations that omit v0.2 fields preserve the disabled posture. This does not enable autonomous canonical publication.
+
+The page must distinguish import-created evidence atoms from live `memory.observe` provisional records and from explicit reviewer-controlled writeback. Authority remains `human_reviewed_canonical` → `evidence_atom` → `provisional_consolidated` → `provisional_observed`; STM/WSS are continuity helpers, not evidence.

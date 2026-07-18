@@ -13,7 +13,7 @@ ModelNumquamOblita.
 - `docs/`
 - launch and setup scripts
 - root metadata files such as `README.md`, `LICENSE`, `SECURITY.md`,
-  `CONTRIBUTING.md`, and `pyproject.toml`
+  `CONTRIBUTING.md`, `LLMS.md`, and `pyproject.toml`
 - the empty `runtime/` workspace skeleton and `.gitkeep` files
 - generated public visual exports under `docs/visuals/exports/`
 - canonical WSS documentation such as `docs/WORK_SESSION_SCRATCHPAD.md`

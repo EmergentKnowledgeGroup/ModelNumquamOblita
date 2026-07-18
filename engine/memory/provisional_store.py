@@ -4,6 +4,7 @@ import json
 import re
 import sqlite3
 import threading
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -12,9 +13,10 @@ from pathlib import Path
 from typing import Optional
 
 from ..contracts import SourceRef, contract_to_dict, source_ref_from_dict
+from .content_safety import SecretDetectedError, assert_safe_content, scrub_content
 
 _TOKEN_RE = re.compile(r"[a-z0-9']+")
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 
 def _now_utc() -> datetime:
@@ -77,6 +79,35 @@ class ProvisionalMemoryStatus(str, Enum):
     SUPERSEDED = "superseded"
     CONFLICTED = "conflicted"
     ARCHIVED = "archived"
+    DORMANT = "dormant"
+
+
+class ProvisionalAuthorityTier(str, Enum):
+    """Authority remains independent from maturity and lifecycle."""
+
+    OBSERVED = "provisional_observed"
+    CONSOLIDATED = "provisional_consolidated"
+
+
+class ProvisionalMaturity(str, Enum):
+    OBSERVED = "observed"
+    REINFORCED = "reinforced"
+    CONSOLIDATED = "consolidated"
+
+
+class ProvisionalLifecycle(str, Enum):
+    ACTIVE = "active"
+    DORMANT = "dormant"
+    ARCHIVED = "archived"
+
+
+class SourceRole(str, Enum):
+    USER = "user"
+    TOOL = "tool"
+    EXTERNAL = "external"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+    DEVELOPER = "developer"
 
 
 class ProvisionalMemoryEventType(str, Enum):
@@ -86,6 +117,9 @@ class ProvisionalMemoryEventType(str, Enum):
     CONFLICT = "CONFLICT"
     NEAR_DUPLICATE = "NEAR_DUPLICATE"
     ARCHIVE = "ARCHIVE"
+    CONSOLIDATE = "CONSOLIDATE"
+    DORMANT = "DORMANT"
+    REACTIVATE = "REACTIVATE"
 
 
 @dataclass(slots=True)
@@ -99,6 +133,11 @@ class ProvisionalMemoryCandidate:
     salience: float = 0.0
     stability: float = 0.0
     metadata: dict[str, str] = field(default_factory=dict)
+    source_id: str = ""
+    message_id: str = ""
+    span_start: int = 0
+    span_end: int = 0
+    content: str = ""
 
     def __post_init__(self) -> None:
         self.source_role = self.source_role.strip().lower()
@@ -110,13 +149,16 @@ class ProvisionalMemoryCandidate:
             raise ValueError("source_refs is required")
         if not self.session_id:
             raise ValueError("session_id is required")
-        if self.source_role not in {"user", "assistant", "developer", "system", "tool"}:
+        if self.source_role not in {"user", "assistant", "developer", "system", "tool", "external"}:
             raise ValueError(f"unsupported source_role: {self.source_role}")
         for field_name in ("confidence", "salience", "stability"):
             value = float(getattr(self, field_name))
             if value < 0.0 or value > 1.0:
                 raise ValueError(f"{field_name} must be in [0, 1]")
             setattr(self, field_name, value)
+
+        if self.span_start < 0 or self.span_end < self.span_start:
+            raise ValueError("invalid source span")
 
     @property
     def dedupe_key(self) -> str:
@@ -147,6 +189,16 @@ class ProvisionalMemoryRecord:
     updated_at: datetime = field(default_factory=_now_utc)
     last_reinforced_at: Optional[datetime] = None
     metadata: dict[str, str] = field(default_factory=dict)
+    authority_tier: ProvisionalAuthorityTier = ProvisionalAuthorityTier.OBSERVED
+    maturity: ProvisionalMaturity = ProvisionalMaturity.OBSERVED
+    lifecycle: ProvisionalLifecycle = ProvisionalLifecycle.ACTIVE
+    derived: bool = False
+    input_record_ids: list[str] = field(default_factory=list)
+    independent_support_count: int = 0
+    distinct_session_count: int = 0
+    last_independent_support_at: Optional[datetime] = None
+    policy_version: str = "v0.2"
+    claim_key: str = ""
 
     def __post_init__(self) -> None:
         if not self.record_id.strip():
@@ -180,6 +232,46 @@ class ProvisionalSearchHit:
     record: ProvisionalMemoryRecord
     score: float
     matched_terms: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceRegistration:
+    source_id: str
+    message_id: str
+    source_role: str
+    content_digest: str
+    session_id: str
+    handle: str
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationDisposition:
+    record_id: str
+    support_delta: int
+    evidence_fingerprint: str | None
+    reason: str
+
+
+def _content_digest(value: str) -> str:
+    assert_safe_content(value)
+    return sha256(_normalize_text(value).encode("utf-8")).hexdigest()
+
+
+def _evidence_fingerprint(
+    *, store_uuid: str, source_id: str, message_id: str, span_start: int, span_end: int, source_role: str, content_digest: str
+) -> str:
+    payload = "|".join((store_uuid, source_id, message_id, str(span_start), str(span_end), source_role, content_digest))
+    return sha256(payload.encode("utf-8")).hexdigest()
+
+
+def source_role_eligible(source_role: str, *, kind: ProvisionalMemoryKind, registered: bool, assistant_receipt_valid: bool = False) -> bool:
+    """Policy primitive; authority is granted only to registered evidence."""
+    role = str(source_role).strip().lower()
+    if role in {SourceRole.USER.value, SourceRole.TOOL.value, SourceRole.EXTERNAL.value}:
+        return bool(registered)
+    if role == SourceRole.ASSISTANT.value:
+        return kind is ProvisionalMemoryKind.SELF_CLAIM and bool(assistant_receipt_valid)
+    return False
 
 
 def _session_ids_from_metadata(metadata: dict[str, str], *, fallback_session_id: str) -> list[str]:
@@ -231,6 +323,11 @@ def _build_record(
         updated_at=now,
         last_reinforced_at=now,
         metadata=metadata,
+        claim_key=_dedupe_key(
+            kind=candidate.kind.value,
+            canonical_text=candidate.canonical_text,
+            source_role=candidate.source_role,
+        ),
     )
 
 
@@ -544,31 +641,151 @@ class InMemoryProvisionalMemoryStore:
 
 
 class SqliteProvisionalMemoryStore:
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        scrub_legacy_secrets: bool = False,
+        scrub_authorized_by: str | None = None,
+        legacy_backup_path: str | Path | None = None,
+        clock=None,
+    ) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        legacy_version, legacy_secret_detected = self._preflight_legacy_store(self.db_path)
+        normalized_reviewer = str(scrub_authorized_by or "").strip()
+        verified_backup: Path | None = None
+        if legacy_version == 2 and legacy_secret_detected:
+            if not scrub_legacy_secrets:
+                raise SecretDetectedError()
+            if not normalized_reviewer:
+                raise ValueError("SCRUB_REVIEW_AUTHORIZATION_REQUIRED")
+            if legacy_backup_path is None:
+                raise ValueError("SCRUB_BACKUP_REQUIRED")
+            verified_backup = self._backup_and_verify_legacy_store(
+                self.db_path,
+                Path(legacy_backup_path),
+            )
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._clock = clock or _now_utc
         with self._conn:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
-        self._init_schema()
+        self._init_schema(
+            scrub_legacy_secrets=scrub_legacy_secrets and legacy_secret_detected,
+            scrub_authorized_by=normalized_reviewer or None,
+            verified_backup=verified_backup,
+        )
+
+    @staticmethod
+    def _read_only_connection(db_path: Path) -> sqlite3.Connection:
+        uri = f"{db_path.expanduser().resolve().as_uri()}?mode=ro"
+        connection = sqlite3.connect(uri, uri=True)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    @classmethod
+    def _preflight_legacy_store(cls, db_path: Path) -> tuple[int, bool]:
+        """Inspect v2 content before any writable SQLite connection is opened."""
+        if not db_path.exists() or db_path.stat().st_size == 0:
+            return 0, False
+        with cls._read_only_connection(db_path) as source:
+            version_row = source.execute("PRAGMA user_version").fetchone()
+            version = int(version_row[0]) if version_row else 0
+            if version != 2:
+                return version, False
+            try:
+                for row in source.execute(
+                    "SELECT canonical_text, metadata_json, source_refs_json FROM provisional_records"
+                ):
+                    assert_safe_content(
+                        [
+                            str(row["canonical_text"]),
+                            json.loads(row["metadata_json"] or "{}"),
+                            json.loads(row["source_refs_json"] or "[]"),
+                        ]
+                    )
+                for row in source.execute(
+                    "SELECT source_refs_json, metadata_json, reason FROM provisional_events"
+                ):
+                    assert_safe_content(
+                        [
+                            json.loads(row["source_refs_json"] or "[]"),
+                            json.loads(row["metadata_json"] or "{}"),
+                            str(row["reason"]),
+                        ]
+                    )
+            except SecretDetectedError:
+                return version, True
+        return version, False
+
+    @classmethod
+    def _backup_and_verify_legacy_store(cls, source_path: Path, target_path: Path) -> Path:
+        """Create and structurally verify the mandatory pre-scrub v2 backup."""
+        source = source_path.expanduser().resolve()
+        target = target_path.expanduser().resolve()
+        if source == target:
+            raise ValueError("legacy backup target must differ from the live store")
+        if target.exists():
+            raise FileExistsError("legacy backup target already exists")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with cls._read_only_connection(source) as source_conn, sqlite3.connect(str(target)) as destination:
+            source_counts = (
+                int(source_conn.execute("SELECT COUNT(*) FROM provisional_records").fetchone()[0]),
+                int(source_conn.execute("SELECT COUNT(*) FROM provisional_events").fetchone()[0]),
+            )
+            source_conn.backup(destination)
+        with sqlite3.connect(str(target)) as backup:
+            backup_version = int(backup.execute("PRAGMA user_version").fetchone()[0])
+            integrity = str(backup.execute("PRAGMA integrity_check").fetchone()[0])
+            backup_counts = (
+                int(backup.execute("SELECT COUNT(*) FROM provisional_records").fetchone()[0]),
+                int(backup.execute("SELECT COUNT(*) FROM provisional_events").fetchone()[0]),
+            )
+        if backup_version != 2 or integrity.lower() != "ok" or backup_counts != source_counts:
+            raise RuntimeError("LEGACY_BACKUP_VERIFICATION_FAILED")
+        return target
 
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    def backup_to(self, target_path: str | Path) -> Path:
+        """Create a transactionally consistent SQLite backup of the live sidecar."""
+        target = Path(target_path).expanduser().resolve()
+        source = self.db_path.expanduser().resolve()
+        if target == source:
+            raise ValueError("backup target must differ from the live store")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock, sqlite3.connect(str(target)) as destination:
+            self._conn.backup(destination)
+        return target
 
     def _schema_version(self) -> int:
         with self._lock:
             row = self._conn.execute("PRAGMA user_version").fetchone()
         return int(row[0]) if row else 0
 
-    def _init_schema(self) -> None:
+    def _init_schema(
+        self,
+        *,
+        scrub_legacy_secrets: bool = False,
+        scrub_authorized_by: str | None = None,
+        verified_backup: Path | None = None,
+    ) -> None:
         version = self._schema_version()
-        if version not in {0, _SCHEMA_VERSION}:
+        if version not in {0, 2, _SCHEMA_VERSION}:
             raise RuntimeError(f"unsupported provisional schema version: {version}")
         if version == _SCHEMA_VERSION:
+            return
+        if version == 2:
+            self._migrate_v2_to_v3(
+                scrub_legacy_secrets=scrub_legacy_secrets,
+                scrub_authorized_by=scrub_authorized_by,
+                verified_backup=verified_backup,
+            )
             return
         with self._lock, self._conn:
             self._conn.executescript(
@@ -592,7 +809,17 @@ class SqliteProvisionalMemoryStore:
                     updated_at TEXT NOT NULL,
                     last_reinforced_at TEXT,
                     metadata_json TEXT NOT NULL,
-                    dedupe_key TEXT NOT NULL UNIQUE
+                    dedupe_key TEXT NOT NULL UNIQUE,
+                    authority_tier TEXT NOT NULL DEFAULT 'provisional_observed',
+                    maturity TEXT NOT NULL DEFAULT 'observed',
+                    lifecycle TEXT NOT NULL DEFAULT 'active',
+                    derived INTEGER NOT NULL DEFAULT 0,
+                    input_record_ids_json TEXT NOT NULL DEFAULT '[]',
+                    independent_support_count INTEGER NOT NULL DEFAULT 0,
+                    distinct_session_count INTEGER NOT NULL DEFAULT 0,
+                    last_independent_support_at TEXT,
+                    policy_version TEXT NOT NULL DEFAULT 'v0.2',
+                    claim_key TEXT NOT NULL DEFAULT ''
                 );
 
                 CREATE TABLE IF NOT EXISTS provisional_events (
@@ -609,9 +836,182 @@ class SqliteProvisionalMemoryStore:
                 CREATE INDEX IF NOT EXISTS idx_provisional_status ON provisional_records(status);
                 CREATE INDEX IF NOT EXISTS idx_provisional_updated_at ON provisional_records(updated_at);
                 CREATE INDEX IF NOT EXISTS idx_provisional_events_record ON provisional_events(record_id);
+                CREATE TABLE IF NOT EXISTS provisional_evidence_units (
+                    evidence_fingerprint TEXT PRIMARY KEY,
+                    record_id TEXT NOT NULL,
+                    source_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    span_start INTEGER NOT NULL,
+                    span_end INTEGER NOT NULL,
+                    source_role TEXT NOT NULL,
+                    content_digest TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    registered INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS provisional_control (
+                    control_key TEXT PRIMARY KEY,
+                    control_value TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS provisional_boundaries (
+                    event_id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    observed_at_utc TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL,
+                    processed_at_utc TEXT NOT NULL
+                );
                 """
             )
+            self._conn.execute(
+                "INSERT OR IGNORE INTO provisional_control(control_key, control_value) VALUES ('store_uuid', ?)",
+                (str(uuid.uuid4()),),
+            )
             self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
+
+    def _migrate_v2_to_v3(
+        self,
+        *,
+        scrub_legacy_secrets: bool,
+        scrub_authorized_by: str | None,
+        verified_backup: Path | None,
+    ) -> None:
+        """Transactional/repeat-safe v2 migration; user_version is committed last."""
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                rows = self._conn.execute("SELECT record_id, canonical_text, metadata_json, source_refs_json FROM provisional_records").fetchall()
+                for row in rows:
+                    payload = [str(row["canonical_text"]), json.loads(row["metadata_json"] or "{}"), json.loads(row["source_refs_json"] or "[]")]
+                    try:
+                        assert_safe_content(payload)
+                    except SecretDetectedError:
+                        if not scrub_legacy_secrets:
+                            raise
+                        scrubbed_metadata = scrub_content(json.loads(row["metadata_json"] or "{}"))
+                        scrubbed_metadata["safety_reason"] = "legacy_secret_scrubbed"
+                        self._conn.execute(
+                            "UPDATE provisional_records SET canonical_text = ?, metadata_json = ?, source_refs_json = ? WHERE record_id = ?",
+                            (
+                                str(scrub_content(str(row["canonical_text"]))),
+                                json.dumps(scrubbed_metadata),
+                                json.dumps(scrub_content(json.loads(row["source_refs_json"] or "[]"))),
+                                row["record_id"],
+                            ),
+                        )
+                event_rows = self._conn.execute("SELECT seq, source_refs_json, metadata_json, reason FROM provisional_events").fetchall()
+                for row in event_rows:
+                    try:
+                        assert_safe_content([json.loads(row["source_refs_json"] or "[]"), json.loads(row["metadata_json"] or "{}"), str(row["reason"])])
+                    except SecretDetectedError:
+                        if not scrub_legacy_secrets:
+                            raise
+                        scrubbed_metadata = scrub_content(json.loads(row["metadata_json"] or "{}"))
+                        scrubbed_metadata["safety_reason"] = "legacy_secret_scrubbed"
+                        self._conn.execute(
+                            "UPDATE provisional_events SET source_refs_json=?, metadata_json=?, reason=? WHERE seq=?",
+                            (
+                                json.dumps(scrub_content(json.loads(row["source_refs_json"] or "[]"))),
+                                json.dumps(scrubbed_metadata),
+                                str(scrub_content(str(row["reason"]))),
+                                row["seq"],
+                            ),
+                        )
+                existing_columns = {str(item[1]) for item in self._conn.execute("PRAGMA table_info(provisional_records)").fetchall()}
+                for column, declaration in (
+                    ("authority_tier", "TEXT NOT NULL DEFAULT 'provisional_observed'"),
+                    ("maturity", "TEXT NOT NULL DEFAULT 'observed'"),
+                    ("lifecycle", "TEXT NOT NULL DEFAULT 'active'"),
+                    ("derived", "INTEGER NOT NULL DEFAULT 0"),
+                    ("input_record_ids_json", "TEXT NOT NULL DEFAULT '[]'"),
+                    ("independent_support_count", "INTEGER NOT NULL DEFAULT 0"),
+                    ("distinct_session_count", "INTEGER NOT NULL DEFAULT 0"),
+                    ("last_independent_support_at", "TEXT"),
+                    ("policy_version", "TEXT NOT NULL DEFAULT 'v0.2'"),
+                    ("claim_key", "TEXT NOT NULL DEFAULT ''"),
+                ):
+                    if column not in existing_columns:
+                        self._conn.execute(f"ALTER TABLE provisional_records ADD COLUMN {column} {declaration}")
+                self._conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS provisional_evidence_units (
+                        evidence_fingerprint TEXT PRIMARY KEY, record_id TEXT NOT NULL, source_id TEXT NOT NULL,
+                        message_id TEXT NOT NULL, span_start INTEGER NOT NULL, span_end INTEGER NOT NULL,
+                        source_role TEXT NOT NULL, content_digest TEXT NOT NULL, session_id TEXT NOT NULL,
+                        registered INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS provisional_control (control_key TEXT PRIMARY KEY, control_value TEXT NOT NULL);
+                    CREATE TABLE IF NOT EXISTS provisional_boundaries (
+                        event_id TEXT PRIMARY KEY, event_type TEXT NOT NULL, observed_at_utc TEXT NOT NULL,
+                        metadata_json TEXT NOT NULL, processed_at_utc TEXT NOT NULL
+                    );
+                """)
+                self._conn.execute("INSERT OR IGNORE INTO provisional_control(control_key, control_value) VALUES ('store_uuid', ?)", (str(uuid.uuid4()),))
+                if scrub_legacy_secrets:
+                    if not scrub_authorized_by or verified_backup is None:
+                        raise ValueError("SCRUB_REVIEW_AUTHORIZATION_REQUIRED")
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO provisional_control(control_key, control_value) VALUES ('legacy_scrub_authorized_by', ?)",
+                        (scrub_authorized_by,),
+                    )
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO provisional_control(control_key, control_value) VALUES ('legacy_scrub_backup', ?)",
+                        (str(verified_backup),),
+                    )
+                self._conn.execute("UPDATE provisional_records SET claim_key = dedupe_key WHERE claim_key = ''")
+                self._conn.execute("PRAGMA user_version=3")
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    @property
+    def store_uuid(self) -> str:
+        with self._lock:
+            row = self._conn.execute("SELECT control_value FROM provisional_control WHERE control_key = 'store_uuid'").fetchone()
+        if row is None:
+            raise RuntimeError("store_uuid unavailable")
+        return str(row[0])
+
+    def record_boundary(
+        self,
+        *,
+        event_id: str,
+        event_type: str,
+        observed_at_utc: str,
+        metadata: dict[str, str] | None = None,
+    ) -> bool:
+        """Persist a boundary once; True means this call owns its maintenance pass."""
+
+        assert_safe_content(metadata or {})
+        normalized_id = str(event_id or "").strip()
+        normalized_type = str(event_type or "").strip().lower()
+        if not normalized_id or not normalized_type:
+            raise ValueError("boundary event_id and event_type are required")
+        now = self._clock().astimezone(timezone.utc).isoformat()
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                """INSERT OR IGNORE INTO provisional_boundaries
+                   (event_id,event_type,observed_at_utc,metadata_json,processed_at_utc)
+                   VALUES(?,?,?,?,?)""",
+                (normalized_id, normalized_type, str(observed_at_utc or ""), self._serialize_metadata(metadata or {}), now),
+            )
+        return int(cursor.rowcount or 0) == 1
+
+    @classmethod
+    def migrate_legacy_store(
+        cls,
+        db_path: str | Path,
+        *,
+        scrub_legacy_secrets: bool = False,
+        scrub_authorized_by: str | None = None,
+        legacy_backup_path: str | Path | None = None,
+    ) -> "SqliteProvisionalMemoryStore":
+        """Explicit migration entry point; default is abort-on-secret, never silent scrub."""
+        return cls(
+            db_path,
+            scrub_legacy_secrets=scrub_legacy_secrets,
+            scrub_authorized_by=scrub_authorized_by,
+            legacy_backup_path=legacy_backup_path,
+        )
 
     @staticmethod
     def _serialize_refs(source_refs: list[SourceRef]) -> str:
@@ -646,6 +1046,16 @@ class SqliteProvisionalMemoryStore:
             updated_at=datetime.fromisoformat(str(row["updated_at"])),
             last_reinforced_at=datetime.fromisoformat(str(row["last_reinforced_at"])) if row["last_reinforced_at"] else None,
             metadata={str(k): str(v) for k, v in json.loads(row["metadata_json"] or "{}").items()},
+            authority_tier=ProvisionalAuthorityTier(str(row["authority_tier"]) if "authority_tier" in row.keys() else "provisional_observed"),
+            maturity=ProvisionalMaturity(str(row["maturity"]) if "maturity" in row.keys() else "observed"),
+            lifecycle=ProvisionalLifecycle(str(row["lifecycle"]) if "lifecycle" in row.keys() else "active"),
+            derived=bool(row["derived"]) if "derived" in row.keys() else False,
+            input_record_ids=[str(item) for item in json.loads(row["input_record_ids_json"] or "[]")] if "input_record_ids_json" in row.keys() else [],
+            independent_support_count=int(row["independent_support_count"]) if "independent_support_count" in row.keys() else 0,
+            distinct_session_count=int(row["distinct_session_count"]) if "distinct_session_count" in row.keys() else 0,
+            last_independent_support_at=(datetime.fromisoformat(str(row["last_independent_support_at"])) if "last_independent_support_at" in row.keys() and row["last_independent_support_at"] else None),
+            policy_version=str(row["policy_version"]) if "policy_version" in row.keys() else "v0.2",
+            claim_key=str(row["claim_key"]) if "claim_key" in row.keys() else str(row["dedupe_key"]),
         )
 
     @staticmethod
@@ -681,7 +1091,7 @@ class SqliteProvisionalMemoryStore:
             ),
             event_type=event_type,
             record_id=record_id,
-            timestamp=_now_utc(),
+            timestamp=self._clock(),
             reason=reason,
             source_refs=list(source_refs),
             metadata=dict(metadata or {}),
@@ -752,7 +1162,7 @@ class SqliteProvisionalMemoryStore:
         if row is not None:
             record = self._row_to_record(row)
             if record.status in _LIVE_STATUSES:
-                now = _now_utc()
+                now = self._clock()
                 updated_refs = record.source_refs + list(candidate.source_refs)
                 updated_confidence = max(record.confidence, candidate.confidence)
                 updated_salience = max(record.salience, candidate.salience)
@@ -787,7 +1197,7 @@ class SqliteProvisionalMemoryStore:
                 )
                 return self.get_record(record.record_id)
 
-        now = _now_utc()
+        now = self._clock()
         record = _build_record(
             candidate,
             record_id=_record_id_for_candidate(
@@ -837,6 +1247,177 @@ class SqliteProvisionalMemoryStore:
         )
         return self.get_record(record.record_id)
 
+    def register_source(
+        self,
+        *,
+        source_id: str,
+        message_id: str,
+        source_role: str,
+        content: str,
+        session_id: str,
+    ) -> EvidenceRegistration:
+        """Create a stateless, store-bound registration primitive (no memory write)."""
+        role = str(source_role).strip().lower()
+        if role not in {"user", "tool", "external"}:
+            raise ValueError("only user/tool/external spans may be registered")
+        digest = _content_digest(content)
+        source_id, message_id = str(source_id).strip(), str(message_id).strip()
+        if not source_id or not message_id:
+            raise ValueError("source_id and message_id are required")
+        payload = "|".join((self.store_uuid, source_id, message_id, role, digest, str(session_id).strip()))
+        return EvidenceRegistration(source_id, message_id, role, digest, str(session_id).strip(), sha256(payload.encode("utf-8")).hexdigest())
+
+    def observe_candidate(
+        self,
+        candidate: ProvisionalMemoryCandidate,
+        *,
+        reason: str,
+        registration: EvidenceRegistration | None = None,
+        assistant_receipt_valid: bool = False,
+    ) -> ObservationDisposition:
+        """Persist one candidate and count only registered independent evidence once."""
+        assert_safe_content([candidate.canonical_text, candidate.metadata, candidate.content])
+        content = candidate.content or candidate.canonical_text
+        digest = _content_digest(content)
+        registered = registration is not None and registration.content_digest == digest and registration.source_role == candidate.source_role
+        if registration is not None:
+            registered = registered and registration.source_id == candidate.source_id and registration.message_id == candidate.message_id
+        supporting = source_role_eligible(
+            candidate.source_role,
+            kind=candidate.kind,
+            registered=registered,
+            assistant_receipt_valid=assistant_receipt_valid,
+        )
+        source_id = candidate.source_id or ""
+        message_id = candidate.message_id or ""
+        fingerprint: str | None = None
+        if supporting and source_id and message_id:
+            fingerprint = _evidence_fingerprint(
+                store_uuid=self.store_uuid,
+                source_id=source_id,
+                message_id=message_id,
+                span_start=candidate.span_start,
+                span_end=candidate.span_end,
+                source_role=candidate.source_role,
+                content_digest=digest,
+            )
+            with self._lock:
+                collision = self._conn.execute(
+                    "SELECT content_digest FROM provisional_evidence_units WHERE source_id=? AND message_id=? AND span_start=? AND span_end=? AND source_role=?",
+                    (source_id, message_id, candidate.span_start, candidate.span_end, candidate.source_role),
+                ).fetchone()
+            if collision is not None and str(collision["content_digest"]) != digest:
+                raise ValueError("EVIDENCE_IDENTITY_CONFLICT")
+            with self._lock:
+                present = self._conn.execute(
+                    "SELECT record_id FROM provisional_evidence_units WHERE evidence_fingerprint=?", (fingerprint,)
+                ).fetchone()
+            if present is not None:
+                return ObservationDisposition(str(present["record_id"]), 0, fingerprint, "replay")
+        record = self.upsert_candidate(candidate, reason=reason)
+        if not supporting:
+            return ObservationDisposition(record.record_id, 0, None, "unregistered_or_ineligible")
+        source_id = source_id or f"fallback:{record.record_id}"
+        message_id = message_id or f"fallback:{digest}"
+        fingerprint = fingerprint or _evidence_fingerprint(
+            store_uuid=self.store_uuid, source_id=source_id, message_id=message_id,
+            span_start=candidate.span_start, span_end=candidate.span_end,
+            source_role=candidate.source_role, content_digest=digest,
+        )
+        with self._lock, self._conn:
+            collision = self._conn.execute(
+                "SELECT content_digest FROM provisional_evidence_units WHERE source_id=? AND message_id=? AND span_start=? AND span_end=? AND source_role=?",
+                (source_id, message_id, candidate.span_start, candidate.span_end, candidate.source_role),
+            ).fetchone()
+            if collision is not None and str(collision["content_digest"]) != digest:
+                raise ValueError("EVIDENCE_IDENTITY_CONFLICT")
+            present = self._conn.execute("SELECT record_id FROM provisional_evidence_units WHERE evidence_fingerprint=?", (fingerprint,)).fetchone()
+            if present is not None:
+                return ObservationDisposition(record.record_id, 0, fingerprint, "replay")
+            now = self._clock()
+            self._conn.execute(
+                "INSERT INTO provisional_evidence_units VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                (fingerprint, record.record_id, source_id, message_id, candidate.span_start, candidate.span_end,
+                 candidate.source_role, digest, candidate.session_id, now.isoformat()),
+            )
+            supports = self._conn.execute("SELECT COUNT(*) FROM provisional_evidence_units WHERE record_id=?", (record.record_id,)).fetchone()[0]
+            sessions = self._conn.execute("SELECT COUNT(DISTINCT session_id) FROM provisional_evidence_units WHERE record_id=?", (record.record_id,)).fetchone()[0]
+            maturity = ProvisionalMaturity.REINFORCED.value if supports >= 2 else ProvisionalMaturity.OBSERVED.value
+            self._conn.execute(
+                "UPDATE provisional_records SET independent_support_count=?, distinct_session_count=?, maturity=?, last_independent_support_at=?, lifecycle=?, status=? WHERE record_id=?",
+                (supports, sessions, maturity, now.isoformat(), ProvisionalLifecycle.ACTIVE.value, ProvisionalMemoryStatus.ACTIVE.value, record.record_id),
+            )
+        return ObservationDisposition(record.record_id, 1, fingerprint, "accepted")
+
+    def set_lifecycle(self, record_id: str, lifecycle: ProvisionalLifecycle, *, reason: str) -> ProvisionalMemoryRecord:
+        record = self.get_record(record_id)
+        if record.derived and record.status is ProvisionalMemoryStatus.SUPERSEDED:
+            return record
+        status = {
+            ProvisionalLifecycle.ACTIVE: ProvisionalMemoryStatus.ACTIVE,
+            ProvisionalLifecycle.DORMANT: ProvisionalMemoryStatus.DORMANT,
+            ProvisionalLifecycle.ARCHIVED: ProvisionalMemoryStatus.ARCHIVED,
+        }[lifecycle]
+        now = self._clock()
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE provisional_records SET lifecycle=?, status=?, updated_at=? WHERE record_id=?",
+                (lifecycle.value, status.value, now.isoformat(), record_id),
+            )
+        self._append_event(
+            event_type=ProvisionalMemoryEventType.ARCHIVE if lifecycle is ProvisionalLifecycle.ARCHIVED else ProvisionalMemoryEventType.DORMANT,
+            record_id=record_id, reason=reason, source_refs=[], metadata={"lifecycle": lifecycle.value},
+        )
+        return self.get_record(record_id)
+
+    def create_consolidated_revision(
+        self, *, record_ids: list[str], policy_version: str = "v0.2", reason: str = "threshold_met"
+    ) -> ProvisionalMemoryRecord | None:
+        """Create an immutable derived revision for one exact claim/input set."""
+        inputs = [self.get_record(record_id) for record_id in sorted(set(record_ids))]
+        if not inputs or any(record.conflict_with_record_ids or record.status is not ProvisionalMemoryStatus.ACTIVE for record in inputs):
+            return None
+        claim_keys = {record.claim_key or _dedupe_key(kind=record.kind.value, canonical_text=record.canonical_text, source_role=record.source_role) for record in inputs}
+        if len(claim_keys) != 1:
+            return None
+        fingerprints: list[str] = []
+        with self._lock:
+            for record in inputs:
+                fingerprints.extend(str(row[0]) for row in self._conn.execute(
+                    "SELECT evidence_fingerprint FROM provisional_evidence_units WHERE record_id=? ORDER BY evidence_fingerprint", (record.record_id,)
+                ).fetchall())
+        if not fingerprints:
+            return None
+        derivation_id = sha256("|".join([next(iter(claim_keys)), *sorted(set(fingerprints)), policy_version]).encode("utf-8")).hexdigest()
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM provisional_records WHERE metadata_json LIKE ?", (f'%"derivation_id": "{derivation_id}"%',)).fetchone()
+        if row is not None:
+            return self._row_to_record(row)
+        now = self._clock()
+        summary = inputs[0].canonical_text
+        record_id = f"prov_con_{derivation_id[:16]}"
+        source_refs = [ref for record in inputs for ref in record.source_refs]
+        sessions = len({session for record in inputs for session in _session_ids_from_metadata(record.metadata, fallback_session_id=record.session_id)})
+        with self._lock, self._conn:
+            prior = self._conn.execute(
+                "SELECT record_id FROM provisional_records WHERE authority_tier=? AND claim_key=? AND status=? ORDER BY created_at DESC LIMIT 1",
+                (ProvisionalAuthorityTier.CONSOLIDATED.value, next(iter(claim_keys)), ProvisionalMemoryStatus.ACTIVE.value),
+            ).fetchone()
+            self._conn.execute(
+                """INSERT INTO provisional_records(record_id,kind,canonical_text,source_refs_json,source_role,session_id,confidence,salience,stability,reinforcement_count,status,supersedes_record_id,superseded_by_record_id,conflict_with_json,created_at,updated_at,last_reinforced_at,metadata_json,dedupe_key,authority_tier,maturity,lifecycle,derived,input_record_ids_json,independent_support_count,distinct_session_count,last_independent_support_at,policy_version,claim_key)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (record_id, inputs[0].kind.value, summary, self._serialize_refs(source_refs), inputs[0].source_role, inputs[0].session_id,
+                 max(r.confidence for r in inputs), max(r.salience for r in inputs), max(r.stability for r in inputs), len(fingerprints),
+                 ProvisionalMemoryStatus.ACTIVE.value, prior["record_id"] if prior else None, None, "[]", now.isoformat(), now.isoformat(), now.isoformat(),
+                 self._serialize_metadata({"derivation_id": derivation_id, "reason": reason}), derivation_id,
+                 ProvisionalAuthorityTier.CONSOLIDATED.value, ProvisionalMaturity.CONSOLIDATED.value, ProvisionalLifecycle.ACTIVE.value, 1,
+                 json.dumps([r.record_id for r in inputs]), len(fingerprints), sessions, now.isoformat(), policy_version, next(iter(claim_keys))),
+            )
+            if prior:
+                self._conn.execute("UPDATE provisional_records SET status=?, superseded_by_record_id=?, updated_at=? WHERE record_id=?", (ProvisionalMemoryStatus.SUPERSEDED.value, record_id, now.isoformat(), prior["record_id"]))
+        self._append_event(event_type=ProvisionalMemoryEventType.CONSOLIDATE, record_id=record_id, reason=reason, source_refs=source_refs, metadata={"input_record_ids": json.dumps([r.record_id for r in inputs])})
+        return self.get_record(record_id)
+
     def mark_conflict(
         self,
         record_id: str,
@@ -850,7 +1431,7 @@ class SqliteProvisionalMemoryStore:
             raise ValueError("conflict requires two distinct provisional records")
         if left.status not in _LIVE_STATUSES or right.status not in _LIVE_STATUSES:
             raise ValueError("only live provisional records can be marked conflicted")
-        now = _now_utc().isoformat()
+        now = self._clock().isoformat()
         left_conflicts = _dedupe_ids(list(left.conflict_with_record_ids) + [right.record_id])
         right_conflicts = _dedupe_ids(list(right.conflict_with_record_ids) + [left.record_id])
         with self._lock, self._conn:
@@ -912,7 +1493,7 @@ class SqliteProvisionalMemoryStore:
                 source_role=replacement_candidate.source_role,
                 supersedes_record_id=previous.record_id,
             ),
-            now=_now_utc(),
+            now=self._clock(),
             supersedes_record_id=previous.record_id,
         )
         replacement.conflict_with_record_ids = list(previous.conflict_with_record_ids)
@@ -932,7 +1513,7 @@ class SqliteProvisionalMemoryStore:
                 (
                     ProvisionalMemoryStatus.SUPERSEDED.value,
                     replacement.record_id,
-                    _now_utc().isoformat(),
+                    self._clock().isoformat(),
                     previous.record_id,
                 ),
             )
@@ -1027,7 +1608,7 @@ class SqliteProvisionalMemoryStore:
             ),
             event_type=ProvisionalMemoryEventType.NEAR_DUPLICATE,
             record_id=record.record_id,
-            timestamp=_now_utc(),
+            timestamp=self._clock(),
             reason="near_duplicate_detected",
             source_refs=list(other.source_refs),
             metadata={
@@ -1138,13 +1719,20 @@ class SqliteProvisionalMemoryStore:
 
 
 __all__ = [
+    "EvidenceRegistration",
     "InMemoryProvisionalMemoryStore",
+    "ObservationDisposition",
+    "ProvisionalAuthorityTier",
     "ProvisionalMemoryCandidate",
     "ProvisionalMemoryEvent",
     "ProvisionalMemoryEventType",
     "ProvisionalMemoryKind",
+    "ProvisionalLifecycle",
+    "ProvisionalMaturity",
     "ProvisionalMemoryRecord",
     "ProvisionalMemoryStatus",
     "ProvisionalSearchHit",
+    "SourceRole",
     "SqliteProvisionalMemoryStore",
+    "source_role_eligible",
 ]

@@ -37,6 +37,8 @@ If you are just wiring MNO into an existing Nanobot-shaped client, the adapter i
 
 If you are designing a new Nanobot-side integration, prefer `integration-v1`.
 
+For new live-memory behavior, use HTTP `context.build` → model turn → `memory.observe` with the server-issued signed handles. This is distinct from importing a source archive and remains below evidence atoms and reviewed truth.
+
 ## WSS continuity helper
 
 Nanobot context-package calls can receive WSS only when strict work-session scope is supplied. The block is `scratchpad_ephemeral` helper state for work continuity. It is not memory evidence and should not be used to justify a user-facing memory claim.

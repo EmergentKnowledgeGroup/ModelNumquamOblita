@@ -414,3 +414,22 @@ def test_sqlite_and_inmemory_raw_context_slice_have_parity(tmp_path: Path) -> No
     assert sqlite_payload == mem_payload
     assert len(mem_token) >= 8
     assert len(sqlite_token) >= 8
+
+
+def test_sqlite_atom_store_backup_captures_live_wal_state(tmp_path: Path) -> None:
+    store = SqliteAtomStore(tmp_path / "live.sqlite3")
+    atom = store.add_candidate(_candidate(text="Backup keeps this evidence.", source="backup_source"))
+    backup_path = store.backup_to(tmp_path / "backups" / "atoms.sqlite3")
+    store.close()
+
+    backup = SqliteAtomStore(backup_path)
+    try:
+        assert backup.get_atom(atom.atom_id).canonical_text == "Backup keeps this evidence."
+        identity = backup.runtime_control_identity()
+    finally:
+        backup.close()
+    reopened = SqliteAtomStore(backup_path)
+    try:
+        assert reopened.runtime_control_identity() == identity
+    finally:
+        reopened.close()

@@ -322,7 +322,7 @@ def wsl_path_from_windows(
         return posix_path, inferred_distro or unc_distro
     if raw.startswith("/"):
         return raw, inferred_distro
-    if len(raw) >= 2 and raw[0].isalpha() and raw[1] == ":":
+    if len(raw) >= 3 and raw[0].isalpha() and raw[1] == ":" and raw[2] in {"\\", "/"}:
         drive = raw[0].lower()
         remainder = raw[2:].replace("\\", "/").lstrip("/")
         converted = f"/mnt/{drive}/{remainder}" if remainder else f"/mnt/{drive}"

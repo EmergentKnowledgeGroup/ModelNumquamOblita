@@ -102,6 +102,32 @@ def test_windows_drive_paths_convert_without_live_wsl() -> None:
     assert distro == "Ubuntu-24.04"
 
 
+def test_windows_drive_relative_paths_are_resolved_by_wslpath() -> None:
+    module = _load_module()
+    calls: list[list[str]] = []
+
+    class _Proc:
+        returncode = 0
+        stdout = "/home/user/relative/file\n"
+        stderr = ""
+
+    def _runner(cmd, **_kwargs):
+        calls.append(cmd)
+        return _Proc()
+
+    converted, distro = module.wsl_path_from_windows(
+        r"C:relative\file",
+        distro_name="Ubuntu-24.04",
+        runner=_runner,
+    )
+
+    assert converted == "/home/user/relative/file"
+    assert distro == "Ubuntu-24.04"
+    assert len(calls) == 1
+    assert calls[0][0].lower().endswith("wsl.exe")
+    assert calls[0][1:] == ["-d", "Ubuntu-24.04", "wslpath", "-a", "C:relative/file"]
+
+
 def test_detect_wsl_distro_returns_empty_when_command_is_missing() -> None:
     module = _load_module()
 

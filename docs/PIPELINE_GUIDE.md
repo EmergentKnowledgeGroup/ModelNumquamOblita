@@ -148,6 +148,14 @@ These are not part of the build/import truth path:
 
 They are runtime helpers and operator surfaces, not replacements for reviewed truth.
 
+### v0.2 authority order
+
+`human_reviewed_canonical` → `evidence_atom` → `provisional_consolidated` → `provisional_observed`
+
+The arrow means authority, not a silent promotion path. Autonomous observation may mature only provisional records (`observed → reinforced → consolidated`) and cannot create canonical truth. A reviewer-applied writeback becomes an `evidence_atom` with `human_reviewed=false`; it still needs the normal build/review/publish path to become canonical. STM and WSS are not tiers in this order: they are scoped helper context and cannot support a durable factual claim.
+
+Raw import and live observation are different lanes. Import starts from source material and materializes evidence atoms. `memory.observe` records a completed live turn only when its independent source evidence is bound by signed source registrations and, for assistant candidates, a signed retrieval receipt. Repeated retrieval, replay, quotation, or generated summaries are not independent evidence.
+
 ## Contract rule
 
 Draft, proposal, and runtime-helper artifacts do not become reviewed truth unless they pass the explicit human-controlled path.

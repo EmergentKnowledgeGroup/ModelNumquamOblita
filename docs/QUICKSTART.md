@@ -77,7 +77,8 @@ python3 tools/import_memories.py \
 
 ```bash
 python3 tools/run_live_runtime.py \
-  --memories runtime/imports/atoms.sqlite3
+  --memories runtime/imports/atoms.sqlite3 \
+  --config runtime/state/mno-runtime-policy.v1.json
 ```
 
 3. Check health:
@@ -117,6 +118,15 @@ Manifest-based launch:
 python3 tools/run_live_runtime.py \
   --from-live-manifest runtime/live_runs/live_*/live_manifest.json
 ```
+
+The `--config` file selects the validated v0.2 runtime policy for both retrieval and session behavior. Omit it to use the setup-managed policy when present, or fresh standard defaults otherwise.
+
+### What live memory means
+
+- Importing a file creates durable evidence atoms.
+- Calling `memory.observe` after a live turn can create lower-authority provisional observations. User, tool, and external candidates require server-signed source registrations; assistant candidates require a server-signed retrieval receipt to contribute support.
+- “Remember this” still needs `writeback.propose`, then a human holding `review_apply` to resolve/apply it. Apply creates an `evidence_atom` with `human_reviewed=false`, not canonical truth.
+- STM and WSS help the current work/session but are not evidence.
 
 ## Desktop launch
 

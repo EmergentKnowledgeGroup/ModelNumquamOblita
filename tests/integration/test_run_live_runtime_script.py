@@ -72,6 +72,58 @@ def test_run_live_runtime_plan_only_memories_path(tmp_path: Path) -> None:
     assert "launch_mode=normal" in result.stdout
 
 
+def test_run_live_runtime_plan_only_loads_explicit_config(tmp_path: Path) -> None:
+    memories = tmp_path / "atoms.sqlite3"
+    store = SqliteAtomStore(memories)
+    store.close()
+    config = tmp_path / "runtime-policy.json"
+    config.write_text('{"provisional_memory":{"enabled":true}}', encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/run_live_runtime.py",
+            "--memories",
+            str(memories),
+            "--config",
+            str(config),
+            "--plan-only",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"config_path={config.resolve()}" in result.stdout
+
+
+def test_run_live_runtime_rejects_missing_config(tmp_path: Path) -> None:
+    memories = tmp_path / "atoms.sqlite3"
+    store = SqliteAtomStore(memories)
+    store.close()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/run_live_runtime.py",
+            "--memories",
+            str(memories),
+            "--config",
+            str(tmp_path / "missing.json"),
+            "--plan-only",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "config path not found" in result.stdout
+
+
 def test_run_live_runtime_plan_only_from_manifest(tmp_path: Path) -> None:
     sqlite_path = tmp_path / "atoms.sqlite3"
     _build_store(sqlite_path)

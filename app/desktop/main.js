@@ -1522,6 +1522,7 @@ function buildLaunchPlan({ setupMode = false }) {
     repoRoot: state.repoRoot,
     runtimeManifest: runtimeBundleManifest,
     pythonCommand: cli.python || process.env.MNO_PYTHON || '',
+    config: cli.config || process.env.MNO_CONFIG || '',
     memories: setupMode ? '' : latestExpectedBinding.store_path,
     episodes: setupMode ? '' : latestExpectedBinding.episodes_path,
     host: desiredRuntimeHost(),

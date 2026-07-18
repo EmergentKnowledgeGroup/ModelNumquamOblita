@@ -1,8 +1,13 @@
 """Memory subsystem exports."""
 
-from .mutation_queue import MutationProposal, MutationReviewQueue, ProposalStatus
+from .mutation_queue import DecisionConflictError, MutationProposal, MutationReviewQueue, ProposalStatus
 from .provisional_store import (
+    EvidenceRegistration,
     InMemoryProvisionalMemoryStore,
+    ObservationDisposition,
+    ProvisionalAuthorityTier,
+    ProvisionalLifecycle,
+    ProvisionalMaturity,
     ProvisionalMemoryCandidate,
     ProvisionalMemoryEvent,
     ProvisionalMemoryEventType,
@@ -11,7 +16,9 @@ from .provisional_store import (
     ProvisionalMemoryStatus,
     ProvisionalSearchHit,
     SqliteProvisionalMemoryStore,
+    SourceRole,
 )
+from .provisional_maintenance import MaintenancePolicy, MaintenanceTransition, run_maintenance
 from .sqlite_store import SqliteAtomStore
 from .store import (
     AtomStatus,
@@ -29,15 +36,23 @@ __all__ = [
     "AtomStatus",
     "AtomStore",
     "ContradictionEdge",
+    "DecisionConflictError",
     "EventType",
+    "EvidenceRegistration",
     "MemoryAtom",
     "MutationProposal",
     "MutationReviewQueue",
+    "MaintenancePolicy",
+    "MaintenanceTransition",
+    "ObservationDisposition",
     "ProposalStatus",
     "ProvisionalMemoryCandidate",
+    "ProvisionalAuthorityTier",
     "ProvisionalMemoryEvent",
     "ProvisionalMemoryEventType",
     "ProvisionalMemoryKind",
+    "ProvisionalLifecycle",
+    "ProvisionalMaturity",
     "ProvisionalMemoryRecord",
     "ProvisionalMemoryStatus",
     "ProvisionalSearchHit",
@@ -48,4 +63,6 @@ __all__ = [
     "InMemoryProvisionalMemoryStore",
     "SqliteAtomStore",
     "SqliteProvisionalMemoryStore",
+    "SourceRole",
+    "run_maintenance",
 ]

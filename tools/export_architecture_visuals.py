@@ -564,7 +564,7 @@ def system_context() -> Diagram:
         Edge("verifier", "outcomes", "#bb5b54", target_pos=0.6),
     ]
     notes = [
-        Node("truth_rule", "Architectural invariant\nOnly reviewed cards become trusted truth. Atoms and wording receipts support evidence; WSS supports work continuity only.", 380, 845, 1010, 86, "note", 17, True)
+        Node("truth_rule", "Architectural invariant\nReviewed canonical truth > evidence atoms > consolidated provisional > observed provisional. STM/WSS support work continuity only.", 380, 845, 1010, 86, "note", 17, True)
     ]
     boundaries = [
         Boundary("truth gate", 398, 130, 640, "#bb5b54"),
@@ -605,7 +605,7 @@ def build_pipeline() -> Diagram:
         Node("review_ui", "Review pack and UI\napprove, edit, reject, annotate", 1145, 230, 260, 96, "govern"),
         Node("lineage", "Truth-lineage finalizer\ntruth_family_id, current flag, supersedes", 1145, 445, 260, 104, "govern"),
         Node("compiled", "Compiled reviewed cards\nepisode_cards.reviewed.json", 1525, 230, 250, 96, "review"),
-        Node("runtime", "Runtime memory registry\nreviewed cards + atoms + quote lane\nWSS sidecar stays helper-only", 1525, 445, 250, 104, "runtime"),
+        Node("runtime", "Runtime memory registry\nreviewed canonical + atoms + provisional + quote lane\nSTM/WSS stay helper-only", 1525, 445, 250, 104, "runtime"),
         Node("launch", "Launch surfaces\ndesktop, headless HTTP, MCP, integration-v1", 1525, 640, 250, 100, "integration"),
     ]
     edges = [
@@ -657,7 +657,7 @@ def runtime_retrieval() -> Diagram:
         Node("source_bus", "candidate\nbus", 732, 185, 86, 520, "bus", 11, True),
         Node("immediate", "Immediate context\ncurrent turn and request-local state", 420, 165, 270, 82, "source"),
         Node("stm", "STM / session state\nshort-term notes and rolling summary", 420, 275, 270, 82, "memory"),
-        Node("provisional", "Helper work state\nprovisional memory + strict active-scope WSS", 420, 385, 270, 82, "memory"),
+        Node("provisional", "Provisional memory\nobserved / reinforced / consolidated; below evidence atoms", 420, 385, 270, 82, "memory"),
         Node("reviewed", "Reviewed episodes\ntrusted event memory with lineage", 420, 495, 270, 82, "review"),
         Node("atoms_ann", "Atoms + bounded ANN\ncanonical evidence and additive candidates", 420, 605, 270, 92, "evidence"),
         Node("raw_context", "Raw-context sidecar\nexact wording and provenance only when asked", 420, 725, 270, 82, "evidence"),
@@ -669,7 +669,7 @@ def runtime_retrieval() -> Diagram:
         Node("verifier", "Verifier and answer path\nPASS, ABSTAIN, or CLARIFY", 1205, 640, 250, 98, "decision"),
         Node("answer", "Final response\nanswer text plus evidence metadata", 1600, 225, 220, 96, "integration"),
         Node("why", "context.why\nIDs, citations, and reason trail", 1600, 430, 220, 96, "integration"),
-        Node("proposal", "Proposal-only writeback\nno silent truth mutation", 1600, 635, 220, 96, "govern"),
+        Node("proposal", "Remember-this writeback\nreview_apply: create/edit → evidence; delete → tombstone; no canonical mutation", 1600, 635, 220, 96, "govern"),
     ]
     edges = [
         Edge("turn", "query", "#b97818", source_side="bottom", target_side="top"),
@@ -692,7 +692,7 @@ def runtime_retrieval() -> Diagram:
         Edge("verifier", "proposal", "#bb5b54", source_pos=0.66, target_pos=0.5),
     ]
     notes = [
-        Node("runtime_rule", "Decision rule\nRetrieval success is not authority. WSS can help resume work under strict active scope, but cannot prove memory.", 635, 885, 750, 78, "note", 17, True)
+        Node("runtime_rule", "Decision rule\nRetrieval/replay/summary is not independent support. WSS can resume work under strict scope, but cannot prove memory.", 635, 885, 750, 78, "note", 17, True)
     ]
     return Diagram(
         "mno-architecture-runtime-retrieval",
@@ -721,14 +721,14 @@ def memory_trust_boundaries() -> Diagram:
     nodes = [
         Node("immediate", "Immediate context\ncurrent turn and request-local state", 95, 185, 250, 74, "source"),
         Node("stm", "STM / session state\nshort-term notes and rolling summary", 95, 385, 250, 78, "memory"),
-        Node("provisional", "Helper work state\nprovisional memory + strict active-scope WSS", 95, 485, 250, 78, "memory"),
+        Node("provisional", "Provisional memory\nobserved / reinforced / consolidated; below evidence atoms", 95, 485, 250, 78, "memory"),
         Node("atoms", "Canonical atom store\nsmall evidence units with provenance", 95, 675, 250, 78, "evidence"),
         Node("reviewed", "Reviewed episode cards\ntrusted runtime event memory", 505, 185, 300, 82, "review"),
         Node("lineage", "Truth-lineage metadata\ncurrent vs superseded reviewed truth", 505, 310, 300, 82, "review"),
-        Node("queue", "Mutation review queue\nproposals wait for operator resolve", 505, 540, 300, 82, "govern"),
+        Node("queue", "Mutation review queue\nreview_apply may materialize human_reviewed=false evidence atom", 505, 540, 300, 82, "govern"),
         Node("raw_context", "Raw-context receipts\nread-only exact wording support", 505, 665, 300, 82, "evidence"),
         Node("read_bus", "layered\nread bus", 900, 220, 78, 490, "bus", 12, True),
-        Node("rank", "Rank and resolve\nreviewed truth outranks helper memory", 1045, 205, 400, 92, "runtime"),
+        Node("rank", "Rank and resolve\nreviewed canonical > evidence atom > provisional; helper context is separate", 1045, 205, 400, 92, "runtime"),
         Node("bound", "Bounded context package\ncitations, IDs, source scope, scratchpad_ephemeral WSS by strict active scope", 1045, 370, 400, 92, "evidence"),
         Node("verify", "Verifier\npasses, abstains, or asks to clarify", 1045, 535, 400, 92, "decision"),
         Node("proposal", "Proposal output path\nnew memory cannot enter truth silently", 1045, 680, 400, 78, "govern"),
@@ -749,7 +749,7 @@ def memory_trust_boundaries() -> Diagram:
         Edge("queue", "reviewed", "#bb5b54", source_side="left", target_side="bottom", source_pos=0.35, target_pos=0.5, dashed=True, vias=((435, 569), (435, 300), (655, 300))),
     ]
     notes = [
-        Node("trust_note", "Trust ordering\nreviewed truth carries authority; raw receipts support evidence; WSS scratchpad_ephemeral supports work continuity, not proof.", 410, 845, 905, 78, "note", 17, True)
+        Node("trust_note", "Trust ordering\nreviewed canonical > evidence atom > consolidated provisional > observed provisional. WSS/STM support continuity, not proof.", 410, 845, 905, 78, "note", 17, True)
     ]
     boundaries = [Boundary("authority boundary", 430, 150, 640, "#bb5b54"), Boundary("runtime read boundary", 970, 150, 640, "#5f78c8")]
     return Diagram(
@@ -782,8 +782,8 @@ def integration_contract() -> Diagram:
         Node("clients", "Agent or app client\norchestrator hot loop", 85, 605, 245, 82, "source"),
         Node("contract_bus", "integration-v1\ncontract bus", 376, 205, 96, 450, "bus", 10, True),
         Node("turn", "Turn request\ninput, mode, scope, memory policy", 485, 185, 270, 82, "integration"),
-        Node("context", "Context package\nbounded evidence plus strict active-scope scratchpad_ephemeral WSS", 485, 315, 270, 82, "evidence"),
-        Node("propose", "Memory propose/resolve\nexplicit writeback path", 485, 445, 270, 82, "govern"),
+        Node("context", "Context build\nread-only package plus signed registration/receipt; WSS only under strict active scope", 485, 315, 270, 82, "evidence"),
+        Node("propose", "Observe / writeback\nmemory.observe is provisional; review_apply create/edit → evidence, delete → tombstone", 485, 445, 270, 82, "govern"),
         Node("health", "Health and metadata\ncapabilities, version, diagnostics", 485, 575, 270, 82, "store"),
         Node("session", "RuntimeSession\nmain entry and orchestration", 925, 210, 260, 92, "runtime"),
         Node("retrieval", "Retrieval engine\nmemory fusion and evidence assembly", 925, 375, 260, 96, "runtime"),
@@ -816,7 +816,7 @@ def integration_contract() -> Diagram:
         Edge("store", "writeback", "#bb5b54", source_pos=0.65, target_pos=0.5),
     ]
     notes = [
-        Node("contract_rule", "Integration rule\nNew integrations should prefer integration-v1. WSS enters only through strict active-scope context packages, not a truth contract.", 585, 870, 920, 78, "note", 17, True)
+        Node("contract_rule", "Integration rule\nUse context.build → memory.observe for live provisional memory. WSS enters strict-scope context only, never the truth contract.", 585, 870, 920, 78, "note", 17, True)
     ]
     boundaries = [Boundary("preferred public boundary", 415, 145, 660, "#8b5fbf")]
     return Diagram(

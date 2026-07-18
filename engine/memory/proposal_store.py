@@ -54,6 +54,8 @@ class ProposalStatus(str, Enum):
 class ProposalEventType(str, Enum):
     ADD = "ADD"
     REINFORCE = "REINFORCE"
+    DISMISS = "DISMISS"
+    BRIDGE = "BRIDGE"
 
 
 @dataclass(slots=True)
@@ -213,6 +215,48 @@ class InMemoryProposalStore:
     def list_records(self) -> list[ProposalRecord]:
         return sorted(self._records.values(), key=lambda item: (item.created_at, item.record_id))
 
+    def get_record(self, record_id: str) -> ProposalRecord:
+        return self._records[str(record_id)]
+
+    def dismiss(self, record_id: str, *, actor: str, reason_code: str) -> ProposalRecord:
+        record = self.get_record(record_id)
+        if record.status is ProposalStatus.REVIEWED:
+            raise ValueError("reviewed proposal cannot be dismissed")
+        if record.status is ProposalStatus.DISMISSED:
+            return record
+        record.status = ProposalStatus.DISMISSED
+        record.updated_at = _now_utc()
+        record.metadata.update({"dismissed_by": str(actor), "dismiss_reason_code": str(reason_code)})
+        self._append_event(
+            event_type=ProposalEventType.DISMISS,
+            record_id=record.record_id,
+            reason=str(reason_code),
+            source_refs=[],
+            metadata={"actor": str(actor)},
+        )
+        return record
+
+    def mark_bridged(self, record_id: str, *, proposal_id: str, actor: str) -> ProposalRecord:
+        record = self.get_record(record_id)
+        existing = str(record.metadata.get("bridge_proposal_id") or "")
+        if existing and existing != str(proposal_id):
+            raise ValueError("proposal already bridged")
+        if record.status is ProposalStatus.DISMISSED:
+            raise ValueError("dismissed proposal cannot be bridged")
+        if existing:
+            return record
+        record.status = ProposalStatus.REVIEWED
+        record.updated_at = _now_utc()
+        record.metadata.update({"bridge_proposal_id": str(proposal_id), "bridged_by": str(actor)})
+        self._append_event(
+            event_type=ProposalEventType.BRIDGE,
+            record_id=record.record_id,
+            reason="source_backed_review_bridge",
+            source_refs=record.source_refs,
+            metadata={"actor": str(actor), "proposal_id": str(proposal_id)},
+        )
+        return record
+
     def list_events(self) -> list[ProposalEvent]:
         return list(self._events)
 
@@ -295,6 +339,17 @@ class SqliteProposalStore:
         with self._lock:
             self._conn.close()
 
+    def backup_to(self, target_path: str | Path) -> Path:
+        """Create a transactionally consistent SQLite backup of proposal-only state."""
+        target = Path(target_path).expanduser().resolve()
+        source = self.db_path.expanduser().resolve()
+        if target == source:
+            raise ValueError("backup target must differ from the live store")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock, sqlite3.connect(str(target)) as destination:
+            self._conn.backup(destination)
+        return target
+
     @staticmethod
     def _serialize_refs(source_refs: list[SourceRef]) -> str:
         return json.dumps([contract_to_dict(ref) for ref in source_refs], ensure_ascii=False)
@@ -345,39 +400,47 @@ class SqliteProposalStore:
         metadata: dict[str, str] | None = None,
     ) -> None:
         with self._lock:
-            row = self._conn.execute("SELECT COUNT(*) AS count FROM proposal_events").fetchone()
-            ordinal = int(row["count"]) + 1 if row else 1
-        event = ProposalEvent(
-            event_id=_event_id(
-                event_type=event_type.value,
-                record_id=record_id,
-                reason=reason,
-                ordinal=ordinal,
-            ),
-            event_type=event_type,
-            record_id=record_id,
-            timestamp=_now_utc(),
-            reason=reason,
-            source_refs=list(source_refs),
-            metadata=dict(metadata or {}),
-        )
-        with self._lock, self._conn:
-            self._conn.execute(
-                """
-                INSERT INTO proposal_events (
-                    event_id, event_type, record_id, timestamp, reason, source_refs_json, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event.event_id,
-                    event.event_type.value,
-                    event.record_id,
-                    event.timestamp.isoformat(),
-                    event.reason,
-                    self._serialize_refs(event.source_refs),
-                    self._serialize_metadata(event.metadata),
-                ),
-            )
+            owns_transaction = not self._conn.in_transaction
+            try:
+                row = self._conn.execute("SELECT COUNT(*) AS count FROM proposal_events").fetchone()
+                ordinal = int(row["count"]) + 1 if row else 1
+                event = ProposalEvent(
+                    event_id=_event_id(
+                        event_type=event_type.value,
+                        record_id=record_id,
+                        reason=reason,
+                        ordinal=ordinal,
+                    ),
+                    event_type=event_type,
+                    record_id=record_id,
+                    timestamp=_now_utc(),
+                    reason=reason,
+                    source_refs=list(source_refs),
+                    metadata=dict(metadata or {}),
+                )
+                self._conn.execute(
+                    """
+                    INSERT INTO proposal_events (
+                        event_id, event_type, record_id, timestamp, reason, source_refs_json, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event.event_id,
+                        event.event_type.value,
+                        event.record_id,
+                        event.timestamp.isoformat(),
+                        event.reason,
+                        self._serialize_refs(event.source_refs),
+                        self._serialize_metadata(event.metadata),
+                    ),
+                )
+            except Exception:
+                if owns_transaction:
+                    self._conn.rollback()
+                raise
+            else:
+                if owns_transaction:
+                    self._conn.commit()
 
     def upsert_candidate(self, candidate: ProposalCandidate, *, reason: str) -> ProposalRecord:
         with self._lock:
@@ -461,6 +524,73 @@ class SqliteProposalStore:
                 (record_id,),
             ).fetchall()
         return [self._row_to_record(row) for row in rows]
+
+    def get_record(self, record_id: str) -> ProposalRecord:
+        rows = self._records_for_id(str(record_id))
+        if not rows:
+            raise KeyError(str(record_id))
+        return rows[0]
+
+    def _update_status(
+        self,
+        record_id: str,
+        *,
+        status: ProposalStatus,
+        metadata: dict[str, str],
+        event_type: ProposalEventType,
+        reason: str,
+        source_refs: list[SourceRef],
+    ) -> ProposalRecord:
+        record = self.get_record(record_id)
+        merged_metadata = dict(record.metadata)
+        merged_metadata.update({str(key): str(value) for key, value in metadata.items()})
+        now = _now_utc()
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE proposal_records SET status = ?, updated_at = ?, metadata_json = ? WHERE record_id = ?",
+                (status.value, now.isoformat(), self._serialize_metadata(merged_metadata), record.record_id),
+            )
+            self._append_event(
+                event_type=event_type,
+                record_id=record.record_id,
+                reason=reason,
+                source_refs=source_refs,
+                metadata=metadata,
+            )
+        return self.get_record(record.record_id)
+
+    def dismiss(self, record_id: str, *, actor: str, reason_code: str) -> ProposalRecord:
+        record = self.get_record(record_id)
+        if record.status is ProposalStatus.REVIEWED:
+            raise ValueError("reviewed proposal cannot be dismissed")
+        if record.status is ProposalStatus.DISMISSED:
+            return record
+        return self._update_status(
+            record.record_id,
+            status=ProposalStatus.DISMISSED,
+            metadata={"dismissed_by": str(actor), "dismiss_reason_code": str(reason_code)},
+            event_type=ProposalEventType.DISMISS,
+            reason=str(reason_code),
+            source_refs=[],
+        )
+
+    def mark_bridged(self, record_id: str, *, proposal_id: str, actor: str) -> ProposalRecord:
+        record = self.get_record(record_id)
+        existing = str(record.metadata.get("bridge_proposal_id") or "")
+        if existing and existing != str(proposal_id):
+            raise ValueError("proposal already bridged")
+        if record.status is ProposalStatus.DISMISSED:
+            raise ValueError("dismissed proposal cannot be bridged")
+        if existing:
+            return record
+        return self._update_status(
+            record.record_id,
+            status=ProposalStatus.REVIEWED,
+            metadata={"bridge_proposal_id": str(proposal_id), "bridged_by": str(actor)},
+            event_type=ProposalEventType.BRIDGE,
+            reason="source_backed_review_bridge",
+            source_refs=record.source_refs,
+        )
 
     def list_records(self) -> list[ProposalRecord]:
         with self._lock:

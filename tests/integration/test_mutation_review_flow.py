@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
 from engine.contracts import AtomType, CandidateAtom, SourceRef, WriteAction
-from engine.memory import AtomStatus, AtomStore, EventType, MutationReviewQueue, ProposalStatus
+from engine.memory import AtomStatus, AtomStore, EventType, MutationReviewQueue, ProposalStatus, SqliteAtomStore
 from engine.write_gate import DeterministicJudgmentAdapter, StageBContext, StageBWriteGate
 
 
@@ -64,8 +65,7 @@ def test_mutation_queue_blocks_autonomous_delete_and_supports_tombstone_purge() 
     queue.approve(proposal.proposal_id, reviewer="tester")
     applied = queue.apply(proposal.proposal_id)
     assert applied.status is ProposalStatus.APPLIED
-    with pytest.raises(ValueError, match="pending"):
-        queue.approve(proposal.proposal_id, reviewer="tester")
+    assert queue.approve(proposal.proposal_id, reviewer="tester").status is ProposalStatus.APPLIED
     tombstoned = store.get_atom(atom.atom_id)
     assert tombstoned.status is AtomStatus.TOMBSTONED
     assert queue.run_purge(now=tombstoned.purge_after - timedelta(seconds=1)) == []
@@ -77,8 +77,7 @@ def test_mutation_queue_blocks_autonomous_delete_and_supports_tombstone_purge() 
 
     rejected = queue.propose_delete(target_atom_id=atom.atom_id, reason_code="noop")
     queue.reject(rejected.proposal_id, reviewer="tester", reason="already purged")
-    with pytest.raises(ValueError, match="pending"):
-        queue.reject(rejected.proposal_id, reviewer="tester", reason="duplicate")
+    assert queue.reject(rejected.proposal_id, reviewer="tester", reason="duplicate").status is ProposalStatus.REJECTED
 
 
 def test_mutation_queue_edit_flow_supersedes_without_overwrite() -> None:
@@ -143,3 +142,45 @@ def test_mutation_queue_create_flow_requires_approval_and_adds_new_atom() -> Non
     atoms = store.list_atoms()
     assert len(atoms) == 1
     assert atoms[0].canonical_text == "Thao finally came around on MonkeyBars and is in."
+
+
+def test_sqlite_apply_crash_before_commit_rolls_back_queue_and_atom(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    queue = MutationReviewQueue(store)
+    proposal = queue.propose_create(
+        candidate=_candidate(candidate_id="crash", text="Crash-safe atom", source_id="c", message_id="m"),
+        reason_code="explicit_remember",
+    )
+    queue.approve(proposal.proposal_id, actor="reviewer")
+    original = store.add_candidate
+
+    def fail_after_atom(*args, **kwargs):
+        original(*args, **kwargs)
+        raise RuntimeError("injected crash")
+
+    monkeypatch.setattr(store, "add_candidate", fail_after_atom)
+    with pytest.raises(RuntimeError, match="injected crash"):
+        queue.apply(proposal.proposal_id, actor="reviewer")
+    assert queue.get(proposal.proposal_id).status is ProposalStatus.APPROVED
+    assert store.list_atoms() == []
+    store.close()
+    restarted = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    assert MutationReviewQueue(restarted).get(proposal.proposal_id).status is ProposalStatus.APPROVED
+    assert restarted.list_atoms() == []
+
+
+def test_sqlite_same_decision_and_apply_retries_are_exact_once(tmp_path: Path) -> None:
+    store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    queue = MutationReviewQueue(store)
+    proposal = queue.propose_create(
+        candidate=_candidate(candidate_id="retry", text="Retry atom", source_id="c", message_id="m"),
+        reason_code="explicit_remember",
+    )
+    first_decision = queue.approve(proposal.proposal_id, actor="reviewer")
+    retry_decision = queue.approve(proposal.proposal_id, actor="reviewer")
+    first_apply = queue.apply(proposal.proposal_id, actor="reviewer")
+    retry_apply = queue.apply(proposal.proposal_id, actor="reviewer")
+    assert first_decision.status is ProposalStatus.APPROVED
+    assert retry_decision.status is ProposalStatus.APPROVED
+    assert first_apply.applied_atom_id == retry_apply.applied_atom_id
+    assert len(store.list_atoms()) == 1

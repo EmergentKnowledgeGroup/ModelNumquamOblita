@@ -15,7 +15,7 @@ def test_default_config_matches_locked_policy() -> None:
     assert cfg.decay.half_life_days == 180
     assert cfg.runtime.allow_autonomous_destructive_mutation is False
     assert cfg.runtime.require_uncertainty_citations is True
-    assert cfg.provisional_memory.enabled is False
+    assert cfg.provisional_memory.enabled is True
     assert cfg.provisional_memory.proposal_capture_enabled is False
     assert cfg.provisional_memory.default_sensitivity == "balanced"
     assert cfg.provisional_memory.inactivity_gap_seconds == 300
@@ -483,4 +483,22 @@ def test_load_config_validates_work_session_scratchpad_bounds(tmp_path: Path) ->
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match=r"work_session_scratchpad\.min_replaceability_score must be <= 1.0"):
+        load_config(path)
+
+
+def test_v02_fresh_and_upgrade_profiles_are_deliberately_distinct(tmp_path: Path) -> None:
+    fresh = default_config().provisional_memory
+    assert fresh.enabled and fresh.retrieval_enabled and fresh.consolidation_enabled
+    assert fresh.dormant_days == 90 and fresh.archive_days == 365
+    path = tmp_path / "v01.json"
+    path.write_text(json.dumps({"provisional_memory": {"default_sensitivity": "balanced"}}), encoding="utf-8")
+    upgrade = load_config(path, upgrade=True).provisional_memory
+    assert upgrade.policy_source == "custom"
+    assert not upgrade.enabled and not upgrade.retrieval_enabled and not upgrade.consolidation_enabled
+
+
+def test_v02_provisional_bounds_fail_closed(tmp_path: Path) -> None:
+    path = tmp_path / "invalid-v02.json"
+    path.write_text(json.dumps({"provisional_memory": {"dormant_days": 90, "archive_days": 90}}), encoding="utf-8")
+    with pytest.raises(ValueError, match="archive_days"):
         load_config(path)

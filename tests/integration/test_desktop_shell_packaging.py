@@ -223,13 +223,26 @@ def test_run_live_runtime_normal_mode_writes_and_releases_runtime_lock(tmp_path:
     assert not lock_path.exists(), "runtime lock was not released after runtime exit"
 
 
+def _electron_ci_sandbox_args() -> list[str]:
+    if os.environ.get("MNO_ELECTRON_TEST_NO_SANDBOX") == "1":
+        return ["--no-sandbox"]
+    return []
+
+
+def test_electron_ci_sandbox_args_require_explicit_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MNO_ELECTRON_TEST_NO_SANDBOX", raising=False)
+    assert _electron_ci_sandbox_args() == []
+    monkeypatch.setenv("MNO_ELECTRON_TEST_NO_SANDBOX", "1")
+    assert _electron_ci_sandbox_args() == ["--no-sandbox"]
+
+
 def test_desktop_shell_electron_smoke(tmp_path: Path) -> None:
     electron_bin = DESKTOP_ROOT / "node_modules" / ".bin" / "electron"
     if sys.platform.startswith("win"):
         electron_bin = DESKTOP_ROOT / "node_modules" / ".bin" / "electron.cmd"
     if not electron_bin.exists():
         pytest.skip("electron is not installed locally")
-    command = [str(electron_bin), "."]
+    command = [str(electron_bin), *_electron_ci_sandbox_args(), "."]
     if sys.platform.startswith("linux"):
         if shutil.which("xvfb-run") is None:
             pytest.skip("xvfb-run is required for the local Electron smoke test")
@@ -301,6 +314,7 @@ def test_desktop_shell_packaged_dir_smoke_uses_bundled_repo_root(tmp_path: Path)
         shutil.which("xvfb-run") or "xvfb-run",
         "-a",
         str(executable),
+        *_electron_ci_sandbox_args(),
         "--smoke-exit-when-ready",
         "--boot-timeout-ms",
         "30000",

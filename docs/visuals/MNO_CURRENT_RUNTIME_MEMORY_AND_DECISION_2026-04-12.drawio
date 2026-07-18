@@ -22,7 +22,7 @@
         <mxCell id="rb" value="STM / session state&amp;#10;recent turns, rolling summary, soft-close hints" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
           <mxGeometry x="55" y="185" width="230" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="rc" value="Runtime helper memory&amp;#10;provisional + strict active-scope scratchpad_ephemeral WSS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" vertex="1" parent="1">
+        <mxCell id="rc" value="Provisional memory&amp;#10;observed / reinforced / consolidated; below evidence atoms and reviewed truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" vertex="1" parent="1">
           <mxGeometry x="375" y="85" width="230" height="80" as="geometry" />
         </mxCell>
         <mxCell id="rd" value="Proposal-only store&amp;#10;high-risk captures that must not auto-enter retrievable truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" vertex="1" parent="1">
@@ -46,7 +46,7 @@
         <mxCell id="rj" value="Mutation review queue&amp;#10;human-gated canonical create/edit/delete bridge" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" vertex="1" parent="1">
           <mxGeometry x="1075" y="130" width="230" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="rk" value="Runtime trust rules&amp;#10;reviewed truth &amp;gt; helper layers&amp;#10;raw-context can support evidence; WSS cannot prove memory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+        <mxCell id="rk" value="Runtime trust rules&amp;#10;reviewed canonical &amp;gt; evidence atom &amp;gt; provisional authority family&amp;#10;provisional maturity: observed / reinforced / consolidated; STM/WSS are never evidence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
           <mxGeometry x="695" y="470" width="270" height="95" as="geometry" />
         </mxCell>
         <mxCell id="rl" value="Read-time effect&amp;#10;runtime can inspect original wording and current-vs-superseded reviewed truth without rewriting history" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7e6;strokeColor=#b7a26a;dashed=1;fontStyle=0;" vertex="1" parent="1">
@@ -126,16 +126,16 @@
         <mxCell id="d11" value="Final output surface&amp;#10;answer text + memory cards + citations + why data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="815" y="455" width="280" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="d12" value="Post-turn capture&amp;#10;STM update + low-risk provisional capture" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" vertex="1" parent="1">
+        <mxCell id="d12" value="Post-turn memory.observe&amp;#10;signed source registration + retrieval receipt; low-risk provisional capture" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" vertex="1" parent="1">
           <mxGeometry x="1255" y="120" width="240" height="75" as="geometry" />
         </mxCell>
-        <mxCell id="d13" value="Proposal-only writeback&amp;#10;high-risk memory stays gated" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" vertex="1" parent="1">
+        <mxCell id="d13" value="User ‘remember this’&amp;#10;writeback.propose; never raw import or silent publication" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" vertex="1" parent="1">
           <mxGeometry x="1255" y="230" width="240" height="75" as="geometry" />
         </mxCell>
-        <mxCell id="d14" value="Human review / resolve&amp;#10;durable truth changes still require explicit review" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" vertex="1" parent="1">
+        <mxCell id="d14" value="Human review_apply resolve&amp;#10;apply creates human_reviewed=false evidence atom; publish still makes canonical truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" vertex="1" parent="1">
           <mxGeometry x="1255" y="340" width="240" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="d15" value="Key rule&amp;#10;retrieval success does not equal truth authority; scratchpad_ephemeral WSS cannot replace reviewed truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+        <mxCell id="d15" value="Key rule&amp;#10;retrieval/replay/summary is not independent support; scratchpad_ephemeral WSS cannot replace evidence or reviewed truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
           <mxGeometry x="800" y="590" width="310" height="95" as="geometry" />
         </mxCell>
         <mxCell id="e2" edge="1" parent="1" source="d1" target="d2" style="edgeStyle=orthogonalEdgeStyle;orthogonalLoop=1;jettySize=auto;jumpStyle=arc;jumpSize=6;endArrow=block;endFill=1;html=1;rounded=0;strokeWidth=2;strokeColor=#d6b656;entryX=0.5;entryY=0;entryPerimeter=1;exitX=0.5;exitY=1;exitPerimeter=1;">
@@ -200,7 +200,7 @@
         <mxCell id="v2" value="2. MNO checks the short-term chat stuff first.&amp;#10;STM = short-term memory for this session." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
           <mxGeometry x="360" y="90" width="260" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="v3" value="3. MNO checks trusted memory and evidence.&amp;#10;That means reviewed cards and atoms." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+        <mxCell id="v3" value="3. MNO checks truth, evidence, then helper notes.&amp;#10;Reviewed truth wins. A scratchpad cannot prove anything." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
           <mxGeometry x="680" y="90" width="280" height="80" as="geometry" />
         </mxCell>
         <mxCell id="v4" value="4. ANN helps find nearby candidates.&amp;#10;ANN = approximate nearest neighbor." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">

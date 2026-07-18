@@ -11,6 +11,8 @@ Older dated files are historical snapshots and should not replace the `2026-04-1
 
 Canonical WSS behavior is documented in `docs/WORK_SESSION_SCRATCHPAD.md`. Diagrams should show it as strict active-scope `scratchpad_ephemeral` work-continuity context, not reviewed truth or evidence.
 
+For v0.2, diagrams must also keep authority and maturity separate: `human_reviewed_canonical` outranks `evidence_atom`, then `provisional_consolidated`, then `provisional_observed`. `observed -> reinforced -> consolidated` is provisional maturity, never a promotion to canonical truth. Raw import creates evidence atoms; signed live `memory.observe` creates provisional records; explicit reviewer `review_apply` can materialize a `human_reviewed=false` evidence atom. STM and WSS remain non-evidence helper state.
+
 Rendered SVG/PNG exports live in `docs/visuals/exports/`.
 
 For public docs, prefer `docs/visuals/exports/clean/`. Those images simplify dense fan-ins and fan-outs into readable public diagrams with no connector overlap through boxes.

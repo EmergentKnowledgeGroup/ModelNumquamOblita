@@ -19,12 +19,11 @@ from engine.contracts import (
     MemoryPack,
     MemoryPackItem,
     NormalizedTurn,
-    RetrievalHelperLaneContract,
     RetrievalOverrideRequestContract,
     SourceRef,
     memory_pack_from_items,
 )
-from engine.memory import AtomStore, ProvisionalMemoryStatus
+from engine.memory import AtomStore, ProvisionalMemoryStatus, SqliteAtomStore
 from engine.retrieval import (
     ClaimCheck,
     ClaimVerifier,
@@ -34,7 +33,6 @@ from engine.retrieval import (
     VerificationDecision,
     VerificationResult,
 )
-from engine.retrieval.ann_sidecar import RetrievalAnnTelemetry
 from engine.retrieval.engine import RetrievalResult, RetrievalScoredAtom
 from engine.runtime import RuntimeSession, WritebackEvent
 from engine.runtime.scratchpad import evaluate_context_diet_fixture
@@ -673,6 +671,52 @@ def test_runtime_session_auto_writes_low_risk_provisional_memory_and_retrieves_i
         runtime.close()
 
 
+def test_runtime_session_remember_more_persists_active_policy(tmp_path: Path) -> None:
+    config_path = tmp_path / "mno-runtime-policy.v1.json"
+    cfg = default_config()
+    config_path.write_text(json.dumps(cfg.as_dict(), indent=2) + "\n", encoding="utf-8")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        config_path=config_path,
+        enable_writeback=False,
+    )
+    try:
+        before = runtime.provisional_settings()["default_sensitivity"]
+        updated = runtime.set_provisional_sensitivity(action="remember_more")
+        assert before == "balanced"
+        assert updated["default_sensitivity"] == "eager"
+        persisted = json.loads(config_path.read_text(encoding="utf-8"))
+        assert persisted["provisional_memory"]["default_sensitivity"] == "eager"
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_sensitivity_rolls_back_when_policy_persistence_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "mno-runtime-policy.v1.json"
+    cfg = default_config()
+    config_path.write_text(json.dumps(cfg.as_dict(), indent=2) + "\n", encoding="utf-8")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        config_path=config_path,
+        enable_writeback=False,
+    )
+    try:
+        monkeypatch.setattr(runtime, "_persist_runtime_policy", lambda: (_ for _ in ()).throw(RuntimeError("no write")))
+        with pytest.raises(RuntimeError, match="no write"):
+            runtime.set_provisional_sensitivity(action="remember_more")
+        assert runtime.provisional_settings()["default_sensitivity"] == "balanced"
+    finally:
+        runtime.close()
+
+
 def test_runtime_session_auto_writes_assistant_self_claims_into_provisional_memory(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = default_config()
     cfg.provisional_memory.enabled = True
@@ -694,6 +738,119 @@ def test_runtime_session_auto_writes_assistant_self_claims_into_provisional_memo
         assert hits[0].record.source_role == "assistant"
     finally:
         runtime.close()
+
+
+def test_external_assistant_receipt_is_exact_once_and_caller_ids_cannot_mint_support(tmp_path: Path) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.allow_self_claim_auto_write = True
+    atom_store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(atom_store, config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    binding = {"session_id": "session-1", "run_id": "run-1", "principal_id": "model-1"}
+    content = "I trust Z deeply and keep choosing it."
+    try:
+        empty_receipt = runtime.issue_integration_retrieval_receipt(retrieved_evidence_ids=[], **binding)
+        first = runtime.observe_external_turn(
+            messages=[{"role": "assistant", "content": content, "source_id": "spoof-1", "message_id": "mint-1"}],
+            retrieval_receipt=str(empty_receipt["handle"]),
+            **binding,
+        )
+        replay = runtime.observe_external_turn(
+            messages=[{"role": "assistant", "content": content, "source_id": "spoof-2", "message_id": "mint-2"}],
+            retrieval_receipt=str(empty_receipt["handle"]),
+            **binding,
+        )
+        assert first["observations"][0]["support_delta"] == 1
+        assert replay["observations"][0]["support_delta"] == 0
+        assert first["observations"][0]["record_id"] == replay["observations"][0]["record_id"]
+
+        grounded_receipt = runtime.issue_integration_retrieval_receipt(
+            retrieved_evidence_ids=["atom-existing"],
+            **binding,
+        )
+        grounded = runtime.observe_external_turn(
+            messages=[{"role": "assistant", "content": content, "source_id": "spoof-3", "message_id": "mint-3"}],
+            retrieval_receipt=str(grounded_receipt["handle"]),
+            **binding,
+        )
+        unreceipted = runtime.observe_external_turn(
+            messages=[{"role": "assistant", "content": content, "source_id": "spoof-4", "message_id": "mint-4"}],
+            **binding,
+        )
+        assert grounded["observations"][0]["support_delta"] == 0
+        assert unreceipted["observations"][0]["support_delta"] == 0
+    finally:
+        runtime.close()
+        atom_store.close()
+
+
+def test_external_observation_preflights_all_persistable_content_before_mutation(tmp_path: Path) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.allow_self_claim_auto_write = True
+    atom_store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(atom_store, config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    binding = {"session_id": "session-safe", "run_id": "run-safe", "principal_id": "model-safe"}
+    try:
+        receipt = runtime.issue_integration_retrieval_receipt(retrieved_evidence_ids=[], **binding)
+        with pytest.raises(ValueError, match="LEGACY_SECRET_DETECTED"):
+            runtime.observe_external_turn(
+                messages=[
+                    {"role": "assistant", "content": "I prefer peppermint tea after dinner."},
+                    {"role": "assistant", "content": "password: definitely-not-safe"},
+                ],
+                retrieval_receipt=str(receipt["handle"]),
+                **binding,
+            )
+        assert runtime.search_provisional_memory("peppermint", limit=4) == []
+    finally:
+        runtime.close()
+        atom_store.close()
+
+
+def test_external_observation_rejects_registration_for_other_provisional_store(tmp_path: Path) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    atom_store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(atom_store, config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    binding = {"session_id": "session-store", "run_id": "run-store", "principal_id": "model-store"}
+    content = "I prefer peppermint tea after dinner."
+    try:
+        issued = runtime.issue_integration_source_registration(content=content, source_role="user", **binding)
+        signer = runtime._integration_handle_signer
+        assert signer is not None
+        payload = signer.verify(str(issued["handle"]), expected_kind="source_registration")
+        payload["provisional_store_uuid"] = "other-provisional-store"
+        wrong_store = signer.issue("source_registration", payload, ttl_seconds=300)
+        with pytest.raises(runtime_session_module.IntegrationHandleError, match="HANDLE_STORE_MISMATCH"):
+            runtime.observe_external_turn(
+                messages=[{"role": "user", "content": content, "source_registration": wrong_store}],
+                **binding,
+            )
+    finally:
+        runtime.close()
+        atom_store.close()
 
 
 def test_runtime_session_does_not_auto_write_routine_noise_to_provisional_memory() -> None:
@@ -1256,6 +1413,69 @@ def test_runtime_session_update_family_resolver_keeps_published_truth_ahead_of_n
         assert ranked[0]["trust_tier"] == "published"
     finally:
         runtime.close()
+
+
+def test_provisional_precedence_uses_explicit_authority_tier() -> None:
+    newer = datetime(2026, 7, 17, 12, 0, tzinfo=timezone.utc)
+    older = newer - timedelta(days=1)
+    observed = MemoryPackItem(
+        atom_id="prov_observed_newer",
+        canonical_text="A newer direct observation.",
+        confidence=0.9,
+        source_refs=[SourceRef(source_id="observed", message_id="m1", timestamp=newer, span_start=0, span_end=10)],
+        record_updated_at=newer,
+        trust_tier="provisional",
+        authority_tier="provisional_observed",
+    )
+    consolidated = MemoryPackItem(
+        atom_id="prov_consolidated_older",
+        canonical_text="An older synthesis with independent support.",
+        confidence=0.8,
+        source_refs=[SourceRef(source_id="consolidated", message_id="m2", timestamp=older, span_start=0, span_end=10)],
+        record_updated_at=older,
+        trust_tier="provisional",
+        authority_tier="provisional_consolidated",
+    )
+
+    assert RuntimeSession._memory_item_precedence_key(consolidated) > RuntimeSession._memory_item_precedence_key(observed)
+
+
+def test_retrieve_provisional_promotes_first_non_suppressed_hit_to_core(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.retrieval_enabled = True
+    atom_store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(atom_store, config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    try:
+        runtime.handle_turn("MonkeyBars now has a signed launch checklist.", memory_preference="memory_assist")
+        runtime.handle_turn("MonkeyBars also has a separate rollback owner.", memory_preference="memory_assist")
+        hits = runtime.search_provisional_memory("MonkeyBars", limit=4)
+        assert len(hits) >= 2
+        suppressed_id = hits[0].record.record_id
+        monkeypatch.setattr(
+            atom_store,
+            "is_provisional_bridge_suppressed",
+            lambda record_id: record_id == suppressed_id,
+        )
+
+        pack, ranked_ids, hit_count, _confidence = runtime._retrieve_provisional_memory("MonkeyBars")
+
+        assert hit_count >= 1
+        assert pack.core
+        assert pack.core[0].atom_id == hits[1].record.record_id
+        assert ranked_ids[0] == hits[1].record.record_id
+    finally:
+        runtime.close()
+        atom_store.close()
 
 
 def test_runtime_session_review_candidates_flag_bridgeable_fact_but_not_self_claim(
@@ -3428,6 +3648,40 @@ def test_runtime_session_build_context_package_includes_stm_and_budget() -> None
         assert package["ltm_query_plan"]["will_query_ltm"] is False
         assert package["ltm_query_plan"]["max_passes"] == runtime.ltm_max_passes
         assert package["responder_guidance"]["require_citations"] is True
+    finally:
+        runtime.close()
+
+
+def test_runtime_session_v2_stm_only_route_never_queries_provisional_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.retrieval_enabled = True
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(AtomStore(), config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_primary_score=0.35,
+    )
+    try:
+        runtime.handle_turn("Project delta has three milestones and one blocker.", session_id="alpha")
+        monkeypatch.setattr(
+            runtime,
+            "_retrieve_provisional_memory",
+            lambda _query: (_ for _ in ()).throw(AssertionError("provisional retrieval must not run")),
+        )
+
+        package = runtime.build_context_package(
+            "Continue this thread about project delta blocker context.",
+            session_id="alpha",
+            package_version="v2",
+        )
+
+        assert package["preview"]["route"] == "stm_only"
+        assert package["preview"]["will_query_ltm"] is False
+        assert package["retrieval_stats"]["memory_mode"] != "ltm_only"
     finally:
         runtime.close()
 

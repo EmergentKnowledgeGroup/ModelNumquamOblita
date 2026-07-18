@@ -65,7 +65,7 @@ Show four areas:
 ### Outputs And Governance
 - response / abstain / clarify
 - proposal-only writeback
-- human/operator resolve
+- human `review_apply` resolve
 - key runtime rule note
 
 ## Page 2: Caveman Runtime And Integration
@@ -89,3 +89,9 @@ It should still explain:
 - raw-context sidecar is inspectability support only
 - WSS is `scratchpad_ephemeral` work-session continuity support only
 - reviewed truth remains authoritative over helper layers
+
+## v0.2 integration accuracy
+
+Label the HTTP operations exactly as `memory.source.register`, `memory.observe`, `memory.maintain`, `writeback.propose`, and `writeback.resolve`. `context.build` returns signed source-registration and retrieval-receipt handles when available; it stays read-only. The currently implemented MCP parity names are `integration.context.build`, `integration.context.why`, `integration.memory.source.register`, `integration.memory.observe`, `integration.memory.maintain`, `integration.writeback.propose`, and `integration.writeback.resolve` (plus capability/health tools). Do not depict unimplemented high-risk proposal-list/dismiss/bridge tools as shipped.
+
+Use this authority ordering in both views: human-reviewed canonical truth, evidence atom, consolidated provisional, observed provisional. `review_apply` is a human-only capability: applying create/edit materializes a `human_reviewed=false` evidence atom, while applying delete tombstones its target; neither action publishes canonical truth. WSS and STM are helper state, never evidence.

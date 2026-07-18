@@ -20,7 +20,7 @@
 <rect x="1420.0" y="305.4" width="360.0" height="80.4" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1600.0" y="343.1"><tspan x="1600.0" dy="0.0">5. If you ask for exact wording, MNO can open the</tspan><tspan x="1600.0" dy="16.5">wording receipt lane.</tspan></text>
 <rect x="970.0" y="305.4" width="360.0" height="80.4" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1150.0" y="343.1"><tspan x="1150.0" dy="0.0">6. If truth changed, MNO can tell old reviewed</tspan><tspan x="1150.0" dy="16.5">cards from current reviewed cards.</tspan></text>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1150.0" y="343.1"><tspan x="1150.0" dy="0.0">6. MNO may keep a revisable helper note, but only</tspan><tspan x="1150.0" dy="16.5">human review/publish makes truth.</tspan></text>
 <rect x="520.0" y="305.4" width="360.0" height="80.4" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="700.0" y="343.1"><tspan x="700.0" dy="0.0">7. MNO builds a bounded evidence bundle, then</tspan><tspan x="700.0" dy="16.5">answers, abstains, or asks to clarify.</tspan></text>
 <rect x="70.0" y="305.4" width="360.0" height="80.4" rx="12" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>

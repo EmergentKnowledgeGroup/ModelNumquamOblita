@@ -6,6 +6,33 @@ The main runtime inputs are:
 - `--memories <atoms.sqlite3>`
 - `--episodes <episode_cards.reviewed.json>`
 - `--from-live-manifest <live_manifest.json>`
+- `--config <mno-runtime-policy.v1.json>`
+
+`tools/run_live_runtime.py --config <json>` validates one policy object before constructing the runtime. Without an explicit file it uses `runtime/state/mno-runtime-policy.v1.json` when setup has created it; otherwise it uses the fresh standard defaults. `--plan-only` reports the resolved effective policy source.
+
+## v0.2 provisional-memory policy
+
+Fresh standard policy enables low-risk provisional capture, retrieval, bounded maintenance, and deterministic consolidation. An existing policy file that omits the v0.2 fields preserves the older disabled posture; its reported policy source is `upgrade_preserved`. An explicit provisional block is reported as `custom`.
+
+```json
+{
+  "provisional_memory": {
+    "enabled": true,
+    "retrieval_enabled": true,
+    "stm_sweep_enabled": true,
+    "consolidation_enabled": true,
+    "maintenance_enabled": true,
+    "dormant_days": 90,
+    "archive_days": 365,
+    "plan_currentness_days": 30,
+    "source_registration_ttl_seconds": 604800,
+    "maintenance_max_records": 25,
+    "policy_version": "v0.2"
+  }
+}
+```
+
+`maintenance_max_records` is validated at 1–100. Source-registration TTL is 60–2,592,000 seconds. Archive days must exceed dormant days. This policy controls provisional helper-memory behavior only; it never enables autonomous canonical publication or review/publish/activation mutation.
 
 ## Guided setup entrypoints
 
@@ -151,6 +178,7 @@ Useful env vars for the HTTP integration contract:
 - `NO_INTEGRATION_VIEWER_TOKEN`
 - `NO_INTEGRATION_OPERATOR_TOKEN`
 - `NO_INTEGRATION_ADMIN_TOKEN`
+- `NO_INTEGRATION_REVIEW_APPLY_TOKEN`
 - `NO_INTEGRATION_TOKENS_FILE`
 - `NO_INTEGRATION_SECRET_MANAGER_PROVIDER`
 - `NO_INTEGRATION_SECRET_MANAGER_COMMAND`
@@ -158,6 +186,7 @@ Useful env vars for the HTTP integration contract:
 Practical rule:
 - local/dev can use simple local tokens
 - production should load tokens from a real file or secret manager path
+- `NO_INTEGRATION_REVIEW_APPLY_TOKEN` is a human-held secret channel; the MCP launchers intentionally do not accept it through command-line arguments and generated model bundles must not contain it
 
 ## MCP settings
 
@@ -184,6 +213,10 @@ The clean repo also has configurable runtime helper features such as:
 - work-session scratchpad
 
 These are runtime helper layers, not reviewed truth.
+
+## SQLite backup and downgrade
+
+Atom, provisional, and high-risk proposal stores expose a SQLite backup operation (`backup_to`) that captures a transactionally consistent live database, including committed WAL state. Do not prove a backup by copying a live `.sqlite3`, `-wal`, and `-shm` family. For a v0.1-to-v0.2 upgrade, keep the verified pre-migration backup: v0.1 is not expected to open a migrated provisional v3 sidecar, so downgrade means restoring that backup.
 
 ## Desktop shell
 

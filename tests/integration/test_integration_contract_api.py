@@ -9,9 +9,10 @@ from urllib.request import Request, urlopen
 import pytest
 
 from engine.continuity import ContinuityBuilder, ContinuityStore
+from engine.config import default_config
 from engine.contracts import AtomType, CandidateAtom, SourceRef
 from engine.mcp.server import AuthConfig, MCPServer, RuntimeApiClient, ServerConfig
-from engine.memory import AtomStore, MutationReviewQueue
+from engine.memory import AtomStore, MutationReviewQueue, SqliteAtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
 from engine.runtime import RuntimeSession, start_runtime_server, stop_runtime_server
 
@@ -19,6 +20,7 @@ from engine.runtime import RuntimeSession, start_runtime_server, stop_runtime_se
 @pytest.fixture(autouse=True)
 def _enable_default_integration_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NO_INTEGRATION_ENABLE_DEFAULT_TOKENS", "1")
+    monkeypatch.setenv("NO_INTEGRATION_REVIEW_APPLY_TOKEN", "local-human-review-token")
     monkeypatch.delenv("NO_INTEGRATION_DISABLE_DEFAULT_TOKENS", raising=False)
 
 
@@ -119,6 +121,7 @@ def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
     host, port = server.server_address
     base = f"http://{host}:{port}"
     operator_headers = {"Authorization": "Bearer local-integration-operator-token"}
+    reviewer_headers = {"Authorization": "Bearer local-human-review-token"}
 
     try:
         started_status, started = _http_json(method="POST", url=f"{base}/api/chat/session/start", payload={"label": "integration"})
@@ -236,11 +239,20 @@ def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
                 "reason": "approved",
             },
         }
-        resolve_status, resolve_payload = _http_json(
+        forbidden_status, forbidden_payload = _http_json(
             method="POST",
             url=f"{base}/api/integration/v1/writeback/resolve",
             payload=resolve_request,
             headers=operator_headers,
+        )
+        assert forbidden_status == 403
+        assert forbidden_payload["error"]["code"] == "PERMISSION_DENIED"
+
+        resolve_status, resolve_payload = _http_json(
+            method="POST",
+            url=f"{base}/api/integration/v1/writeback/resolve",
+            payload=resolve_request,
+            headers=reviewer_headers,
         )
         assert resolve_status == 200
         assert resolve_payload["ok"] is True
@@ -251,7 +263,7 @@ def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
             method="POST",
             url=f"{base}/api/integration/v1/writeback/resolve",
             payload=resolve_request,
-            headers=operator_headers,
+            headers=reviewer_headers,
         )
         assert resolve_again_status == 200
         assert resolve_again["ok"] is True
@@ -259,6 +271,357 @@ def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
         assert resolve_again["data"]["status"] == "approved"
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_external_observe_consolidates_provisionally_and_survives_context_contract(tmp_path) -> None:
+    store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(store),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+    )
+    server, thread = start_runtime_server(
+        runtime,
+        host="127.0.0.1",
+        port=0,
+        review_queue=MutationReviewQueue(store),
+    )
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    headers = {"Authorization": "Bearer local-integration-operator-token"}
+    statement = "I prefer peppermint tea after dinner."
+
+    try:
+        for index in range(3):
+            started_status, started = _http_json(
+                method="POST",
+                url=f"{base}/api/chat/session/start",
+                payload={"label": f"observe {index}"},
+            )
+            assert started_status == 200
+            session_id = str(started["session"]["session_id"])
+            run_id = f"run_observe_{index}"
+            request = {
+                "schema_version": "integration.v1",
+                "request_id": f"req_OBSERVECTX{index:02d}123456789",
+                "session_id": session_id,
+                "run_id": run_id,
+                "data": {"message": statement, "memory_preference": "memory_assist"},
+            }
+            context_status, context = _http_json(
+                method="POST",
+                url=f"{base}/api/integration/v1/context/build",
+                payload=request,
+                headers=headers,
+            )
+            assert context_status == 200, context
+            registration = context["data"]["source_registration"]
+            receipt = context["data"]["retrieval_receipt"]
+
+            observe_request = {
+                "schema_version": "integration.v1",
+                "request_id": f"req_OBSERVEWRITE{index:02d}12345",
+                "session_id": session_id,
+                "run_id": run_id,
+                "data": {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": statement,
+                            "source_registration": registration,
+                        }
+                    ],
+                    "retrieval_receipt": receipt,
+                    "remember_intent": "model_observed",
+                },
+            }
+            observe_status, observed = _http_json(
+                method="POST",
+                url=f"{base}/api/integration/v1/memory/observe",
+                payload=observe_request,
+                headers=headers,
+            )
+            assert observe_status == 200, observed
+            assert observed["data"]["accepted_support_count"] == 1
+
+        records = runtime.list_provisional_record_payloads(status="all", limit=50)
+        assert any(row["authority_tier"] == "provisional_consolidated" for row in records)
+        assert all(row["authority_tier"] != "human_reviewed_canonical" for row in records)
+
+        started_status, started = _http_json(
+            method="POST",
+            url=f"{base}/api/chat/session/start",
+            payload={"label": "retrieve"},
+        )
+        assert started_status == 200
+        query = {
+            "schema_version": "integration.v1",
+            "request_id": "req_OBSERVERETRIEVE123456",
+            "session_id": str(started["session"]["session_id"]),
+            "run_id": "run_retrieve",
+            "data": {"message": "What do you remember about the tea I prefer after dinner?", "memory_preference": "memory_assist"},
+        }
+        query_status, queried = _http_json(
+            method="POST",
+            url=f"{base}/api/integration/v1/context/build",
+            payload=query,
+            headers=headers,
+        )
+        assert query_status == 200, queried
+        provisional = [
+            row
+            for row in queried["data"]["evidence"]
+            if str(row.get("authority_tier") or "").startswith("provisional_")
+        ]
+        assert provisional
+        assert all(row["human_reviewed"] is False for row in provisional)
+        assert all(row["lifecycle"] == "active" for row in provisional)
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+        store.close()
+
+
+def test_reviewer_apply_creates_evidence_atom_and_is_restart_idempotent(tmp_path) -> None:
+    db_path = tmp_path / "atoms.sqlite3"
+    store = SqliteAtomStore(db_path)
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=ContinuityStore()
+    )
+    server, thread = start_runtime_server(
+        runtime, host="127.0.0.1", port=0, review_queue=MutationReviewQueue(store)
+    )
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    operator = {"Authorization": "Bearer local-integration-operator-token"}
+    reviewer = {"Authorization": "Bearer local-human-review-token"}
+
+    try:
+        started_status, started = _http_json(
+            method="POST", url=f"{base}/api/chat/session/start", payload={"label": "review apply"}
+        )
+        assert started_status == 200
+        session_id = str(started["session"]["session_id"])
+        propose = {
+            "schema_version": "integration.v1",
+            "request_id": "req_APPLYPROPOSE1234567",
+            "session_id": session_id,
+            "run_id": "run_apply",
+            "data": {
+                "mutation": {
+                    "intent": "create",
+                    "target_kind": "preference",
+                    "body": {"canonical_text": "User prefers peppermint tea after dinner."},
+                    "tags": ["tea", "preference"],
+                },
+                "evidence": [
+                    {
+                        "provenance_handle": "prov_apply_1",
+                        "source_kind": "conversation",
+                        "source_id": "conv_apply",
+                        "excerpt": "I prefer peppermint tea after dinner.",
+                        "citation": {"type": "message", "ref": "conv_apply#m1"},
+                        "confidence": 0.9,
+                    }
+                ],
+            },
+        }
+        proposed_status, proposed = _http_json(
+            method="POST",
+            url=f"{base}/api/integration/v1/writeback/propose",
+            payload=propose,
+            headers={**operator, "Idempotency-Key": "idem_apply_001"},
+        )
+        assert proposed_status == 200, proposed
+        proposal_id = str(proposed["data"]["proposal_id"])
+        resolve = {
+            "schema_version": "integration.v1",
+            "request_id": "req_APPLYRESOLVE1234567",
+            "session_id": session_id,
+            "data": {
+                "proposal_id": proposal_id,
+                "decision": "approve",
+                "apply": True,
+                "decided_by": "Reviewer display name",
+            },
+        }
+        resolved_status, resolved = _http_json(
+            method="POST",
+            url=f"{base}/api/integration/v1/writeback/resolve",
+            payload=resolve,
+            headers=reviewer,
+        )
+        assert resolved_status == 200, resolved
+        assert resolved["data"]["applied"] is True
+        assert resolved["data"]["authority_tier"] == "evidence_atom"
+        assert resolved["data"]["human_reviewed"] is False
+        atom_id = str(resolved["data"]["applied_atom_id"])
+        assert store.get_atom(atom_id).canonical_text == "User prefers peppermint tea after dinner."
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+        store.close()
+
+    reopened = SqliteAtomStore(db_path)
+    runtime2 = RuntimeSession(
+        retriever=MemoryRetriever(reopened), verifier=ClaimVerifier(), continuity_store=ContinuityStore()
+    )
+    server2, thread2 = start_runtime_server(
+        runtime2, host="127.0.0.1", port=0, review_queue=MutationReviewQueue(reopened)
+    )
+    host2, port2 = server2.server_address
+    try:
+        replay_status, replay = _http_json(
+            method="POST",
+            url=f"http://{host2}:{port2}/api/integration/v1/writeback/resolve",
+            payload=resolve,
+            headers=reviewer,
+        )
+        assert replay_status == 200, replay
+        assert replay["data"]["applied_atom_id"] == atom_id
+        assert len([atom for atom in reopened.list_atoms() if atom.atom_id == atom_id]) == 1
+    finally:
+        stop_runtime_server(server2, thread2, runtime=runtime2)
+        reopened.close()
+
+
+def test_secret_like_live_content_never_reaches_store_audit_or_response(tmp_path) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    store = SqliteAtomStore(tmp_path / "memory.sqlite3")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(store, config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+    )
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    server.integration_audit_path = str(tmp_path / "integration-audit.jsonl")
+    host, port = server.server_address
+    raw_secret = "api_key=sk-release-fixture-abcdefghijklmnopqrstuvwxyz"
+    request = {
+        "schema_version": "integration.v1",
+        "request_id": "req_SECRETREJECTION1234",
+        "session_id": "secret_session",
+        "run_id": "secret_run",
+        "data": {"content": raw_secret, "source_role": "user"},
+    }
+    try:
+        status, response = _http_json(
+            method="POST",
+            url=f"http://{host}:{port}/api/integration/v1/memory/source/register",
+            payload=request,
+            headers={"Authorization": "Bearer local-integration-operator-token"},
+        )
+        assert status == 400
+        assert response["error"]["message"] == "SECRET_LIKE_CONTENT_REJECTED"
+        assert raw_secret not in json.dumps(response)
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+        store.close()
+
+    for artifact in tmp_path.rglob("*"):
+        if artifact.is_file():
+            assert raw_secret.encode("utf-8") not in artifact.read_bytes(), artifact
+
+
+def test_high_risk_proposals_inspect_dismiss_and_bridge_without_truth_bypass(tmp_path) -> None:
+    cfg = default_config()
+    cfg.provisional_memory.enabled = True
+    cfg.provisional_memory.proposal_capture_enabled = True
+    store = SqliteAtomStore(tmp_path / "memory.sqlite3")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(store, config=cfg),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+        config=cfg,
+        short_term_enabled=False,
+        enable_writeback=False,
+    )
+    runtime.handle_turn(
+        "I think Thao feels defeated about MonkeyBars and maybe that is why she pulled back.",
+        session_id="proposal_capture",
+        memory_preference="chat_first",
+    )
+    runtime.handle_turn(
+        "My relationship with Xander feels like steel wrapped around a heartbeat.",
+        session_id="proposal_capture",
+        memory_preference="chat_first",
+    )
+    records = runtime.list_memory_proposals()
+    assert len(records) == 2
+    bridge_record_id = records[0].record_id
+    dismiss_record_id = records[1].record_id
+    queue = MutationReviewQueue(store)
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    operator = {"Authorization": "Bearer local-integration-operator-token"}
+    reviewer = {"Authorization": "Bearer local-human-review-token"}
+    list_url = f"{base}/api/integration/v1/memory/proposals?{urlencode({'schema_version': 'integration.v1'})}"
+    envelope = {
+        "schema_version": "integration.v1",
+        "request_id": "req_PROPOSALCONTROL1234",
+        "session_id": "proposal_capture",
+        "run_id": "run_proposal_control",
+        "data": {},
+    }
+
+    try:
+        status, listed = _http_json(method="GET", url=list_url, headers=operator)
+        assert status == 200, listed
+        assert listed["data"]["total_count"] == 2
+        assert all("summary_text" not in row for row in listed["data"]["records"])
+
+        denied_status, denied = _http_json(
+            method="GET", url=f"{list_url}&include_content=true", headers=operator
+        )
+        assert denied_status == 403
+        assert denied["error"]["code"] == "PERMISSION_DENIED"
+
+        content_status, content = _http_json(
+            method="GET", url=f"{list_url}&include_content=true", headers=reviewer
+        )
+        assert content_status == 200, content
+        assert all(row.get("summary_text") for row in content["data"]["records"])
+
+        consolidated_route_status, consolidated_route = _http_json(
+            method="POST",
+            url=f"{base}/api/integration/v1/memory/proposals/prov_con_deadbeef12345678/dismiss",
+            payload=envelope,
+            headers=reviewer,
+        )
+        assert consolidated_route_status == 404
+        assert consolidated_route["error"]["message"] == "proposal record not found"
+
+        bridge_url = f"{base}/api/integration/v1/memory/proposals/{bridge_record_id}/bridge"
+        denied_bridge_status, _ = _http_json(method="POST", url=bridge_url, payload=envelope, headers=operator)
+        assert denied_bridge_status == 403
+        bridged_status, bridged = _http_json(method="POST", url=bridge_url, payload=envelope, headers=reviewer)
+        assert bridged_status == 200, bridged
+        assert bridged["data"]["status"] == "pending_review"
+        assert bridged["data"]["applied"] is False
+        assert bridged["data"]["published"] is False
+        assert store.list_atoms() == []
+        proposal_id = bridged["data"]["proposal_id"]
+
+        replay_status, replay = _http_json(method="POST", url=bridge_url, payload=envelope, headers=reviewer)
+        assert replay_status == 200, replay
+        assert replay["data"]["proposal_id"] == proposal_id
+        assert len(queue.list_all()) == 1
+
+        dismiss_url = f"{base}/api/integration/v1/memory/proposals/{dismiss_record_id}/dismiss"
+        dismiss_envelope = dict(envelope)
+        dismiss_envelope["request_id"] = "req_PROPOSALDISMISS1234"
+        dismiss_envelope["data"] = {"reason_code": "not_useful"}
+        dismissed_status, dismissed = _http_json(
+            method="POST", url=dismiss_url, payload=dismiss_envelope, headers=reviewer
+        )
+        assert dismissed_status == 200, dismissed
+        assert dismissed["data"]["status"] == "dismissed"
+        assert store.list_atoms() == []
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+        store.close()
 
 
 def test_integration_context_why_explains_episode_card_evidence(tmp_path) -> None:

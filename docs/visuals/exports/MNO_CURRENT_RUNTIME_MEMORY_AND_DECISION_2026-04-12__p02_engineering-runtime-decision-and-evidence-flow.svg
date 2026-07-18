@@ -14,9 +14,9 @@
 <polyline points="1318.7,226.6 1318.7,254.6 1312.0,240.0 1072.0,240.0 1072.0,512.0 1200.0,512.0 1194.5,525.0 1194.5,497.0" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="1318.7,371.3 1318.7,399.3 1312.0,400.0 1312.0,512.0 1264.0,512.0 1269.0,525.0 1269.0,497.0" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="1343.5,497.0 1343.5,525.0 1344.0,528.0 1344.0,656.0 1264.0,656.0 1269.0,669.7 1269.0,641.7" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="1440.0,579.3 1468.0,579.3 1472.0,576.0 1472.0,160.0 1968.0,160.0 1974.0,165.9 1946.0,165.9" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="1440.0,601.5 1468.0,601.5 1472.0,608.0 1968.0,608.0 1968.0,288.0 1974.0,291.6 1946.0,291.6" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="1775.0,333.5 1775.0,361.5 1776.0,368.0 1776.0,512.0 1775.0,506.2 1775.0,478.2" fill="none" stroke="#8b63b6" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1440.0,579.3 1468.0,579.3 1472.0,576.0 1472.0,176.0 1968.0,176.0 1974.0,175.3 1946.0,175.3" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1440.0,601.5 1468.0,601.5 1472.0,608.0 1968.0,608.0 1968.0,320.0 1974.0,320.0 1946.0,320.0" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1775.0,371.3 1775.0,399.3 1776.0,400.0 1776.0,560.0 1775.0,562.8 1775.0,534.8" fill="none" stroke="#8b63b6" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="257.0,226.6 257.0,254.6 256.0,256.0 256.0,400.0 257.0,399.3 257.0,371.3" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="428.0,308.9 456.0,308.9 448.0,304.0 448.0,160.0 960.0,160.0 962.0,165.9 934.0,165.9" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="428.0,331.1 456.0,331.1 448.0,336.0 960.0,336.0 960.0,304.0 962.0,301.1 934.0,301.1" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
@@ -48,21 +48,21 @@
 <rect x="1098.0" y="539.0" width="342.0" height="102.6" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1269.0" y="579.6"><tspan x="1269.0" dy="0.0">Final output surface</tspan><tspan x="1269.0" dy="16.5">answer text + memory cards + citations + why</tspan><tspan x="1269.0" dy="16.5">data</tspan></text>
 <rect x="1098.0" y="683.7" width="342.0" height="121.5" rx="12" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1269.0" y="725.4"><tspan x="1269.0" dy="0.0">Key rule</tspan><tspan x="1269.0" dy="16.5">retrieval success does not equal truth authority;</tspan><tspan x="1269.0" dy="16.5">scratchpad_ephemeral WSS cannot replace</tspan><tspan x="1269.0" dy="16.5">reviewed truth</tspan></text>
-<rect x="1604.0" y="124.0" width="342.0" height="83.8" rx="12" fill="#faf5ff" stroke="#8b63b6" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="163.4"><tspan x="1775.0" dy="0.0">Post-turn capture</tspan><tspan x="1775.0" dy="16.5">STM update + low-risk provisional capture</tspan></text>
-<rect x="1604.0" y="249.8" width="342.0" height="83.8" rx="12" fill="#faf5ff" stroke="#8b63b6" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="289.1"><tspan x="1775.0" dy="0.0">Proposal-only writeback</tspan><tspan x="1775.0" dy="16.5">high-risk memory stays gated</tspan></text>
-<rect x="1604.0" y="375.5" width="342.0" height="102.6" rx="12" fill="#faf5ff" stroke="#8b63b6" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="424.3"><tspan x="1775.0" dy="0.0">Human review / resolve</tspan><tspan x="1775.0" dy="16.5">durable truth changes still require explicit review</tspan></text>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1269.0" y="725.4"><tspan x="1269.0" dy="0.0">Key rule</tspan><tspan x="1269.0" dy="16.5">retrieval/replay/summary is not independent</tspan><tspan x="1269.0" dy="16.5">support; scratchpad_ephemeral WSS cannot</tspan><tspan x="1269.0" dy="16.5">replace evidence or reviewed truth</tspan></text>
+<rect x="1604.0" y="124.0" width="342.0" height="102.6" rx="12" fill="#faf5ff" stroke="#8b63b6" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="164.5"><tspan x="1775.0" dy="0.0">Post-turn memory.observe</tspan><tspan x="1775.0" dy="16.5">signed source registration + retrieval receipt;</tspan><tspan x="1775.0" dy="16.5">low-risk provisional capture</tspan></text>
+<rect x="1604.0" y="268.6" width="342.0" height="102.6" rx="12" fill="#faf5ff" stroke="#8b63b6" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="309.2"><tspan x="1775.0" dy="0.0">User ‘remember this’</tspan><tspan x="1775.0" dy="16.5">writeback.propose; never raw import or silent</tspan><tspan x="1775.0" dy="16.5">publication</tspan></text>
+<rect x="1604.0" y="413.3" width="342.0" height="121.5" rx="12" fill="#faf5ff" stroke="#8b63b6" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1775.0" y="463.3"><tspan x="1775.0" dy="0.0">Human review_apply resolve</tspan><tspan x="1775.0" dy="16.5">apply creates human_reviewed=false evidence</tspan><tspan x="1775.0" dy="16.5">atom; publish still makes canonical truth</tspan></text>
 <polygon points="1269.0,124.0 1263.7,113.2 1274.3,113.2" fill="#82b366"/>
 <polygon points="1219.3,371.3 1224.6,382.1 1214.1,382.1" fill="#6c8ebf"/>
 <polygon points="1194.5,497.0 1199.8,507.8 1189.2,507.8" fill="#6c8ebf"/>
 <polygon points="1269.0,497.0 1274.3,507.8 1263.7,507.8" fill="#6c8ebf"/>
 <polygon points="1269.0,641.7 1274.3,652.5 1263.7,652.5" fill="#6c8ebf"/>
-<polygon points="1946.0,165.9 1956.8,160.6 1956.8,171.1" fill="#6c8ebf"/>
-<polygon points="1946.0,291.6 1956.8,286.4 1956.8,296.9" fill="#6c8ebf"/>
-<polygon points="1775.0,478.2 1780.3,488.9 1769.7,488.9" fill="#8b63b6"/>
+<polygon points="1946.0,175.3 1956.8,170.1 1956.8,180.6" fill="#6c8ebf"/>
+<polygon points="1946.0,320.0 1956.8,314.7 1956.8,325.2" fill="#6c8ebf"/>
+<polygon points="1775.0,534.8 1780.3,545.6 1769.7,545.6" fill="#8b63b6"/>
 <polygon points="257.0,371.3 262.3,382.1 251.7,382.1" fill="#d6b656"/>
 <polygon points="934.0,165.9 944.8,160.6 944.8,171.1" fill="#d6b656"/>
 <polygon points="934.0,301.1 944.8,295.8 944.8,306.3" fill="#d6b656"/>

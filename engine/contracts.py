@@ -150,6 +150,11 @@ class MemoryPackItem:
     conflict_with_ids: list[str] = field(default_factory=list)
     memory_layer: str = "atom"
     trust_tier: str = "evidence"
+    authority_tier: str = "evidence_atom"
+    maturity: str = "evidence"
+    lifecycle: str = "active"
+    human_reviewed: bool = False
+    lineage_ids: list[str] = field(default_factory=list)
     raw_context_text: str = ""
     raw_context_turn_count: int = 0
 
@@ -170,6 +175,12 @@ class MemoryPackItem:
             raise ValueError("memory_layer is required")
         if not str(self.trust_tier or "").strip():
             raise ValueError("trust_tier is required")
+        if not str(self.authority_tier or "").strip():
+            raise ValueError("authority_tier is required")
+        if not str(self.maturity or "").strip():
+            raise ValueError("maturity is required")
+        if not str(self.lifecycle or "").strip():
+            raise ValueError("lifecycle is required")
         if not isinstance(self.raw_context_turn_count, int) or isinstance(self.raw_context_turn_count, bool):
             raise ValueError("raw_context_turn_count must be int")
         if self.raw_context_turn_count < 0:

@@ -405,9 +405,9 @@ class ProvisionalNearDuplicatePolicy:
 class ProvisionalMemoryPolicy:
     """Feature flags and tunable policies for agent-owned provisional memory."""
 
-    enabled: bool = False
-    retrieval_enabled: bool = False
-    stm_sweep_enabled: bool = False
+    enabled: bool = True
+    retrieval_enabled: bool = True
+    stm_sweep_enabled: bool = True
     proposal_capture_enabled: bool = False
     allow_self_claim_auto_write: bool = True
     default_sensitivity: str = "balanced"
@@ -438,6 +438,16 @@ class ProvisionalMemoryPolicy:
             max_auto_writes_per_session=48,
         )
     )
+    consolidation_enabled: bool = True
+    maintenance_enabled: bool = True
+    high_risk_proposal_capture_enabled: bool = False
+    dormant_days: int = 90
+    archive_days: int = 365
+    plan_currentness_days: int = 30
+    source_registration_ttl_seconds: int = 604800
+    maintenance_max_records: int = 25
+    policy_version: str = "v0.2"
+    policy_source: str = "fresh_standard"
 
 
 @dataclass(slots=True)
@@ -498,6 +508,19 @@ def default_config() -> NumquamOblitaConfig:
     return cfg
 
 
+def upgrade_preserved_config() -> NumquamOblitaConfig:
+    """Return the explicit v0.1-compatible posture for omitted upgrade fields."""
+    cfg = NumquamOblitaConfig()
+    cfg.provisional_memory.enabled = False
+    cfg.provisional_memory.retrieval_enabled = False
+    cfg.provisional_memory.stm_sweep_enabled = False
+    cfg.provisional_memory.consolidation_enabled = False
+    cfg.provisional_memory.maintenance_enabled = False
+    cfg.provisional_memory.policy_source = "upgrade_preserved"
+    _validate_config(cfg)
+    return cfg
+
+
 def active_efficiency_policy(cfg: NumquamOblitaConfig) -> RuntimeEfficiencyPolicy:
     """Return effective efficiency policy, with knob-off rollback to defaults."""
 
@@ -534,13 +557,13 @@ def _merge_dataclass(
     return dc
 
 
-def load_config(path: str | Path | None, *, strict: bool = False) -> NumquamOblitaConfig:
+def load_config(path: str | Path | None, *, strict: bool = False, upgrade: bool = False) -> NumquamOblitaConfig:
     """Load JSON config file and merge over defaults.
 
     Use ``strict=True`` to fail on unknown config keys.
     """
 
-    cfg = default_config()
+    cfg = upgrade_preserved_config() if upgrade else default_config()
     if path is None:
         return cfg
     p = Path(path)
@@ -551,6 +574,8 @@ def load_config(path: str | Path | None, *, strict: bool = False) -> NumquamObli
         raise TypeError("config payload must be a JSON object")
     merged = _merge_dataclass(cfg, data, strict=strict)
     _validate_config(merged)
+    if data.get("provisional_memory"):
+        merged.provisional_memory.policy_source = "custom"
     return merged
 
 
@@ -915,6 +940,9 @@ def _validate_provisional_memory_policy(policy: ProvisionalMemoryPolicy) -> None
     _validate_bool("provisional_memory.stm_sweep_enabled", policy.stm_sweep_enabled)
     _validate_bool("provisional_memory.proposal_capture_enabled", policy.proposal_capture_enabled)
     _validate_bool("provisional_memory.allow_self_claim_auto_write", policy.allow_self_claim_auto_write)
+    _validate_bool("provisional_memory.consolidation_enabled", policy.consolidation_enabled)
+    _validate_bool("provisional_memory.maintenance_enabled", policy.maintenance_enabled)
+    _validate_bool("provisional_memory.high_risk_proposal_capture_enabled", policy.high_risk_proposal_capture_enabled)
     if str(policy.default_sensitivity) not in {"conservative", "balanced", "eager"}:
         raise ValueError("provisional_memory.default_sensitivity must be one of: conservative, balanced, eager")
     _validate_int("provisional_memory.inactivity_gap_seconds", policy.inactivity_gap_seconds, min_value=1, max_value=86400)
@@ -961,6 +989,15 @@ def _validate_provisional_memory_policy(policy: ProvisionalMemoryPolicy) -> None
     _validate_provisional_sensitivity("provisional_memory.conservative", policy.conservative)
     _validate_provisional_sensitivity("provisional_memory.balanced", policy.balanced)
     _validate_provisional_sensitivity("provisional_memory.eager", policy.eager)
+    _validate_int("provisional_memory.dormant_days", policy.dormant_days, min_value=1, max_value=3650)
+    _validate_int("provisional_memory.archive_days", policy.archive_days, min_value=2, max_value=7300)
+    if policy.archive_days <= policy.dormant_days:
+        raise ValueError("provisional_memory.archive_days must be > provisional_memory.dormant_days")
+    _validate_int("provisional_memory.plan_currentness_days", policy.plan_currentness_days, min_value=1, max_value=365)
+    _validate_int("provisional_memory.source_registration_ttl_seconds", policy.source_registration_ttl_seconds, min_value=60, max_value=2592000)
+    _validate_int("provisional_memory.maintenance_max_records", policy.maintenance_max_records, min_value=1, max_value=100)
+    if str(policy.policy_source) not in {"fresh_standard", "upgrade_preserved", "custom"}:
+        raise ValueError("provisional_memory.policy_source must be fresh_standard, upgrade_preserved, or custom")
 
 
 def _validate_retrieval_feedback_policy(policy: RetrievalFeedbackPolicy) -> None:

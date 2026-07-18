@@ -54,6 +54,7 @@ function parseShellCliArgs(argv) {
     host: '127.0.0.1',
     port: 7340,
     python: '',
+    config: '',
     repoRoot: '',
     smokeExitWhenReady: false,
     bootTimeoutMs: 30000,
@@ -90,6 +91,11 @@ function parseShellCliArgs(argv) {
     }
     if (token === '--python' && next) {
       result.python = next;
+      index += 1;
+      continue;
+    }
+    if (token === '--config' && next) {
+      result.config = next;
       index += 1;
       continue;
     }
@@ -717,6 +723,7 @@ function buildRuntimeLaunchPlan({
   repoRoot,
   runtimeManifest,
   pythonCommand = '',
+  config = '',
   memories = '',
   episodes = '',
   host = '127.0.0.1',
@@ -785,6 +792,9 @@ function buildRuntimeLaunchPlan({
     args = [entrypointPath];
   }
   args.push('--host', runtimeHost, '--port', String(runtimePort));
+  if (String(config || '').trim()) {
+    args.push('--config', normalizePlatformPath(String(config), { platform }));
+  }
   if (setupMode) {
     args.push('--setup-mode');
     if (String(setupModeStorePath || '').trim()) {

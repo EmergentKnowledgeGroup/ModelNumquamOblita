@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -58,6 +59,11 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _review_apply_token(env: dict[str, str] | None = None) -> str:
+    source = os.environ if env is None else env
+    return str(source.get("NO_INTEGRATION_REVIEW_APPLY_TOKEN") or "").strip()
+
+
 def main() -> int:
     args = _parse_args()
     auth = AuthConfig(
@@ -83,6 +89,7 @@ def main() -> int:
         diagnostics_dir=str(args.diagnostics_dir),
         audit_log_path=str(args.audit_log_path),
         mutations_enabled=bool(args.mutations_enabled),
+        integration_review_apply_token=_review_apply_token(),
         auth=auth,
     )
     client = RuntimeApiClient(base_url=config.runtime_base_url, timeout_s=config.timeout_s)

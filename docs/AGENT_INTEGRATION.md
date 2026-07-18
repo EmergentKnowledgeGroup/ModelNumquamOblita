@@ -33,6 +33,12 @@ Endpoints:
 - `GET /api/integration/v1/health`
 - `POST /api/integration/v1/context/build`
 - `POST /api/integration/v1/context/why`
+- `POST /api/integration/v1/memory/source/register`
+- `POST /api/integration/v1/memory/observe`
+- `POST /api/integration/v1/memory/maintain`
+- `GET /api/integration/v1/memory/proposals`
+- `POST /api/integration/v1/memory/proposals/{record_id}/dismiss`
+- `POST /api/integration/v1/memory/proposals/{record_id}/bridge`
 - `POST /api/integration/v1/writeback/propose`
 - `POST /api/integration/v1/writeback/resolve`
 
@@ -116,7 +122,17 @@ Agent rule:
 - do not use WSS to support user-facing memory claims
 - keep `work_session_scope.thread_id` and `work_session_scope.workstream_key` stable for a real work lane
 
-The stable `integration-v1` memory envelope remains evidence-focused. Context-package and adapter routes can carry WSS when strict scope is supplied. See [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md).
+The stable `integration-v1` memory envelope remains evidence-focused. Context-package and adapter routes can carry WSS when strict scope is supplied. STM/session state and WSS remain helper context, never evidence. See [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md).
+
+## Three different ways memory enters MNO
+
+Do not collapse these workflows:
+
+1. **Raw import**: source files/folders are normalized and materialized as durable evidence atoms for the normal build → review → publish pipeline.
+2. **Live `memory.observe`**: after a completed external turn, send the bounded messages plus server-issued signed handles. MNO may record `provisional_observed`, reinforce it with independent evidence, or create a derived `provisional_consolidated` record. These records remain below evidence atoms and human-reviewed canonical truth.
+3. **User says “remember this”**: send `remember_intent=user_explicit` to `memory.observe`, then explicitly call `writeback.propose`. A human with `review_apply` may call `writeback.resolve` using `decision=approve` and `apply=true`, which creates an `evidence_atom` with `human_reviewed=false`. It is still not published canonical truth.
+
+For live observation, call `context.build` before the model turn and retain its signed `source_registration` and `retrieval_receipt`. Do not fabricate them. A receipt proves the server-side retrieval set; replays, quotes, and model summaries never add independent support.
 
 Typical `writeback.propose` rules:
 - bearer auth required
@@ -133,8 +149,9 @@ Typical `writeback.propose` rules:
 3. Call `context.build` for each user turn when you want MNO evidence.
 4. Feed `agent_context` into the agent prompt, or use `context_text` plus `evidence` if you need a custom wrapper.
 5. If needed, call `context.why` for audit/debug surfaces.
-6. If your agent wants to propose memory updates, use `writeback.propose`.
-7. Let a human or trusted operator workflow resolve proposals with `writeback.resolve`.
+6. After the turn, optionally call `memory.observe` with signed registration/receipt handles to capture low-risk provisional memory.
+7. If the user explicitly wants durable writeback, call `writeback.propose`.
+8. Let a human workflow holding the separate `review_apply` capability resolve with `writeback.resolve`; `apply=true` creates only a non-reviewed evidence atom.
 
 ## Agent-facing memory block
 
@@ -171,8 +188,9 @@ If you need to inspect an evidence ID, call the MNO context.why tool or endpoint
 2. Ask MNO what memory matters.
 3. MNO sends back a bounded memory bundle labeled as memory.
 4. Agent answers using that bundle.
-5. If the agent wants to remember something new, it proposes it.
-6. Human or operator workflow decides whether that proposal counts.
+5. MNO may keep a revisable helper note with receipts, but it cannot call that note truth.
+6. “Remember this” opens a human-controlled proposal.
+7. Only normal human review and publish make canonical truth.
 
 ## OpenClaw
 

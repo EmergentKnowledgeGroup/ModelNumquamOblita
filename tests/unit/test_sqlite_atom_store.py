@@ -414,3 +414,45 @@ def test_sqlite_and_inmemory_raw_context_slice_have_parity(tmp_path: Path) -> No
     assert sqlite_payload == mem_payload
     assert len(mem_token) >= 8
     assert len(sqlite_token) >= 8
+
+
+def test_sqlite_atom_store_backup_captures_live_wal_state(tmp_path: Path) -> None:
+    store = SqliteAtomStore(tmp_path / "live.sqlite3")
+    atom = store.add_candidate(_candidate(text="Backup keeps this evidence.", source="backup_source"))
+    source_identity = store.runtime_control_identity()
+    backup_path = store.backup_to(tmp_path / "backups" / "atoms.sqlite3")
+    store.close()
+
+    backup = SqliteAtomStore(backup_path)
+    try:
+        assert backup.get_atom(atom.atom_id).canonical_text == "Backup keeps this evidence."
+        identity = backup.runtime_control_identity()
+        assert identity == source_identity
+    finally:
+        backup.close()
+    reopened = SqliteAtomStore(backup_path)
+    try:
+        assert reopened.runtime_control_identity() == identity
+    finally:
+        reopened.close()
+
+
+def test_sqlite_atom_store_restricts_live_and_backup_permissions(tmp_path: Path, monkeypatch) -> None:
+    calls: list[tuple[Path, int]] = []
+    monkeypatch.setattr(
+        "engine.memory.sqlite_store.os.chmod",
+        lambda path, mode: calls.append((Path(path).resolve(), mode)),
+    )
+    live_path = (tmp_path / "protected.sqlite3").resolve()
+    backup_path = (tmp_path / "backups" / "protected.sqlite3").resolve()
+    store = SqliteAtomStore(live_path)
+    store.backup_to(backup_path)
+    store.close()
+
+    assert (live_path, 0o600) in calls
+    assert (backup_path, 0o600) in calls
+
+    calls.clear()
+    reopened = SqliteAtomStore(live_path)
+    reopened.close()
+    assert calls == [(live_path, 0o600)]

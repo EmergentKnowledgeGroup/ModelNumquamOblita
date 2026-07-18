@@ -66,7 +66,11 @@ def test_build_posix_and_windows_entries_are_stable(tmp_path: Path) -> None:
     assert windows["args"][:4] == ["-d", "Ubuntu-24.04", "--cd", "/mnt/z/mno-workspace"]
     assert windows["args"][4:6] == ["--exec", "python3"]
     assert "tools/run_claude_live_mcp.py" in windows["args"]
-    expected_memories = str(memories) if str(memories).startswith("/") else "/converted/demo.sqlite3"
+    raw_memories = str(memories)
+    expected_memories = raw_memories
+    if len(raw_memories) >= 2 and raw_memories[1] == ":":
+        path_tail = raw_memories[2:].lstrip("\\").replace("\\", "/")
+        expected_memories = f"/mnt/{raw_memories[0].lower()}/{path_tail}"
     assert expected_memories in windows["args"]
 
 
@@ -77,7 +81,7 @@ def test_unc_wsl_paths_convert_without_shelling_out() -> None:
     assert distro == "Ubuntu-24.04"
 
 
-def test_windows_drive_paths_convert_through_wslpath_runner() -> None:
+def test_windows_drive_paths_convert_without_live_wsl() -> None:
     module = _load_module()
 
     class _Proc:
@@ -87,8 +91,7 @@ def test_windows_drive_paths_convert_through_wslpath_runner() -> None:
             self.stderr = ""
 
     def _runner(cmd, **_kwargs):
-        assert cmd[-2:] == ["-a", "Z:/mno-workspace/runtime/stores/claude_no.sqlite3"]
-        return _Proc("/mnt/z/mno-workspace/runtime/stores/claude_no.sqlite3\n")
+        raise AssertionError(f"drive conversion must not invoke WSL: {cmd}")
 
     converted, distro = module.wsl_path_from_windows(
         r"Z:\mno-workspace\runtime\stores\claude_no.sqlite3",
@@ -97,6 +100,52 @@ def test_windows_drive_paths_convert_through_wslpath_runner() -> None:
     )
     assert converted == "/mnt/z/mno-workspace/runtime/stores/claude_no.sqlite3"
     assert distro == "Ubuntu-24.04"
+
+
+def test_windows_drive_relative_paths_are_resolved_by_wslpath() -> None:
+    module = _load_module()
+    calls: list[list[str]] = []
+
+    class _Proc:
+        returncode = 0
+        stdout = "/home/user/relative/file\n"
+        stderr = ""
+
+    def _runner(cmd, **_kwargs):
+        calls.append(cmd)
+        return _Proc()
+
+    converted, distro = module.wsl_path_from_windows(
+        r"C:relative\file",
+        distro_name="Ubuntu-24.04",
+        runner=_runner,
+    )
+
+    assert converted == "/home/user/relative/file"
+    assert distro == "Ubuntu-24.04"
+    assert len(calls) == 1
+    assert calls[0][0].lower().endswith("wsl.exe")
+    assert calls[0][1:] == ["-d", "Ubuntu-24.04", "wslpath", "-a", "C:relative/file"]
+
+
+def test_detect_wsl_distro_returns_empty_when_command_is_missing() -> None:
+    module = _load_module()
+
+    def _runner(_cmd, **_kwargs):
+        raise FileNotFoundError("wsl.exe")
+
+    assert module.detect_wsl_distro(env={}, runner=_runner) == ""
+
+
+def test_detect_wsl_distro_returns_empty_when_no_distro_is_available() -> None:
+    module = _load_module()
+
+    class _Proc:
+        returncode = 1
+        stdout = ""
+        stderr = "There is no distribution with the supplied name."
+
+    assert module.detect_wsl_distro(env={}, runner=lambda *_args, **_kwargs: _Proc()) == ""
 
 
 def test_merge_and_backup_preserve_existing_payload(tmp_path: Path) -> None:

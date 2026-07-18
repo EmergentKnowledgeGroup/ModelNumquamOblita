@@ -4153,6 +4153,11 @@ def test_mcp_phase6_http_security_logs_redact_token_values(tmp_path: Path) -> No
         )
         assert status_auth == 200
         assert "result" in auth_payload
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if log_path.exists() and '"reason":"request_completed"' in log_path.read_text(encoding="utf-8"):
+                break
+            time.sleep(0.05)
     finally:
         stop_http_server(http_server, thread)
 

@@ -150,6 +150,8 @@ def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
             str(SCRIPT_PATH),
             "--memories",
             str(store),
+            "--runtime-port",
+            "0",
         ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
@@ -186,7 +188,7 @@ def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
             stderr = b""
             if proc.stderr is not None and select.select([proc.stderr.fileno()], [], [], 0.2)[0]:
                 stderr = os.read(proc.stderr.fileno(), 4096)
-        assert b"protocolVersion" in response
+        assert b"protocolVersion" in response, stderr.decode("utf-8", errors="replace")
         assert b"runtime_url=" not in stderr
     finally:
         if proc.poll() is None:

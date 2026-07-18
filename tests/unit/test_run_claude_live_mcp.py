@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -140,6 +141,9 @@ def test_plan_only_loads_explicit_runtime_config(tmp_path: Path) -> None:
 def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
     store = tmp_path / "demo.sqlite3"
     store.write_text("", encoding="utf-8")
+    config = tmp_path / "runtime-policy.json"
+    config.write_text('{"provisional_memory":{"enabled":true}}', encoding="utf-8")
+    state_root = tmp_path / "runtime-state"
 
     proc = subprocess.Popen(
         [
@@ -149,7 +153,14 @@ def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
             str(store),
             "--runtime-port",
             "0",
+            "--config",
+            str(config),
         ],
+        env={
+            **os.environ,
+            "MNO_RUNTIME_STATE_ROOT": str(state_root),
+            "NO_MCP_STDIO_TRACE": str(tmp_path / "mcp-stdio-trace.jsonl"),
+        },
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

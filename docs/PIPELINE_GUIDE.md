@@ -10,7 +10,7 @@ The normal MNO build path turns raw source material into:
 
 ## Normal pipeline
 
-`raw source -> import -> atoms.sqlite3 -> draft episode cards -> optional assistant/agent draft curation -> human review -> reviewed episode cards -> runtime`
+`raw source -> import -> atoms.sqlite3 -> draft episode cards -> Headless Curation Room or desktop Review -> human decisions -> publish -> verify -> activate -> runtime`
 
 ## Stage 1: import raw source
 
@@ -81,9 +81,14 @@ Draft cards are:
 - not published truth
 - not runtime truth by themselves
 
-## Stage 3: optional assistant/agent draft curation
+## Stage 3: Headless Curation Room or desktop review
 
-The clean repo includes an optional weld-in between Build and Review.
+The same review workflow is available through the desktop setup wizard or the
+generic loopback-only Headless Curation Room:
+
+```bash
+mno-curate --store runtime/imports/atoms.sqlite3
+```
 
 What it does:
 - lets an assistant or agent inspect draft cards
@@ -96,7 +101,9 @@ What it does not do:
 - activate
 - silently mutate reviewed truth
 
-This lane is draft-only and advisory.
+The agent lane is draft-only and advisory. The browser room lets the human
+complete the authoritative Review, Publish, Verify, and Activate gates without
+opening the Electron desktop shell.
 
 ## Stage 4: human review
 
@@ -134,7 +141,10 @@ python3 tools/run_live_runtime.py \
   --episodes runtime/episodes/episode_cards.reviewed.json
 ```
 
-The runtime can still run without reviewed episode cards, but then it is leaning more on atoms and runtime memory layers.
+Normal runtime launch requires reviewed episode cards. If they are missing,
+MNO stops with `CURATION_REQUIRED` and points the operator to `mno-curate`.
+`--allow-uncurated` is an explicit unsafe development override and is never
+treated as successful curation or activation.
 
 ## Runtime-only memory lanes
 

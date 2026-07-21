@@ -5,7 +5,7 @@ ModelNumquamOblita.
 
 ## v0.2.2 Artifact Contract
 
-- The Python wheel is a runnable headless runtime, MCP sidecar, import CLI, and setup CLI. It includes the runtime web UI and uses platform user state outside `site-packages`.
+- The Python wheel is a runnable headless runtime, MCP sidecar, import CLI, setup CLI, and Headless Curation Room (`mno-curate` + run-bound `mno-curation-mcp`). It includes the runtime web UI and uses platform user state outside `site-packages`.
 - The source distribution contains the public source tree plus an empty runtime skeleton. It must never contain a populated store, WAL/SHM file, trace, checkpoint, or private research tree.
 - The Electron desktop application is a separate artifact with a managed Python runtime. It must be built per target OS; no desktop installer is implied by the Python wheel.
 - Exported integration launchers call installed `mno-runtime` and `mno-agent-mcp` commands. They never embed the builder's checkout and never install dependencies at launch time.

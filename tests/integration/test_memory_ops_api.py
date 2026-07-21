@@ -1208,6 +1208,86 @@ def test_wizard_draft_curation_proposals_stay_separate_until_promoted(tmp_path: 
         stop_runtime_server(server, thread, runtime=runtime)
 
 
+def test_hcr_status_and_route_stay_bound_to_the_requested_wizard_run(tmp_path: Path) -> None:
+    state = _seed_draft_curation_run(tmp_path, count=2)
+    runtime = RuntimeSession(retriever=MemoryRetriever(AtomStore()), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
+    server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = server.server_address
+    base = f"http://{host}:{port}"
+    run_id = state["run_id"]
+    try:
+        initial = _json_get(f"{base}/api/wizard/hcr/status?run_id={quote(run_id)}")
+        assert initial == {
+            **initial,
+            "schema": "numquamoblita.hcr.status.v1",
+            "run_id": run_id,
+            "state": "curation_required",
+            "human_action_required": True,
+            "agent_can_propose": True,
+            "human_review_required": True,
+            "next_action": "review",
+            "curation_url": f"{base}/curate/{run_id}",
+            "build_id": "build_draft_curation",
+            "published_version_id": "",
+            "verification_status": "Unknown",
+        }
+        assert initial["counts"]["reviewable"] == 2
+        assert initial["counts"]["pending"] == 2
+
+        other_run = f"{run_id}_other"
+        runtime_server_module._save_wizard_state(runtime_server_module._wizard_state_defaults(other_run))
+        still_bound = _json_get(f"{base}/api/wizard/hcr/status?run_id={quote(run_id)}")
+        assert still_bound["run_id"] == run_id
+        assert still_bound["run_id"] != other_run
+        with urlopen(f"{base}/curate/{quote(run_id)}", timeout=5) as response:
+            room_html = response.read().decode("utf-8")
+        assert response.status == 200
+        assert 'id="hcrRoomStatus"' in room_html
+        assert "/assets/app.js" in room_html
+        status, error = _json_get_error(f"{base}/curate/wizard_missing")
+        assert status == 404
+        assert error["error"] == "wizard run not found"
+
+        for episode_id in ("ep_001", "ep_002"):
+            _json_post(
+                f"{base}/api/wizard/review/update",
+                {"run_id": run_id, "episode_id": episode_id, "decision": "approved"},
+            )
+        ready_to_publish = _json_get(f"{base}/api/wizard/hcr/status?run_id={quote(run_id)}")
+        assert ready_to_publish["state"] == "ready_to_publish"
+        assert ready_to_publish["human_review_required"] is False
+        assert ready_to_publish["counts"]["publishable"] == 2
+
+        published = _json_post(f"{base}/api/wizard/review/compile", {"run_id": run_id, "reviewer": "human_reviewer"})
+        after_publish = _json_get(f"{base}/api/wizard/hcr/status?run_id={quote(run_id)}")
+        assert published["version_id"] == after_publish["published_version_id"]
+        assert after_publish["state"] == "published_unverified"
+        assert after_publish["next_action"] == "verify"
+        assert after_publish["agent_can_propose"] is False
+
+        stored = runtime_server_module._load_wizard_state(run_id)
+        stored["verify"] = {"status": "Needs attention", "checks": [], "checked_at": "2026-07-21T00:00:00+00:00"}
+        runtime_server_module._save_wizard_state(stored)
+        verification_blocked = _json_get(f"{base}/api/wizard/hcr/status?run_id={quote(run_id)}")
+        assert verification_blocked["state"] == "verification_blocked"
+        assert verification_blocked["next_action"] == "resolve_verification"
+
+        stored["verify"] = {"status": "Safe", "checks": [], "checked_at": "2026-07-21T00:01:00+00:00"}
+        runtime_server_module._save_wizard_state(stored)
+        ready_to_activate = _json_get(f"{base}/api/wizard/hcr/status?run_id={quote(run_id)}")
+        assert ready_to_activate["state"] == "ready_to_activate"
+        assert ready_to_activate["next_action"] == "activate"
+
+        stored.setdefault("activation", {})["direct"] = {"status": "running"}
+        runtime_server_module._save_wizard_state(stored)
+        ready = _json_get(f"{base}/api/wizard/hcr/status?run_id={quote(run_id)}")
+        assert ready["state"] == "ready"
+        assert ready["human_action_required"] is False
+        assert ready["next_action"] == "operate"
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+
+
 def test_wizard_draft_curation_rebuild_invalidates_prior_proposals(tmp_path: Path) -> None:
     state = _seed_draft_curation_run(tmp_path, count=1)
     state["draft_proposals"] = {

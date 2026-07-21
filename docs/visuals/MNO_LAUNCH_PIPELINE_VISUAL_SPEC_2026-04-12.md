@@ -47,7 +47,7 @@ Show the launch flow in three areas:
 - draft episode card build
 
 ### Review And Truth
-- optional assistant/agent draft curation
+- Headless Curation Room or desktop Review; agent proposals stay draft-only and human decisions remain authoritative
 - human review
 - compile reviewed cards
 - truth-lineage finalize

@@ -31,7 +31,7 @@
         <mxCell id="l6" value="Build draft episode cards" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde9d9;strokeColor=#c97b63;" vertex="1" parent="1">
           <mxGeometry x="55" y="590" width="250" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="l7" value="Optional assistant/agent draft curation&amp;#10;stays between Build and Review" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
+        <mxCell id="l7" value="Headless Curation Room or desktop Review&amp;#10;agent proposes; human decisions remain authoritative" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
           <mxGeometry x="400" y="105" width="250" height="80" as="geometry" />
         </mxCell>
         <mxCell id="l8" value="Human review&amp;#10;approve / edit / reject / annotate lineage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">

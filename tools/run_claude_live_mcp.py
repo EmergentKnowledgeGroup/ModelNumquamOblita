@@ -119,6 +119,7 @@ def _build_claude_config(
     compat_mode: str,
     mutations_enabled: bool,
     config_path: Path | None = None,
+    allow_uncurated: bool = False,
 ) -> dict[str, object]:
     return build_mcp_servers_payload(
         server_name=str(server_name),
@@ -130,6 +131,7 @@ def _build_claude_config(
             compat_mode=str(compat_mode),
             mutations_enabled=bool(mutations_enabled),
             config_path=config_path,
+            allow_uncurated=allow_uncurated,
         ),
     )
 
@@ -151,6 +153,11 @@ def _parse_args() -> argparse.Namespace:
         help="Path to runtime/live_runs/live_*/live_manifest.json. Uses store_path from manifest.",
     )
     parser.add_argument("--episodes", default="", help="Optional path to episode_cards JSON artifact.")
+    parser.add_argument(
+        "--allow-uncurated",
+        action="store_true",
+        help="Explicit development/operator bypass: launch without reviewed episode cards.",
+    )
     parser.add_argument("--model-name", default="numquam-oblita-runtime")
     parser.add_argument(
         "--config",
@@ -228,7 +235,12 @@ def main() -> int:
         print(f"error=memories path not found: {memories_path}", file=sys.stderr)
         return 2
 
-    episodes_path = _resolve_episode_cards_path(args.episodes)
+    explicit_store = bool(str(args.memories).strip() or str(args.from_live_manifest).strip())
+    episodes_path = (
+        Path(args.episodes).expanduser().resolve()
+        if str(args.episodes).strip()
+        else (None if explicit_store else _resolve_episode_cards_path(""))
+    )
     if episodes_path is not None and not episodes_path.exists():
         print(f"error=episode cards path not found: {episodes_path}", file=sys.stderr)
         return 2
@@ -272,8 +284,11 @@ def main() -> int:
             compat_mode=str(args.compat_mode),
             mutations_enabled=bool(args.mutations_enabled),
             config_path=config_path,
+            allow_uncurated=bool(args.allow_uncurated),
         ),
     )
+
+    curation_required = episodes_path is None
 
     if args.plan_only or args.print_claude_config:
         print(f"memories_path={memories_path}")
@@ -286,11 +301,25 @@ def main() -> int:
         print(f"operator_token_configured={str(bool(operator_token)).lower()}")
         print(f"admin_token_configured={str(bool(admin_token)).lower()}")
         print(f"review_apply_token_configured={str(bool(review_apply_token)).lower()}")
+        print(f"curation_state={'required' if curation_required else 'complete'}")
+        if curation_required:
+            print(f"curation_command=mno-curate --store {memories_path}")
         if args.print_claude_config:
+            if curation_required and not bool(args.allow_uncurated):
+                print("error_code=CURATION_REQUIRED", file=sys.stderr)
+                return 3
             print("claude_desktop_config_json=")
             print(json.dumps(config_payload, indent=2))
         if args.plan_only or args.print_claude_config:
             return 0
+
+    if curation_required and not bool(args.allow_uncurated):
+        print("error_code=CURATION_REQUIRED", file=sys.stderr)
+        print("error_message=Reviewed episode cards are required before combined runtime + MCP activation.", file=sys.stderr)
+        print(f"curation_command=mno-curate --store {memories_path}", file=sys.stderr)
+        return 3
+    if curation_required:
+        print("warning_code=UNCURATED_RUNTIME_OVERRIDE", file=sys.stderr)
 
     try:
         store, backend_name, close_store = _open_store(memories_path)

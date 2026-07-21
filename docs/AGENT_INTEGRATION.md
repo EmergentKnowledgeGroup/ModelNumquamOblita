@@ -18,6 +18,20 @@ Recommended shape:
 
 Avoid a single shared multi-agent runtime unless you are ready to own the state and routing complexity yourself.
 
+## Pre-activation curation wall
+
+An imported store is not automatically an activated reviewed memory set. Standard `mno-runtime` and `mno-agent-mcp` launches without reviewed episode cards return `CURATION_REQUIRED`.
+
+When that happens:
+
+1. Run `mno-curate --store <atoms.sqlite3>` or `mno-curate --input <raw-source>`.
+2. Read the emitted `hcr_status_json`, `run_id`, and loopback `curation_url`.
+3. Tell the user that episode cards need review and open/share that local URL.
+4. Use `mno-curation-mcp --runtime-base-url <url> --run-id <run>` for draft-only agent proposal work.
+5. Do not claim readiness until the human has resolved every card and HCR completes Publish, Safe Verify, and Activate.
+
+The HCR MCP profile is pinned to one run and exposes only draft curation. It cannot promote a proposal into `review_decisions`, publish, verify, activate, install an integration, force-release another curator, or call unrelated runtime tools. Full contract: [Headless Curation Room](HEADLESS_CURATION_ROOM.md).
+
 ## Three valid integration paths
 
 ### 1. `integration-v1`

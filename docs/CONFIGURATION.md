@@ -11,8 +11,13 @@ The main runtime inputs are:
 - `--episodes <episode_cards.reviewed.json>`
 - `--from-live-manifest <live_manifest.json>`
 - `--config <mno-runtime-policy.v1.json>`
+- `--allow-uncurated` only as an explicit development/recovery bypass
 
 `tools/run_live_runtime.py --config <json>` validates one policy object before constructing the runtime. Without an explicit file it uses `runtime/state/mno-runtime-policy.v1.json` when setup has created it; otherwise it uses the fresh standard defaults. `--plan-only` reports the resolved effective policy source.
+
+An explicitly selected store or live manifest does not borrow an unrelated globally discovered episode file. Without an explicit reviewed episode artifact, normal launch reports `CURATION_REQUIRED` and points to `mno-curate --store <path>`. `mno-agent-mcp` applies the same gate. The `uncurated_override` binding produced by `--allow-uncurated` is intentionally distinguishable from `published`.
+
+HCR configuration is deliberately small: `--input` or `--store` starts a new room, `--run-id` resumes one, `--policy` selects the existing build preset, `--host` must be loopback, `--port 0` chooses an available local port, `--no-open` suppresses browser launch, and `--setup-store` overrides its writable setup sqlite location. `mno-curation-mcp` additionally requires the HCR runtime URL and exact run ID.
 
 ## v0.2 provisional-memory policy
 

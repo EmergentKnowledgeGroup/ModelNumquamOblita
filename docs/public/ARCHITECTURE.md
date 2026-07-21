@@ -2,7 +2,7 @@
 
 ## High-level build flow
 
-`raw source -> import/normalize -> atoms.sqlite3 -> draft episode cards -> optional draft curation -> human review -> reviewed episode cards -> runtime`
+`raw source -> import/normalize -> atoms.sqlite3 -> draft episode cards -> Headless Curation Room or desktop Review -> human decisions -> publish -> verify -> activate -> runtime`
 
 ## High-level runtime flow
 
@@ -93,7 +93,7 @@ The design goal is not to maximize the number of signals. The goal is to recover
 - raw import creates evidence atoms
 - live `memory.observe` can create observed/reinforced/consolidated **provisional** memory only, using signed source registrations and retrieval receipts
 - build creates draft cards
-- optional draft curation stays draft-only
+- agent work in the Headless Curation Room stays draft-only and run-bound
 - human review remains authoritative
 - user “remember this” is propose/resolve gated; reviewer `review_apply` with `apply=true` creates an `evidence_atom` with `human_reviewed=false`, not published truth
 - verifier remains in the live answer path
@@ -110,6 +110,17 @@ Temporal records keep four separate labels: authority, evidentiary maturity, ret
 Due selection is deterministic and does not need a lexical retrieval hit. Canonical corrections remain authoritative first; due provisional notes follow in their own bounded budget; dormant fallback is lower priority. The only host heartbeat seam is a read-only bounded due poll, so no background action occurs.
 
 The support-ticket loop is deliberately outside memory truth: it reads no store automatically, accepts only explicitly named bounded logs, redacts secret-like content, and requires a separate explicit action before GitHub submission.
+
+## Headless curation boundary
+
+The Headless Curation Room is the browser-accessible form of the existing
+wizard gates, not a second publishing pipeline. `mno-curate` binds the room to
+one setup run on loopback. `mno-curation-mcp` exposes only the bounded draft
+inspection, lease, and proposal tools for that same run. Agent calls cannot
+promote proposals into review truth, publish, verify, activate, install MCP
+configuration, or force-release another curator. When reviewed cards are
+absent, normal headless launch stops at the curation wall instead of silently
+serving an uncurated store.
 
 Canonical WSS details live in [Work-Session Scratchpad](../WORK_SESSION_SCRATCHPAD.md).
 

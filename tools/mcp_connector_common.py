@@ -243,6 +243,7 @@ def build_launcher_cli_args(
     compat_mode: str,
     mutations_enabled: bool,
     config_path: str | Path | None = None,
+    allow_uncurated: bool = False,
 ) -> list[str]:
     args = [
         str(launcher_path),
@@ -259,6 +260,8 @@ def build_launcher_cli_args(
         args.extend(["--config", _path_text(config_path)])
     if mutations_enabled:
         args.append("--mutations-enabled")
+    if allow_uncurated:
+        args.append("--allow-uncurated")
     return args
 
 
@@ -273,6 +276,7 @@ def build_posix_stdio_entry(
     mutations_enabled: bool,
     launcher_path: str | None = None,
     config_path: str | Path | None = None,
+    allow_uncurated: bool = False,
 ) -> dict[str, Any]:
     command = str(python_path or "python3").strip() or "python3"
     if "/" in command or "\\" in command:
@@ -292,6 +296,7 @@ def build_posix_stdio_entry(
             compat_mode=compat_mode,
             mutations_enabled=mutations_enabled,
             config_path=config_path,
+            allow_uncurated=allow_uncurated,
         ),
         "env": {},
     }

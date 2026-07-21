@@ -55,6 +55,18 @@ If auth is enabled, also check the token source:
 - `NO_MCP_OPERATOR_TOKEN`
 - `NO_MCP_ADMIN_TOKEN`
 
+## Runtime says `CURATION_REQUIRED`
+
+This means the store exists but no reviewed episode artifact was supplied. It is an intentional authority wall, not a missing dependency.
+
+```bash
+mno-curate --store /absolute/path/to/atoms.sqlite3
+```
+
+Open the returned local HCR URL, resolve every card, then Publish, Verify, and Activate. If an agent is helping, bind `mno-curation-mcp` to the exact returned `run_id`. Do not substitute raw import or a different run. `--allow-uncurated` exists only for explicit development/recovery and prints `UNCURATED_RUNTIME_OVERRIDE`.
+
+If HCR does not open automatically, rerun with `--no-open` and open the printed `curation_url` manually. HCR rejects non-loopback hosts by design.
+
 ## Desktop issues
 
 - run `npm run desktop:test --prefix app/desktop`

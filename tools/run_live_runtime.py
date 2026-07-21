@@ -145,6 +145,11 @@ def main() -> int:
         help="Optional path to the MNO runtime policy JSON. Defaults to the built-in policy.",
     )
     parser.add_argument("--episodes", default="", help="Optional path to episode_cards JSON artifact.")
+    parser.add_argument(
+        "--allow-uncurated",
+        action="store_true",
+        help="Explicit development/operator bypass: launch without reviewed episode cards. Never enabled implicitly.",
+    )
     parser.add_argument("--setup-mode", action="store_true", help="Start the runtime only for setup/wizard flows.")
     parser.add_argument("--setup-store", default="", help="Optional sqlite path to use for setup-mode runtime state.")
     parser.add_argument("--max-seconds", type=float, default=0.0, help="Auto-stop after N seconds (0 = run until Ctrl+C).")
@@ -157,6 +162,9 @@ def main() -> int:
         return 2
     if args.setup_mode and str(args.episodes).strip():
         print("error=--setup-mode cannot be combined with --episodes")
+        return 2
+    if args.setup_mode and bool(args.allow_uncurated):
+        print("error=--setup-mode cannot be combined with --allow-uncurated")
         return 2
 
     if args.setup_mode:
@@ -171,7 +179,12 @@ def main() -> int:
             print(f"error=memories path not found: {memories_path}")
             return 2
 
-    episode_cards_path = None if args.setup_mode else (Path(args.episodes).expanduser().resolve() if str(args.episodes).strip() else _default_episode_cards_path())
+    explicit_store = bool(str(args.memories).strip() or str(args.from_live_manifest).strip())
+    episode_cards_path = None if args.setup_mode else (
+        Path(args.episodes).expanduser().resolve()
+        if str(args.episodes).strip()
+        else (None if explicit_store else _default_episode_cards_path())
+    )
     if episode_cards_path is not None and not episode_cards_path.exists():
         print(f"error=episode cards path not found: {episode_cards_path}")
         return 2
@@ -218,6 +231,21 @@ def main() -> int:
         print(f"runtime_url={runtime_url}")
         print(f"config_path={config_path if config_path is not None else ''}")
         return 0
+
+    curation_required = bool(not args.setup_mode and episode_cards_path is None)
+    if args.plan_only and curation_required:
+        print("curation_state=required")
+        print(f"curation_command=mno-curate --store {memories_path}")
+        print(f"uncurated_bypass_allowed={bool(args.allow_uncurated)}")
+    if curation_required and not args.plan_only and not bool(args.allow_uncurated):
+        print("error_code=CURATION_REQUIRED")
+        print("error_message=Reviewed episode cards are required before normal runtime activation.")
+        print(f"curation_command=mno-curate --store {memories_path}")
+        print("bypass_command=add --allow-uncurated only for explicit development or recovery work")
+        return 3
+    if curation_required and bool(args.allow_uncurated):
+        print("warning_code=UNCURATED_RUNTIME_OVERRIDE", file=sys.stderr, flush=True)
+        print("warning_message=Runtime is using raw atoms without a reviewed episode set.", file=sys.stderr, flush=True)
 
     if args.setup_mode:
         memories_path.parent.mkdir(parents=True, exist_ok=True)
@@ -276,7 +304,7 @@ def main() -> int:
             "episodes_path": str(episode_cards_path.resolve()) if episode_cards_path is not None else "",
             "checked_at": datetime.now(timezone.utc).isoformat(),
             "backend": backend_name,
-            "artifact_mode": "setup" if args.setup_mode else ("published" if episode_cards_path is not None else ""),
+            "artifact_mode": "setup" if args.setup_mode else ("published" if episode_cards_path is not None else "uncurated_override"),
             "build_id": "",
         }
         host, port = server.server_address

@@ -52,7 +52,7 @@ This page is the real pipeline map. It should preserve the engineering layering 
 - draft episode card build
 
 ### Lane 2: Review And Trusted Memory
-- optional assistant/agent draft curation stays between Build and Review
+- Headless Curation Room or desktop Review stays between Build and Publish; agent proposals remain draft-only and human decisions remain authoritative
 - review pack / review UI
 - compile reviewed cards
 - truth-lineage finalize

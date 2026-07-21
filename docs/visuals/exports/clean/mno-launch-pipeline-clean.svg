@@ -22,7 +22,7 @@
 <rect x="95" y="490" width="340" height="100" rx="9" fill="#fde9d9" stroke="#c97b63" stroke-width="2"/>
 <text x="265.0" y="535.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="265.0" dy="0.0">Draft episode cards</tspan><tspan x="265.0" dy="22.3">rough memory, not trusted yet</tspan></text>
 <rect x="605" y="170" width="340" height="100" rx="9" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>
-<text x="775.0" y="215.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="775.0" dy="0.0">Optional agent curation</tspan><tspan x="775.0" dy="22.3">draft-only cleanup</tspan></text>
+<text x="775.0" y="215.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="775.0" dy="0.0">Headless Curation Room</tspan><tspan x="775.0" dy="22.3">agent proposes; human decides</tspan></text>
 <rect x="605" y="330" width="340" height="100" rx="9" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
 <text x="775.0" y="375.7" text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="18" font-weight="500" fill="#1f2933"><tspan x="775.0" dy="0.0">Human review</tspan><tspan x="775.0" dy="22.3">approve, edit, reject, annotate lineage</tspan></text>
 <rect x="605" y="490" width="340" height="100" rx="9" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>

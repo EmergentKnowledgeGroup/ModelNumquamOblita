@@ -61,6 +61,9 @@ const state = {
   wizardState: null,
   wizardRunId: null,
   wizardLatestRunId: "",
+  hcrMode: false,
+  hcrRunId: "",
+  hcrStatus: null,
   wizardResumeAvailable: false,
   wizardImportPending: false,
   wizardVisibleStage: "import",
@@ -230,6 +233,7 @@ const els = {
   settingMemoryPreference: document.getElementById("settingMemoryPreference"),
   settingAutoRefresh: document.getElementById("settingAutoRefresh"),
   wizardRunMeta: document.getElementById("wizardRunMeta"),
+  hcrRoomStatus: document.getElementById("hcrRoomStatus"),
   wizardStageRail: document.getElementById("wizardStageRail"),
   btnWizardResume: document.getElementById("btnWizardResume"),
   btnWizardStartNew: document.getElementById("btnWizardStartNew"),
@@ -624,9 +628,47 @@ function requestedDesktopTab() {
   return "";
 }
 
+function requestedHcrRunId() {
+  const match = /^\/curate\/([^/]+)\/?$/.exec(String(window.location.pathname || ""));
+  if (!match) {
+    return "";
+  }
+  try {
+    return decodeURIComponent(match[1]).trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
+function initializeHcrMode() {
+  const runId = requestedHcrRunId();
+  state.hcrMode = Boolean(runId);
+  state.hcrRunId = runId;
+  document.body.classList.toggle("hcr-mode", state.hcrMode);
+  if (state.hcrMode) {
+    state.wizardVisibleStage = "review";
+    document.title = "NumquamOblita Curation Room";
+    const draftPanel = document.getElementById("wizardDraftCurationPanel");
+    if (draftPanel) {
+      draftPanel.open = false;
+    }
+  }
+}
+
+function hcrPreferredWizardStage(status = state.hcrStatus || {}) {
+  const roomState = String(status.state || "").trim().toLowerCase();
+  if (roomState === "ready_to_publish") return "publish";
+  if (["published_unverified", "verification_blocked"].includes(roomState)) return "verify";
+  if (["ready_to_activate", "ready"].includes(roomState)) return "activate";
+  return "review";
+}
+
 /* ─── Tab Navigation ─── */
 
 function switchTab(tabId, { loadData = true } = {}) {
+  if (state.hcrMode) {
+    tabId = "setup";
+  }
   const btns = document.querySelectorAll(".tab-btn");
   const panes = document.querySelectorAll(".tab-pane");
   btns.forEach((btn) => {
@@ -678,7 +720,7 @@ function activeMemoryTabKey() {
 }
 
 async function refreshVisibleWizardStageData() {
-  const runId = state.wizardRunId || undefined;
+  const runId = currentWizardRunId() || undefined;
   if (!runId) {
     return;
   }
@@ -701,13 +743,20 @@ async function refreshVisibleWizardStageData() {
 }
 
 async function refreshSetupTabData() {
-  await refreshState();
-  await refreshWizardState(undefined, {
+  if (!state.hcrMode) {
+    await refreshState();
+  }
+  await refreshWizardState(state.hcrMode ? state.hcrRunId : undefined, {
     includeReview: false,
     includeInputOptions: false,
     includeActivation: false,
     includeRemap: false,
   });
+  if (state.hcrMode) {
+    await refreshHcrStatus();
+    state.wizardVisibleStage = hcrPreferredWizardStage();
+    renderWizardState();
+  }
   await refreshVisibleWizardStageData();
 }
 
@@ -784,6 +833,10 @@ async function ensureTabData(tabId, { force = false } = {}) {
 }
 
 function bindTabNavigation() {
+  if (state.hcrMode) {
+    switchTab("setup", { loadData: false });
+    return;
+  }
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const tabId = btn.getAttribute("data-tab");
@@ -915,7 +968,12 @@ function autoSelectWizardStep() {
     if (stage.classList.contains("current")) currentIndex = i;
     if (stageId && stageId === state.wizardVisibleStage && wizardStageIsReachable(stageId)) preferredIndex = i;
   });
-  const selectedIndex = preferredIndex >= 0 ? preferredIndex : currentIndex;
+  let selectedIndex = preferredIndex >= 0 ? preferredIndex : currentIndex;
+  if (state.hcrMode) {
+    const requestedStage = hcrPreferredWizardStage();
+    const hcrIndex = [...stages].findIndex((stage) => String(stage.getAttribute("data-stage") || "").trim() === requestedStage);
+    if (hcrIndex >= 0) selectedIndex = hcrIndex;
+  }
   const selectedStage = stages[selectedIndex];
   state.wizardVisibleStage = String(selectedStage?.getAttribute("data-stage") || "import").trim() || "import";
   switchWizardStep(selectedIndex);
@@ -4166,7 +4224,53 @@ function renderDraftProposalPreviewCard(card = {}) {
 }
 
 function currentWizardRunId() {
+  if (state.hcrMode) {
+    return state.hcrRunId;
+  }
   return String(state.wizardRunId || state.wizardLatestRunId || state.wizardState?.run_id || "").trim();
+}
+
+function renderHcrStatus() {
+  if (!els.hcrRoomStatus) {
+    return;
+  }
+  if (!state.hcrMode) {
+    els.hcrRoomStatus.hidden = true;
+    return;
+  }
+  const payload = state.hcrStatus || {};
+  const counts = payload.counts || {};
+  const roomState = String(payload.state || "review_in_progress").replaceAll("_", " ");
+  const verification = String(payload.verification_status || "Unknown");
+  wizardResult(els.hcrRoomStatus, {
+    tone: payload.state === "verification_blocked" ? "warn" : payload.state === "ready" ? "ok" : "info",
+    title: `Curation room: ${roomState}.`,
+    detail: "This room is bound to the run in this URL. Draft proposals stay separate until a human promotes or reviews them.",
+    next: `Current handoff: ${String(payload.next_action || "review").replaceAll("_", " ")}.`,
+    meta: `run=${payload.run_id || state.hcrRunId || "-"} | pending=${Number(counts.pending || 0)} | publishable=${Number(counts.publishable || 0)} | proposals=${Number(counts.draft_proposals || 0)} | verification=${verification}`,
+  });
+  els.hcrRoomStatus.hidden = false;
+}
+
+async function refreshHcrStatus() {
+  if (!state.hcrMode || !state.hcrRunId) {
+    return;
+  }
+  const payload = await jsonFetch(`/api/wizard/hcr/status?run_id=${encodeURIComponent(state.hcrRunId)}`);
+  if (String(payload.run_id || "").trim() !== state.hcrRunId) {
+    throw new Error("Curation room did not return the requested run.");
+  }
+  state.hcrStatus = payload;
+  renderHcrStatus();
+}
+
+async function refreshHcrProgress() {
+  if (!state.hcrMode) {
+    return;
+  }
+  await refreshHcrStatus();
+  state.wizardVisibleStage = hcrPreferredWizardStage();
+  renderWizardState();
 }
 
 const MANAGED_MCP_PROFILE_DEFAULTS = {
@@ -5738,10 +5842,14 @@ async function refreshWizardState(runId, options = {}) {
     includeRemap = true,
     includeDraftCuration = true,
   } = options;
-  const query = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
+  const requestedRunId = state.hcrMode ? state.hcrRunId : runId;
+  const query = requestedRunId ? `?run_id=${encodeURIComponent(requestedRunId)}` : "";
   const payload = await jsonFetch(`/api/wizard/state${query}`);
+  if (state.hcrMode && (!payload.has_state || String(payload.current_run_id || "").trim() !== state.hcrRunId)) {
+    throw new Error("Curation room could not load the requested run.");
+  }
   state.wizardState = payload.state || null;
-  state.wizardRunId = payload.current_run_id || payload.latest_run_id || null;
+  state.wizardRunId = state.hcrMode ? state.hcrRunId : (payload.current_run_id || payload.latest_run_id || null);
   state.wizardLatestRunId = String(payload.latest_run_id || "");
   state.wizardResumeAvailable = Boolean(payload.resume_available);
   state.wizardReviewFacetMenuOpen = false;
@@ -5769,22 +5877,28 @@ async function refreshWizardState(runId, options = {}) {
   if (tasks.length) {
     await Promise.all(tasks);
   }
+  await refreshHcrProgress();
 }
 
 async function refreshWizardReviewSummary(runId) {
   const requestSeq = state.wizardReviewSummaryRequestSeq + 1;
   state.wizardReviewSummaryRequestSeq = requestSeq;
-  const query = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
+  const requestedRunId = state.hcrMode ? state.hcrRunId : runId;
+  const query = requestedRunId ? `?run_id=${encodeURIComponent(requestedRunId)}` : "";
   const payload = await jsonFetch(`/api/wizard/state${query}`);
   if (requestSeq !== state.wizardReviewSummaryRequestSeq) {
     return;
   }
   state.wizardState = payload.state || null;
-  state.wizardRunId = payload.current_run_id || payload.latest_run_id || state.wizardRunId || null;
+  if (state.hcrMode && (!payload.has_state || String(payload.current_run_id || "").trim() !== state.hcrRunId)) {
+    throw new Error("Curation room could not refresh the requested run.");
+  }
+  state.wizardRunId = state.hcrMode ? state.hcrRunId : (payload.current_run_id || payload.latest_run_id || state.wizardRunId || null);
   state.wizardLatestRunId = String(payload.latest_run_id || state.wizardLatestRunId || "");
   state.wizardResumeAvailable = Boolean(payload.resume_available || state.wizardLatestRunId);
   renderWizardState();
   renderWizardReviewMeta();
+  await refreshHcrProgress();
 }
 
 async function startWizard(mode) {
@@ -8450,6 +8564,7 @@ function bindEvents() {
 
 async function bootstrap() {
   loadSettings();
+  initializeHcrMode();
   applySettingsToInputs();
   syncMemoryNeighborhoodInputs();
   updateAutoRefresh();

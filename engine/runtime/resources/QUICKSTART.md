@@ -6,6 +6,8 @@ This package provides the local headless runtime and MCP command surfaces:
 mno-runtime --setup-mode
 mno-mcp --help
 mno-import --help
+mno-curate --help
+mno-curation-mcp --help
 ```
 
 Mutable databases, policy, locks, reports, and diagnostics live in the
@@ -15,6 +17,23 @@ an explicit writable location.
 The Electron desktop application is distributed separately from the Python
 wheel. See the public repository documentation for desktop packaging and the
 full build/review/publish workflow.
+
+## Headless curation
+
+If an agent or operator starts from raw source or an unreviewed store, use the
+generic local Headless Curation Room before normal runtime activation:
+
+```text
+mno-curate --input /absolute/path/to/source-or-folder
+mno-curate --store /absolute/path/to/atoms.sqlite3
+```
+
+The command opens a browser room bound to one setup run. An agent may inspect
+cards and submit draft-only proposals through `mno-curation-mcp`; a human must
+still decide the review cards and complete Publish, Verify, and Activate.
+Normal `mno-runtime` and live MCP launchers stop with `CURATION_REQUIRED` when
+reviewed episode cards are missing. `--allow-uncurated` is an explicit unsafe
+development override, not a successful setup path.
 
 ## Temporal facts
 

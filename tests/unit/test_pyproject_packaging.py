@@ -21,6 +21,8 @@ def test_pyproject_packages_runnable_engine_and_cli_surfaces() -> None:
         "mno-runtime": "tools.run_live_runtime:main",
         "mno-mcp": "tools.run_mcp_server:main",
         "mno-agent-mcp": "tools.run_claude_live_mcp:main",
+        "mno-curate": "tools.run_headless_curation:main",
+        "mno-curation-mcp": "tools.run_headless_curation_mcp:main",
         "mno-setup": "tools.setup_local:main",
         "mno-import": "tools.import_memories:main",
         "mno-report": "tools.report_issue:main",

@@ -31,6 +31,31 @@ COMPAT_MODES = {
     "lenient_v1",
 }
 
+TOOL_PROFILES = {
+    "full",
+    "headless_curation",
+}
+
+HEADLESS_CURATION_TOOL_NAMES = frozenset(
+    {
+        "wizard.draft_curation_status",
+        "wizard.draft_curation_cards",
+        "wizard.draft_curation_get_card",
+        "wizard.draft_curation_proposals",
+        "wizard.draft_curation_session_start",
+        "wizard.draft_curation_session_heartbeat",
+        "wizard.draft_curation_session_release",
+        "wizard.draft_curation_proposal_upsert",
+    }
+)
+
+HEADLESS_CURATION_FORCE_RELEASE_TOOLS = frozenset(
+    {
+        "wizard.draft_curation_session_start",
+        "wizard.draft_curation_session_release",
+    }
+)
+
 COMPAT_METHOD_ALIASES = {
     "tools.list": "tools/list",
     "tools.call": "tools/call",
@@ -186,6 +211,8 @@ class ServerConfig:
     integration_admin_token: str = ""
     integration_review_apply_token: str = ""
     auth: AuthConfig = field(default_factory=AuthConfig)
+    tool_profile: str = "full"
+    bound_wizard_run_id: str = ""
 
     def __post_init__(self) -> None:
         self.runtime_base_url = str(self.runtime_base_url or "").strip().rstrip("/")
@@ -248,6 +275,13 @@ class ServerConfig:
         self.integration_review_apply_token = str(
             self.integration_review_apply_token or os.getenv("NO_INTEGRATION_REVIEW_APPLY_TOKEN", "") or ""
         ).strip()
+        self.tool_profile = str(self.tool_profile or "full").strip().lower() or "full"
+        if self.tool_profile not in TOOL_PROFILES:
+            allowed = ", ".join(sorted(TOOL_PROFILES))
+            raise ValueError(f"tool_profile must be one of: {allowed}")
+        self.bound_wizard_run_id = str(self.bound_wizard_run_id or "").strip()
+        if self.tool_profile == "headless_curation" and not self.bound_wizard_run_id:
+            raise ValueError("bound_wizard_run_id is required for headless_curation")
 
 
 class RuntimeApiClient:
@@ -1737,7 +1771,7 @@ class MCPServer:
             ),
             ToolSpec(
                 name="wizard.draft_curation_cards",
-                description="List draft cards with Claude suggestion state for the current build. Compact mode is the default for model triage; use full mode for nested card/proposal payloads.",
+                description="List draft cards with assistant/agent suggestion state for the current build. Compact mode is the default for model triage; use full mode for nested card/proposal payloads.",
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -1773,7 +1807,7 @@ class MCPServer:
             ),
             ToolSpec(
                 name="wizard.draft_curation_proposals",
-                description="List existing Claude draft-curation proposals for the current build.",
+                description="List existing assistant/agent draft-curation proposals for the current build.",
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -1807,7 +1841,7 @@ class MCPServer:
             ),
             ToolSpec(
                 name="wizard.draft_curation_session_heartbeat",
-                description="Refresh the active draft-curation lease while Claude is still working.",
+                description="Refresh the active draft-curation lease while the assistant or agent is still working.",
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -1841,7 +1875,7 @@ class MCPServer:
             ),
             ToolSpec(
                 name="wizard.draft_curation_proposal_upsert",
-                description="Save or update one draft-only Claude suggestion for a single episode card.",
+                description="Save or update one draft-only assistant/agent suggestion for a single episode card.",
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -2080,6 +2114,24 @@ class MCPServer:
             ),
         ]
         return {tool.name: tool for tool in tools}
+
+    def _tool_is_enabled(self, name: str) -> bool:
+        if self.config.tool_profile == "headless_curation":
+            return name in HEADLESS_CURATION_TOOL_NAMES
+        return True
+
+    def _bind_curation_run_id(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Fail closed if a headless room is asked to escape its wizard run."""
+
+        if self.config.tool_profile != "headless_curation":
+            return args
+        requested_run_id = str(args.get("run_id") or "").strip()
+        bound_run_id = self.config.bound_wizard_run_id
+        if requested_run_id and requested_run_id != bound_run_id:
+            raise MCPRequestError(-32602, "run_id does not match this headless curation room")
+        bound_args = dict(args)
+        bound_args["run_id"] = bound_run_id
+        return bound_args
 
     def _compat_mode_enabled(self) -> bool:
         return self.config.compat_mode == "lenient_v1"
@@ -5567,6 +5619,8 @@ class MCPServer:
         tools: list[dict[str, Any]] = []
         for name in sorted(self._tools.keys()):
             spec = self._tools[name]
+            if not self._tool_is_enabled(name):
+                continue
             if not _role_allows(self._session_role, spec.permission):
                 continue
             item = {
@@ -5587,6 +5641,8 @@ class MCPServer:
         spec = self._tools.get(name)
         if spec is None:
             raise MCPRequestError(-32602, f"unknown tool: {name}")
+        if not self._tool_is_enabled(name):
+            raise MCPRequestError(-32002, f"tool '{name}' is not enabled by the configured profile")
         if not _role_allows(self._session_role, spec.permission):
             raise MCPRequestError(-32002, f"role '{self._session_role}' cannot call '{name}'")
 
@@ -5600,6 +5656,13 @@ class MCPServer:
         else:
             raise MCPRequestError(-32602, "tools/call requires 'arguments' to be an object")
         _validate_args(args, spec.input_schema)
+        args = self._bind_curation_run_id(args) if name in HEADLESS_CURATION_TOOL_NAMES else args
+        if (
+            self.config.tool_profile == "headless_curation"
+            and name in HEADLESS_CURATION_FORCE_RELEASE_TOOLS
+            and bool(args.get("force_release"))
+        ):
+            raise MCPRequestError(-32002, "force_release is not available to a headless curation agent")
         try:
             output = spec.handler(args)
         except RuntimeApiError as exc:

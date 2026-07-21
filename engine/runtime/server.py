@@ -135,6 +135,17 @@ def _host_is_loopback(host: str) -> bool:
     return bool(mapped and mapped.is_loopback)
 
 
+def _wizard_route_is_allowed(path: str, client_host: str) -> bool:
+    normalized_path = str(path or '').strip()
+    requires_loopback = (
+        normalized_path == '/curate'
+        or normalized_path.startswith('/curate/')
+        or normalized_path == '/api/wizard'
+        or normalized_path.startswith('/api/wizard/')
+    )
+    return not requires_loopback or _host_is_loopback(client_host)
+
+
 def _project_version() -> str:
     try:
         return importlib_metadata.version("modelnumquamoblita")
@@ -9419,6 +9430,9 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
+        client_host = str(self.client_address[0] if self.client_address else '').strip()
+        if not _wizard_route_is_allowed(path, client_host):
+            return _json_response(self, HTTPStatus.FORBIDDEN, {"error": "wizard and curation routes are local-only"})
         if path in {"/", "/index.html", "/assets/styles.css", "/assets/app.js"} or path.startswith("/api/"):
             self._trace_request("GET", path)
         if self._integration_handle_request(method="GET", parsed=parsed):
@@ -11114,6 +11128,9 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
+        client_host = str(self.client_address[0] if self.client_address else '').strip()
+        if not _wizard_route_is_allowed(path, client_host):
+            return _json_response(self, HTTPStatus.FORBIDDEN, {"error": "wizard and curation routes are local-only"})
         if path.startswith("/api/"):
             self._trace_request("POST", path)
         if self._integration_handle_request(method="POST", parsed=parsed):

@@ -3178,7 +3178,7 @@ def test_mcp_headless_curation_profile_is_run_bound_and_allowlisted() -> None:
     _call(server, 1, "initialize", {})
     listed = _call(server, 2, "tools/list")
     names = {str(dict(item).get("name") or "") for item in list(dict(listed["result"]).get("tools") or [])}
-    assert names == {
+    expected_names = {
         "wizard.draft_curation_status",
         "wizard.draft_curation_cards",
         "wizard.draft_curation_get_card",
@@ -3188,14 +3188,20 @@ def test_mcp_headless_curation_profile_is_run_bound_and_allowlisted() -> None:
         "wizard.draft_curation_session_release",
         "wizard.draft_curation_proposal_upsert",
     }
+    assert names == expected_names
 
-    status = _call(server, 3, "tools/call", {"name": "wizard.draft_curation_status", "arguments": {}})
+    capabilities = _call(server, 3, "resources/read", {"uri": "resource://capabilities"})
+    contents = list(dict(capabilities["result"]).get("contents") or [])
+    capabilities_payload = json.loads(str(dict(contents[0]).get("text") or "{}"))
+    assert set(capabilities_payload.get("enabled_tools") or []) == expected_names
+
+    status = _call(server, 4, "tools/call", {"name": "wizard.draft_curation_status", "arguments": {}})
     assert "result" in status
     assert client.calls[-1] == ("/api/wizard/draft-curation/status", {"run_id": "wizard_bound_123"})
 
     mismatched = _call(
         server,
-        4,
+        5,
         "tools/call",
         {"name": "wizard.draft_curation_cards", "arguments": {"run_id": "wizard_other_456"}},
     )
@@ -3203,7 +3209,7 @@ def test_mcp_headless_curation_profile_is_run_bound_and_allowlisted() -> None:
     assert "does not match" in str(dict(mismatched["error"]).get("message") or "")
     assert len(client.calls) == 1
 
-    unavailable = _call(server, 5, "tools/call", {"name": "wizard.review_update", "arguments": {}})
+    unavailable = _call(server, 6, "tools/call", {"name": "wizard.review_update", "arguments": {}})
     assert int(dict(unavailable["error"]).get("code") or 0) == -32002
     assert "not enabled" in str(dict(unavailable["error"]).get("message") or "")
 

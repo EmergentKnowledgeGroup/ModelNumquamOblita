@@ -59,4 +59,4 @@
 - [x] Snapshot post-green DEV checkpoint.
 - [x] Port only the validated HCR diff into CLEAN.
 - [x] Run CLEAN validation and diff-scope audit.
-- [ ] Commit, push, open PR, and run review/CI to merge readiness.
+- [x] Commit, push, open PR, and run review/CI to merge readiness.

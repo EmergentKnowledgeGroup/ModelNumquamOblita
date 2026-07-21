@@ -1059,3 +1059,17 @@ def test_runtime_http_server_wizard_invalid_run_id_returns_not_found() -> None:
         assert payload["error"] == "wizard run not found"
     finally:
         stop_runtime_server(server, thread, runtime=runtime)
+
+
+def test_hcr_ui_uses_accessible_dom_labels_and_guards_run_state() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    app_js = (repo_root / "engine" / "runtime" / "ui" / "app.js").read_text(encoding="utf-8")
+    styles = (repo_root / "engine" / "runtime" / "ui" / "styles.css").read_text(encoding="utf-8")
+
+    assert 'heading.textContent = "Curation Room"' in app_js
+    assert 'kicker.textContent = "Run-bound review"' in app_js
+    assert ".wizard-head h2::after" not in styles
+    assert ".wizard-kicker::after" not in styles
+
+    guard = 'if (state.hcrMode && (!payload.has_state || String(payload.current_run_id || "").trim() !== state.hcrRunId))'
+    assert app_js.index(guard) < app_js.index("state.wizardState = payload.state || null;", app_js.index("async function refreshWizardReviewSummary"))

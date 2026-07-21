@@ -223,7 +223,7 @@ Import raw source:
 python3 tools/import_memories.py --input /absolute/path/to/source-or-folder --store runtime/imports/atoms.sqlite3
 ```
 
-Start the local runtime:
+Start headless curation:
 
 ```bash
 python3 tools/run_headless_curation.py --store runtime/imports/atoms.sqlite3

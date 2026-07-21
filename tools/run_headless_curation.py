@@ -269,6 +269,8 @@ def main() -> int:
             raise HeadlessCurationError("setup runtime returned a non-loopback URL")
         for line in startup_lines:
             print(line, flush=True)
+        output_thread = threading.Thread(target=_stream_output, args=(process,), name="mno-hcr-output", daemon=True)
+        output_thread.start()
         status = _prepare_run(
             runtime_url,
             input_path=input_path,
@@ -287,8 +289,6 @@ def main() -> int:
         if not args.no_open:
             opened = bool(webbrowser.open(curation_url, new=2))
             print(f"browser_opened={str(opened).lower()}", flush=True)
-        output_thread = threading.Thread(target=_stream_output, args=(process,), name="mno-hcr-output", daemon=True)
-        output_thread.start()
         return int(process.wait())
     except KeyboardInterrupt:
         return 130
@@ -307,4 +307,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

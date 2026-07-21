@@ -70,3 +70,8 @@ def test_prepare_resume_fails_if_runtime_substitutes_a_different_run() -> None:
             request_fn=request,
         )
 
+
+def test_runtime_output_is_drained_before_run_preparation() -> None:
+    source = Path(hcr.__file__).read_text(encoding="utf-8")
+    main_source = source[source.index("def main(") :]
+    assert main_source.index("output_thread.start()") < main_source.index("status = _prepare_run(")

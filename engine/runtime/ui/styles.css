@@ -386,27 +386,6 @@ body.hcr-mode .wizard-review-list {
   }
 }
 
-body.hcr-mode .wizard-head h2::after {
-  content: "Curation Room";
-}
-
-body.hcr-mode .wizard-head h2 {
-  font-size: 0;
-}
-
-body.hcr-mode .wizard-head h2::after {
-  font-size: 1.45rem;
-}
-
-body.hcr-mode .wizard-kicker {
-  font-size: 0;
-}
-
-body.hcr-mode .wizard-kicker::after {
-  content: "Run-bound review";
-  font-size: 0.7rem;
-}
-
 .hcr-room-status {
   margin: 10px 0 0;
 }

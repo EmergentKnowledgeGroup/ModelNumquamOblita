@@ -2724,7 +2724,11 @@ class MCPServer:
                 "enforce_https": self.config.enforce_https,
                 "http_nonce_replay_window_seconds": self.config.http_nonce_replay_window_seconds,
             },
-            "enabled_tools": sorted(self._tools.keys()),
+            "enabled_tools": sorted(
+                name
+                for name, spec in self._tools.items()
+                if self._tool_is_enabled(name) and _role_allows(self._session_role, spec.permission)
+            ),
             "compatibility": {
                 "method_aliases_enabled": self._compat_mode_enabled(),
                 "method_aliases": dict(COMPAT_METHOD_ALIASES) if self._compat_mode_enabled() else {},

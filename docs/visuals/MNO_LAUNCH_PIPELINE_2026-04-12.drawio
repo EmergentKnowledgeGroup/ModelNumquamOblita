@@ -43,7 +43,7 @@
         <mxCell id="l10" value="Truth-lineage finalize&amp;#10;truth family, supersedes, current flag" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
           <mxGeometry x="400" y="435" width="250" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="l11" value="Reviewed cards go live&amp;#10;trusted runtime event memory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+        <mxCell id="l11" value="Publish &amp;#8594; Safe Verify &amp;#8594; Activate&amp;#10;reviewed cards become trusted runtime event memory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
           <mxGeometry x="400" y="545" width="250" height="70" as="geometry" />
         </mxCell>
         <mxCell id="l12" value="launch_setup_workspace.*&amp;#10;one-click guided setup and integration flow" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">

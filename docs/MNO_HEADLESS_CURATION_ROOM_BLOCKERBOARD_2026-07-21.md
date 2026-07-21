@@ -20,7 +20,7 @@
 | HCR-003 | P0 | CLOSED | Raw headless launch can bypass reviewed episode workflow | default wall + explicit bypass tests green |
 | HCR-004 | P0 | CLOSED | Existing review UI is packaged as the full runtime wizard | `/curate/<run_id>` focused UI browser proof green |
 | HCR-005 | P0 | CLOSED | Human/agent authority could blur in a convenience flow | proposal separation and human reviewer tests green |
-| HCR-006 | P1 | IN PROGRESS | HCR process/browser behavior may be non-portable | Windows source tests and signal cleanup green; Linux CI pending |
+| HCR-006 | P1 | CLOSED | HCR process/browser behavior may be non-portable | PR #17 Python and desktop matrices passed on Windows, Linux, and macOS; release artifact proof passed |
 | HCR-007 | P1 | CLOSED | Docs still describe Claude-specific draft curation and raw runtime commands | user/LLM/API/docs/flowchart parity audit green |
 | HCR-008 | P1 | CLOSED | Packaged wheel/sdist may omit HCR UI or command | isolated package install smoke green |
 | HCR-009 | P1 | CLOSED | Desktop wizard may regress from shared UI changes | desktop Node + runtime UI integration tests green |

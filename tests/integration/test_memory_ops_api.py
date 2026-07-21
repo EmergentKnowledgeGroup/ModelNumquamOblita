@@ -20,6 +20,16 @@ from engine.runtime import RuntimeSession, start_runtime_server, stop_runtime_se
 from engine.runtime import server as runtime_server_module
 
 
+def test_wizard_and_curation_routes_are_loopback_only() -> None:
+    for path in ("/curate/wizard_123", "/api/wizard/hcr/status", "/api/wizard/review/update"):
+        assert runtime_server_module._wizard_route_is_allowed(path, "127.0.0.1") is True
+        assert runtime_server_module._wizard_route_is_allowed(path, "::1") is True
+        assert runtime_server_module._wizard_route_is_allowed(path, "::ffff:127.0.0.1") is True
+        assert runtime_server_module._wizard_route_is_allowed(path, "192.168.1.50") is False
+        assert runtime_server_module._wizard_route_is_allowed(path, "0.0.0.0") is False
+    assert runtime_server_module._wizard_route_is_allowed("/api/runtime/health", "192.168.1.50") is True
+
+
 @pytest.fixture(autouse=True)
 def _isolate_runtime_server_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     runtime_root = tmp_path / "runtime"

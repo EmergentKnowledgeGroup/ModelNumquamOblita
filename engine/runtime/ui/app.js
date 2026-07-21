@@ -648,6 +648,14 @@ function initializeHcrMode() {
   if (state.hcrMode) {
     state.wizardVisibleStage = "review";
     document.title = "NumquamOblita Curation Room";
+    const heading = document.querySelector(".wizard-head h2");
+    const kicker = document.querySelector(".wizard-kicker");
+    if (heading) {
+      heading.textContent = "Curation Room";
+    }
+    if (kicker) {
+      kicker.textContent = "Run-bound review";
+    }
     const draftPanel = document.getElementById("wizardDraftCurationPanel");
     if (draftPanel) {
       draftPanel.open = false;
@@ -5889,10 +5897,10 @@ async function refreshWizardReviewSummary(runId) {
   if (requestSeq !== state.wizardReviewSummaryRequestSeq) {
     return;
   }
-  state.wizardState = payload.state || null;
   if (state.hcrMode && (!payload.has_state || String(payload.current_run_id || "").trim() !== state.hcrRunId)) {
     throw new Error("Curation room could not refresh the requested run.");
   }
+  state.wizardState = payload.state || null;
   state.wizardRunId = state.hcrMode ? state.hcrRunId : (payload.current_run_id || payload.latest_run_id || state.wizardRunId || null);
   state.wizardLatestRunId = String(payload.latest_run_id || state.wizardLatestRunId || "");
   state.wizardResumeAvailable = Boolean(payload.resume_available || state.wizardLatestRunId);

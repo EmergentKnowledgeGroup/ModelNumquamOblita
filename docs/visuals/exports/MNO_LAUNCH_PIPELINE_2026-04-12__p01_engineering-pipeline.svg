@@ -9,8 +9,8 @@
 <text x="1130.0" y="69.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#243b53">Runtime Launch And Operate</text>
 <polyline points="753.3,352.4 753.3,380.4 752.0,384.0 752.0,496.0 753.3,506.2 753.3,478.2" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="862.7,478.2 862.7,506.2 864.0,512.0 864.0,624.0 752.0,624.0 753.3,631.9 753.3,603.9" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="862.7,603.9 862.7,631.9 864.0,624.0 864.0,752.0 800.0,752.0 808.0,757.7 808.0,729.7" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="994.0,687.8 1022.0,687.8 1024.0,688.0 1024.0,304.0 1552.0,304.0 1558.0,299.6 1530.0,299.6" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="862.7,603.9 862.7,631.9 864.0,624.0 864.0,784.0 800.0,784.0 808.0,776.6 808.0,748.6" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="994.0,697.2 1022.0,697.2 1024.0,704.0 1024.0,304.0 1552.0,304.0 1558.0,299.6 1530.0,299.6" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="1344.0,207.8 1344.0,352.0 1296.0,352.0 1289.3,361.5 1289.3,333.5" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="1398.7,333.5 1398.7,361.5 1392.0,368.0 1392.0,512.0 1344.0,512.0 1344.0,478.2" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="272.0,226.6 272.0,240.0 64.0,240.0 64.0,512.0 224.0,512.0 217.3,525.0 217.3,497.0" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
@@ -41,8 +41,8 @@
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="433.8"><tspan x="808.0" dy="0.0">Compile reviewed cards</tspan><tspan x="808.0" dy="16.5">episode_cards.reviewed.json</tspan></text>
 <rect x="622.0" y="520.2" width="372.0" height="83.8" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="559.5"><tspan x="808.0" dy="0.0">Truth-lineage finalize</tspan><tspan x="808.0" dy="16.5">truth family, supersedes, current flag</tspan></text>
-<rect x="622.0" y="645.9" width="372.0" height="83.8" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="685.3"><tspan x="808.0" dy="0.0">Reviewed cards go live</tspan><tspan x="808.0" dy="16.5">trusted runtime event memory</tspan></text>
+<rect x="622.0" y="645.9" width="372.0" height="102.6" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="686.5"><tspan x="808.0" dy="0.0">Publish → Safe Verify → Activate</tspan><tspan x="808.0" dy="16.5">reviewed cards become trusted runtime event</tspan><tspan x="808.0" dy="16.5">memory</tspan></text>
 <rect x="1158.0" y="124.0" width="372.0" height="83.8" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1344.0" y="163.4"><tspan x="1344.0" dy="0.0">launch_setup_workspace.*</tspan><tspan x="1344.0" dy="16.5">one-click guided setup and integration flow</tspan></text>
 <rect x="1158.0" y="249.8" width="372.0" height="83.8" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
@@ -53,7 +53,7 @@
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="1067.9"><tspan x="808.0" dy="0.0">Key launch rule</tspan><tspan x="808.0" dy="16.5">import creates atoms; live observe creates provisional notes; reviewer apply creates noncanonical evidence; separate</tspan><tspan x="808.0" dy="16.5">publish makes canonical truth</tspan></text>
 <polygon points="753.3,478.2 758.6,488.9 748.1,488.9" fill="#82b366"/>
 <polygon points="753.3,603.9 758.6,614.7 748.1,614.7" fill="#82b366"/>
-<polygon points="808.0,729.7 813.3,740.5 802.7,740.5" fill="#82b366"/>
+<polygon points="808.0,748.6 813.3,759.3 802.7,759.3" fill="#82b366"/>
 <polygon points="1530.0,299.6 1540.8,294.3 1540.8,304.9" fill="#82b366"/>
 <polygon points="1289.3,333.5 1294.6,344.3 1284.1,344.3" fill="#6c8ebf"/>
 <polygon points="1344.0,478.2 1349.3,488.9 1338.7,488.9" fill="#6c8ebf"/>

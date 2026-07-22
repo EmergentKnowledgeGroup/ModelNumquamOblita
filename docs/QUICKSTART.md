@@ -20,6 +20,8 @@ mno-import --help
 mno-runtime --help
 mno-mcp --help
 mno-agent-mcp --help
+mno-curate --help
+mno-curation-mcp --help
 ```
 
 Mutable stores and logs are placed in a platform user-state directory unless `MNO_RUNTIME_STATE_ROOT` is set. They are never written inside the installed package.
@@ -85,21 +87,31 @@ python3 tools/import_memories.py \
   --store runtime/imports/atoms.sqlite3
 ```
 
-2. Start the runtime:
+2. Build and curate the memory set in the local Headless Curation Room:
+
+```bash
+python3 tools/run_headless_curation.py \
+  --store runtime/imports/atoms.sqlite3
+```
+
+The agent may prepare proposals, but the human resolves every episode card before Publish. HCR then reuses the normal Verify and Activate gates.
+
+3. After HCR reaches `ready`, launch a normal runtime with both the store and published reviewed cards:
 
 ```bash
 python3 tools/run_live_runtime.py \
   --memories runtime/imports/atoms.sqlite3 \
+  --episodes /absolute/path/to/episode_cards.reviewed.json \
   --config runtime/state/mno-runtime-policy.v1.json
 ```
 
-3. Check health:
+4. Check health:
 
 ```bash
 curl http://127.0.0.1:7340/api/runtime/health
 ```
 
-4. Check the public integration contract:
+5. Check the public integration contract:
 
 ```bash
 curl "http://127.0.0.1:7340/api/integration/v1/capabilities?schema_version=integration.v1&request_id=req_quickstart_caps_001"
@@ -133,6 +145,8 @@ python3 tools/run_live_runtime.py \
 
 The `--config` file selects the validated v0.2 runtime policy for both retrieval and session behavior. Omit it to use the setup-managed policy when present, or fresh standard defaults otherwise.
 
+An explicit `--memories` or `--from-live-manifest` normal launch without reviewed episode cards returns `CURATION_REQUIRED`. Use `mno-curate --store <path>` to complete the review workflow. `--allow-uncurated` is a loud development/recovery bypass, not a reviewed production posture.
+
 ### What live memory means
 
 - Importing a file creates durable evidence atoms.
@@ -153,6 +167,30 @@ The desktop app is the easiest local operator path if you want:
 - continuity surfaces like pins, wake-up pack, and resume pack
 - WSS `scratchpad_ephemeral` continuity for strict-scope agent context packages
 - managed install or export for assistant/agent targets
+
+## Headless Curation Room
+
+Use HCR when the agent or integration is running MNO without the desktop shell:
+
+```bash
+mno-curate --input /absolute/path/to/raw-export
+# or
+mno-curate --store /absolute/path/to/atoms.sqlite3
+# or resume exactly one room
+mno-curate --run-id wizard_...
+```
+
+The command is loopback-only, opens `/curate/<run_id>`, and emits a compact `hcr_status_json` line for the agent. Use `--no-open` when the host should display/open the returned URL itself.
+
+For run-bound agent proposal tools:
+
+```bash
+mno-curation-mcp \
+  --runtime-base-url http://127.0.0.1:<port> \
+  --run-id wizard_...
+```
+
+That MCP profile cannot promote, publish, verify, activate, install integrations, force-release another curator, or access a different run. See [Headless Curation Room](HEADLESS_CURATION_ROOM.md).
 
 ## MCP launch
 
@@ -196,6 +234,7 @@ See [Compatibility and Support](COMPATIBILITY_AND_SUPPORT.md) for supported host
 - [Pipeline Guide](PIPELINE_GUIDE.md)
 - [Agent Integration](AGENT_INTEGRATION.md)
 - [MCP Integration](MCP_INTEGRATION.md)
+- [Headless Curation Room](HEADLESS_CURATION_ROOM.md)
 - [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md)
 
 ## Temporal facts and due notes

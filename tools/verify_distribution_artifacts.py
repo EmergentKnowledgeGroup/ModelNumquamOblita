@@ -77,6 +77,8 @@ def verify_manifests(dist_dir: Path) -> tuple[Path, Path]:
         "tools/run_live_runtime.py",
         "tools/run_mcp_server.py",
         "tools/run_claude_live_mcp.py",
+        "tools/run_headless_curation.py",
+        "tools/run_headless_curation_mcp.py",
         "tools/import_memories.py",
         "tools/setup_local.py",
         "tools/report_issue.py",
@@ -84,7 +86,16 @@ def verify_manifests(dist_dir: Path) -> tuple[Path, Path]:
     missing_wheel = sorted(required_wheel - wheel_names)
     if missing_wheel:
         raise AssertionError(f"wheel missing runnable product files: {missing_wheel}")
-    for script in ("mno-runtime", "mno-mcp", "mno-agent-mcp", "mno-setup", "mno-import", "mno-report"):
+    for script in (
+        "mno-runtime",
+        "mno-mcp",
+        "mno-agent-mcp",
+        "mno-curate",
+        "mno-curation-mcp",
+        "mno-setup",
+        "mno-import",
+        "mno-report",
+    ):
         if f"{script} = " not in entry_points:
             raise AssertionError(f"wheel missing console entry point: {script}")
     _assert_no_private_paths(wheel_names, artifact="wheel")
@@ -166,6 +177,8 @@ print(json.dumps(payload))
     for module in (
         "tools.run_live_runtime",
         "tools.run_mcp_server",
+        "tools.run_headless_curation",
+        "tools.run_headless_curation_mcp",
         "tools.setup_local",
         "tools.import_memories",
         "tools.report_issue",

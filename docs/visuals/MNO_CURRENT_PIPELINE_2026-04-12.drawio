@@ -74,7 +74,7 @@
         <mxCell id="n6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde9d9;strokeColor=#c97b63;" value="Build draft episode cards&amp;#10;event-style draft memory from atoms" vertex="1">
           <mxGeometry height="60" width="250" x="55" y="555" as="geometry" />
         </mxCell>
-        <mxCell id="n7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" value="Optional assistant/agent draft curation&amp;#10;draft-only weld-in between Build and Review" vertex="1">
+        <mxCell id="n7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" value="Headless Curation Room or desktop Review&amp;#10;agent proposes; human decisions remain authoritative" vertex="1">
           <mxGeometry height="80" width="250" x="395" y="105" as="geometry" />
         </mxCell>
         <mxCell id="n8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Review pack / review UI&amp;#10;approve / edit / reject / annotate" vertex="1">
@@ -86,7 +86,7 @@
         <mxCell id="n10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Truth-lineage finalize&amp;#10;truth_family_id + supersedes chain + current flag" vertex="1">
           <mxGeometry height="80" width="250" x="395" y="440" as="geometry" />
         </mxCell>
-        <mxCell id="n11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Reviewed episode cards&amp;#10;trusted runtime event memory with correction lineage" vertex="1">
+        <mxCell id="n11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Publish &amp;#8594; Safe Verify &amp;#8594; Activate&amp;#10;reviewed cards become trusted runtime event memory with correction lineage" vertex="1">
           <mxGeometry height="70" width="250" x="395" y="555" as="geometry" />
         </mxCell>
         <mxCell id="n13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Runtime retriever&amp;#10;atoms + reviewed cards + helper layers; WSS stays context-package helper state" vertex="1">

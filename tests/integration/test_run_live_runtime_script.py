@@ -70,6 +70,63 @@ def test_run_live_runtime_plan_only_memories_path(tmp_path: Path) -> None:
     assert "store_backend=sqlite" in result.stdout
     assert "runtime_url=http://127.0.0.1:7431" in result.stdout
     assert "launch_mode=normal" in result.stdout
+    assert "curation_state=required" in result.stdout
+    assert f"curation_command=mno-curate --store {sqlite_path}" in result.stdout
+
+
+def test_run_live_runtime_blocks_uncurated_normal_launch(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "atoms.sqlite3"
+    _build_store(sqlite_path)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/run_live_runtime.py",
+            "--memories",
+            str(sqlite_path),
+            "--port",
+            "0",
+            "--max-seconds",
+            "0.1",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+
+    assert result.returncode == 3, result.stdout + "\n" + result.stderr
+    assert "error_code=CURATION_REQUIRED" in result.stdout
+    assert f"curation_command=mno-curate --store {sqlite_path}" in result.stdout
+
+
+def test_run_live_runtime_allows_loud_explicit_uncurated_override(tmp_path: Path) -> None:
+    sqlite_path = tmp_path / "atoms.sqlite3"
+    _build_store(sqlite_path)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "tools/run_live_runtime.py",
+            "--memories",
+            str(sqlite_path),
+            "--allow-uncurated",
+            "--port",
+            "0",
+            "--max-seconds",
+            "0.1",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    assert "warning_code=UNCURATED_RUNTIME_OVERRIDE" in result.stderr
+    assert "runtime_url=http://127.0.0.1:" in result.stdout
 
 
 def test_run_live_runtime_plan_only_loads_explicit_config(tmp_path: Path) -> None:
@@ -273,3 +330,15 @@ def test_run_live_runtime_manifest_requires_store_path(tmp_path: Path) -> None:
     )
     assert result.returncode == 2
     assert "error=live manifest missing required field: store_path" in result.stdout
+
+
+def test_powershell_wrapper_uses_safe_host_name_and_forwards_curation_flags() -> None:
+    script = (REPO_ROOT / "tools" / "run_live_runtime.ps1").read_text(encoding="utf-8")
+
+    assert "[Alias(\"Host\")]" in script
+    assert "$BindHost" in script
+    assert "[string]$Host" not in script
+    assert '"--episodes", "$Episodes"' in script
+    assert '"--allow-uncurated"' in script
+    assert '"runtime\\imports\\atoms.sqlite3"' in script
+    assert '".runtime\\imports\\atoms.sqlite3"' not in script

@@ -67,6 +67,7 @@ It can start from raw files and folders, or from an existing MNO store.
 - **Provenance is inspectable:** bounded raw-context lookup supports quote and original wording checks.
 - **Abstention is allowed:** weak support should produce restraint, not confident fiction.
 - **Local integrations are practical:** use the desktop shell, HTTP runtime, MCP server, or `integration-v1` contract.
+- **Headless setup has a real review handoff:** `mno-curate` opens one local Headless Curation Room (HCR) when an agent reaches the pre-activation curation wall.
 
 ## 🔎 Retrieval Stack
 
@@ -91,7 +92,7 @@ Full lane-by-lane notes live in the [retrieval signal map](docs/public/ARCHITECT
 ## 🧭 How It Flows
 
 ```text
-raw source -> import/normalize -> evidence atoms -> build/review/publish -> human-reviewed canonical memory
+raw source -> import/normalize -> evidence atoms -> build -> HCR/desktop human review -> publish/verify/activate -> human-reviewed canonical memory
 
 live signed turn -> observed provisional -> reinforced provisional -> consolidated provisional
                                                            (never auto-canonical)
@@ -222,10 +223,18 @@ Import raw source:
 python3 tools/import_memories.py --input /absolute/path/to/source-or-folder --store runtime/imports/atoms.sqlite3
 ```
 
-Start the local runtime:
+Start headless curation:
 
 ```bash
-python3 tools/run_live_runtime.py --memories runtime/imports/atoms.sqlite3
+python3 tools/run_headless_curation.py --store runtime/imports/atoms.sqlite3
+```
+
+That command builds or resumes the draft, prints a local HCR URL, and carries the user through Review → Publish → Verify → Activate. A normal runtime launch without reviewed episode cards now returns `CURATION_REQUIRED` instead of silently serving raw imported material. After curation, launch with both artifacts:
+
+```bash
+python3 tools/run_live_runtime.py \
+  --memories runtime/imports/atoms.sqlite3 \
+  --episodes /path/to/episode_cards.reviewed.json
 ```
 
 Launch the desktop shell:
@@ -247,6 +256,7 @@ If you are new to the project:
 - [Quickstart](docs/QUICKSTART.md)
 - [Benchmarks](docs/BENCHMARKS.md)
 - [Pipeline Guide](docs/PIPELINE_GUIDE.md)
+- [Headless Curation Room](docs/HEADLESS_CURATION_ROOM.md)
 - [Work-Session Scratchpad](docs/WORK_SESSION_SCRATCHPAD.md)
 - [Public Overview](docs/public/README.md)
 - [Public Architecture](docs/public/ARCHITECTURE.md)
@@ -289,7 +299,7 @@ Agents that reproduce a defect can use the documented [`mno-report`](docs/SUPPOR
 The short technical shape is:
 
 ```text
-raw source -> import/normalize -> atoms.sqlite3 -> draft episode cards -> human review -> reviewed episode cards -> runtime
+raw source -> import/normalize -> atoms.sqlite3 -> draft episode cards -> HCR/desktop human review -> reviewed episode cards -> verified runtime
 ```
 
 The runtime includes bounded retrieval, reviewed memory, optional local ANN candidate generation, raw-context lookup for exact wording, built-in WSS `scratchpad_ephemeral` context for strict-scope agent continuity, and verification/abstention behavior. ANN, raw-context, and scratchpad sidecars are helpers only. They are not truth sources and do not bypass review.

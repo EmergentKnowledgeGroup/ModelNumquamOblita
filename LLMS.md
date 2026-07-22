@@ -77,6 +77,18 @@ You may propose. You may not grant yourself `review_apply`, impersonate a review
 
 Raw import remains appropriate for initial corpus/history ingestion followed by MNO's curation workflow. It is not the live conversational memory API.
 
+## If startup says `CURATION_REQUIRED`
+
+Stop normal runtime integration and use the generic Headless Curation Room. This is not an error to route around and it is not specific to any model:
+
+```text
+mno-curate --store /path/to/atoms.sqlite3
+```
+
+MNO will return a local `curation_url`, a `run_id`, card counts, and a bounded workflow state. Tell the user that memory cards require curation and collaborate with them in that room. You may inspect cards and submit draft proposals through the run-bound `mno-curation-mcp` profile. You may not change the bound run, force-release another curator, promote your own proposal, impersonate a human reviewer, publish, verify, or activate through that agent profile.
+
+Do not describe the memory system as ready until HCR reports `state: "ready"`. The states before that are information about workflow readiness, not behavioral instructions.
+
 ## Consolidation behavior
 
 MNO v0.2 consolidation is bounded and deterministic:
@@ -115,6 +127,7 @@ Create and review the local bundle first. Use `--submit` only when the human has
 ## Where to go next
 
 - Human quick start: [`docs/QUICKSTART.md`](docs/QUICKSTART.md)
+- Headless Curation Room: [`docs/HEADLESS_CURATION_ROOM.md`](docs/HEADLESS_CURATION_ROOM.md)
 - Integration contract: [`docs/AGENT_INTEGRATION.md`](docs/AGENT_INTEGRATION.md)
 - API reference: [`docs/API.md`](docs/API.md)
 - Architecture and trust boundaries: [`docs/public/ARCHITECTURE.md`](docs/public/ARCHITECTURE.md)

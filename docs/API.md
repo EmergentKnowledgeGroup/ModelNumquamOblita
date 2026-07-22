@@ -10,6 +10,18 @@ Base URL for a local runtime is usually:
 http://127.0.0.1:7340
 ```
 
+## Headless Curation Room status
+
+HCR is a local operator/wizard surface, separate from the public hot-loop `integration-v1` contract:
+
+```text
+GET /api/wizard/hcr/status?run_id=wizard_...
+```
+
+It returns a bounded `numquamoblita.hcr.status.v1` object containing the exact run/build identity, review counts, `human_action_required`, `agent_can_propose`, verification/publish state, a loopback `curation_url`, and one neutral `next_action`. States are `build_required`, `curation_required`, `review_in_progress`, `ready_to_publish`, `published_unverified`, `verification_blocked`, `ready_to_activate`, or `ready`.
+
+The HCR browser route is `GET /curate/<run_id>`. These wizard routes are local operator surfaces, not internet-facing public APIs. Model-facing draft access should use the run-bound `mno-curation-mcp` profile; it intentionally excludes human promotion, publish, verify, and activation.
+
 ## Auth
 
 Read-only endpoints may be called without auth when local default tokens are enabled. Production and connector installs should send bearer auth.

@@ -302,7 +302,7 @@ def launch_pipeline() -> Diagram:
         Node("sources", "Raw sources or existing store\nfiles, folders, exports, atoms.sqlite3", 95, 170, 340, 100, "input"),
         Node("import", "Import\nnormalize, sanitize, extract evidence atoms", 95, 330, 340, 100, "build"),
         Node("draft", "Draft episode cards\nrough memory, not trusted yet", 95, 490, 340, 100, "build"),
-        Node("agent", "Optional agent curation\ndraft-only cleanup", 605, 170, 340, 100, "helper"),
+        Node("agent", "Headless Curation Room\nagent proposes; human decides", 605, 170, 340, 100, "helper"),
         Node("review", "Human review\napprove, edit, reject, annotate lineage", 605, 330, 340, 100, "review"),
         Node("reviewed", "Reviewed cards\ntrusted event memory + correction lineage", 605, 490, 340, 100, "review"),
         Node("launch", "Launch runtime\ndesktop, headless, integration-v1, MCP; optional --config policy", 1115, 210, 340, 100, "runtime"),

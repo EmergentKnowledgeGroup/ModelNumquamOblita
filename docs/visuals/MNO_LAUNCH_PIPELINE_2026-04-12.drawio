@@ -31,7 +31,7 @@
         <mxCell id="l6" value="Build draft episode cards" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde9d9;strokeColor=#c97b63;" vertex="1" parent="1">
           <mxGeometry x="55" y="590" width="250" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="l7" value="Optional assistant/agent draft curation&amp;#10;stays between Build and Review" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
+        <mxCell id="l7" value="Headless Curation Room or desktop Review&amp;#10;agent proposes; human decisions remain authoritative" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce5f1;strokeColor=#b8549e;" vertex="1" parent="1">
           <mxGeometry x="400" y="105" width="250" height="80" as="geometry" />
         </mxCell>
         <mxCell id="l8" value="Human review&amp;#10;approve / edit / reject / annotate lineage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
@@ -43,7 +43,7 @@
         <mxCell id="l10" value="Truth-lineage finalize&amp;#10;truth family, supersedes, current flag" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
           <mxGeometry x="400" y="435" width="250" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="l11" value="Reviewed cards go live&amp;#10;trusted runtime event memory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+        <mxCell id="l11" value="Publish &amp;#8594; Safe Verify &amp;#8594; Activate&amp;#10;reviewed cards become trusted runtime event memory" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
           <mxGeometry x="400" y="545" width="250" height="70" as="geometry" />
         </mxCell>
         <mxCell id="l12" value="launch_setup_workspace.*&amp;#10;one-click guided setup and integration flow" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">

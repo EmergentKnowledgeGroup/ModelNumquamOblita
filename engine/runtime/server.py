@@ -135,6 +135,17 @@ def _host_is_loopback(host: str) -> bool:
     return bool(mapped and mapped.is_loopback)
 
 
+def _wizard_route_is_allowed(path: str, client_host: str) -> bool:
+    normalized_path = str(path or '').strip()
+    requires_loopback = (
+        normalized_path == '/curate'
+        or normalized_path.startswith('/curate/')
+        or normalized_path == '/api/wizard'
+        or normalized_path.startswith('/api/wizard/')
+    )
+    return not requires_loopback or _host_is_loopback(client_host)
+
+
 def _project_version() -> str:
     try:
         return importlib_metadata.version("modelnumquamoblita")
@@ -2491,6 +2502,92 @@ def _wizard_stage_state_payload(state: dict[str, Any]) -> dict[str, Any]:
         "completed_stages": sorted(completed, key=lambda item: WIZARD_STAGE_INDEX.get(item, 10**6)),
         "sequence": list(WIZARD_STAGE_SEQUENCE),
         "items": rows,
+    }
+
+
+def _wizard_hcr_url(server: ThreadingHTTPServer, run_id: str) -> str:
+    """Return the local, run-bound browser URL without trusting request headers."""
+    host, port = server.server_address[:2]
+    rendered_host = str(host or "127.0.0.1").strip()
+    if rendered_host in {"", "0.0.0.0", "::"}:
+        rendered_host = "127.0.0.1"
+    if ":" in rendered_host and not rendered_host.startswith("["):
+        rendered_host = f"[{rendered_host}]"
+    return f"http://{rendered_host}:{int(port)}/curate/{quote(run_id)}"
+
+
+def _wizard_hcr_status_payload(server: ThreadingHTTPServer, state: dict[str, Any]) -> dict[str, Any]:
+    """Project existing wizard truth into the bounded headless-curation contract."""
+    build_info = dict(state.get("build_info") or {})
+    review_state = dict(state.get("review_state") or {})
+    published_set = dict(state.get("published_set") or {})
+    verify = dict(state.get("verify") or {})
+    direct_activation = dict((state.get("activation") or {}).get("direct") or {})
+    draft_curation = _wizard_draft_curation_sync(state)
+
+    build_id = str(build_info.get("build_id") or "").strip()
+    draft_ready = bool(str(build_info.get("draft_path") or state.get("last_built_episode_draft_path") or "").strip())
+    reviewable_count = max(0, int(review_state.get("reviewable_count") or 0))
+    publishable_count = max(0, int(review_state.get("publishable_count") or 0))
+    pending_count = max(0, int(review_state.get("pending_count") or 0))
+    decision_count = max(0, int(review_state.get("decision_count") or 0))
+    review_complete = bool(review_state.get("complete")) and reviewable_count > 0
+    published_version_id = str(published_set.get("version_id") or "").strip()
+    published_ready = bool(str(published_set.get("episodes_path") or "").strip())
+    verification_status = str(verify.get("status") or "Unknown").strip() or "Unknown"
+    direct_status = str(direct_activation.get("status") or "not_active").strip().lower()
+
+    if direct_status == "running":
+        status = "ready"
+        next_action = "operate"
+    elif published_ready and verification_status == "Safe":
+        status = "ready_to_activate"
+        next_action = "activate"
+    elif published_ready and verification_status not in {"Unknown", "unknown", ""}:
+        status = "verification_blocked"
+        next_action = "resolve_verification"
+    elif published_ready:
+        status = "published_unverified"
+        next_action = "verify"
+    elif review_complete and publishable_count > 0:
+        status = "ready_to_publish"
+        next_action = "publish"
+    elif draft_ready and decision_count > 0:
+        status = "review_in_progress"
+        next_action = "review"
+    elif draft_ready:
+        status = "curation_required"
+        next_action = "review"
+    else:
+        status = "build_required"
+        next_action = "build"
+
+    return {
+        "schema": "numquamoblita.hcr.status.v1",
+        "run_id": str(state.get("run_id") or "").strip(),
+        "state": status,
+        "human_action_required": status != "ready",
+        "agent_can_propose": bool(draft_ready and not published_ready),
+        "human_review_required": bool(draft_ready and not review_complete and reviewable_count > 0),
+        "counts": {
+            "reviewable": reviewable_count,
+            "pending": pending_count,
+            "approved": max(0, int(review_state.get("approved_count") or 0)),
+            "edited": max(0, int(review_state.get("edited_count") or 0)),
+            "rejected": max(0, int(review_state.get("rejected_count") or 0)),
+            "publishable": publishable_count,
+            "decisions": decision_count,
+            "draft_proposals": max(0, int(draft_curation.get("proposal_count") or 0)),
+            "draft_proposals_accepted": max(0, int(draft_curation.get("accepted_count") or 0)),
+            "draft_proposals_rejected": max(0, int(draft_curation.get("rejected_count") or 0)),
+            "draft_proposals_promoted": max(0, int(draft_curation.get("promoted_count") or 0)),
+            "draft_proposals_stale": max(0, int(draft_curation.get("stale_count") or 0)),
+        },
+        "next_action": next_action,
+        "curation_url": _wizard_hcr_url(server, str(state.get("run_id") or "").strip()),
+        "build_id": build_id,
+        "published_version_id": published_version_id,
+        "verification_status": verification_status,
     }
 
 
@@ -9333,16 +9430,38 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
+        client_host = str(self.client_address[0] if self.client_address else '').strip()
+        if not _wizard_route_is_allowed(path, client_host):
+            return _json_response(self, HTTPStatus.FORBIDDEN, {"error": "wizard and curation routes are local-only"})
         if path in {"/", "/index.html", "/assets/styles.css", "/assets/app.js"} or path.startswith("/api/"):
             self._trace_request("GET", path)
         if self._integration_handle_request(method="GET", parsed=parsed):
             return
+        if path.startswith("/curate/"):
+            run_id = unquote(path[len("/curate/") :]).strip("/")
+            if not run_id or "/" in run_id:
+                return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "wizard run not found"})
+            try:
+                _load_wizard_state(run_id)
+            except (FileNotFoundError, ValueError):
+                return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "wizard run not found"})
+            return self._serve_file("index.html", "text/html; charset=utf-8")
         if path in {"/", "/index.html"}:
             return self._serve_file("index.html", "text/html; charset=utf-8")
         if path == "/assets/styles.css":
             return self._serve_file("styles.css", "text/css; charset=utf-8")
         if path == "/assets/app.js":
             return self._serve_file("app.js", "application/javascript; charset=utf-8")
+        if path == "/api/wizard/hcr/status":
+            q = parse_qs(parsed.query)
+            run_id = str((q.get("run_id") or [""])[0]).strip()
+            if not run_id:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "run_id is required"})
+            try:
+                state = _load_wizard_state(run_id)
+            except (FileNotFoundError, ValueError):
+                return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "wizard run not found"})
+            return _json_response(self, HTTPStatus.OK, _wizard_hcr_status_payload(self.server, state))
         if path == "/api/wizard/state":
             q = parse_qs(parsed.query)
             requested_run_id = str((q.get("run_id") or [""])[0]).strip()
@@ -11009,6 +11128,9 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
+        client_host = str(self.client_address[0] if self.client_address else '').strip()
+        if not _wizard_route_is_allowed(path, client_host):
+            return _json_response(self, HTTPStatus.FORBIDDEN, {"error": "wizard and curation routes are local-only"})
         if path.startswith("/api/"):
             self._trace_request("POST", path)
         if self._integration_handle_request(method="POST", parsed=parsed):

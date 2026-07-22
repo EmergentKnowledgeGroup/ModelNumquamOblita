@@ -8,6 +8,10 @@ MNO is a local-first memory runtime. It is designed to keep memory claims eviden
 
 Default launch patterns bind the runtime and MCP sidecar to loopback addresses such as `127.0.0.1`. Do not expose the runtime, desktop shell, or MCP sidecar directly to the public internet.
 
+The Headless Curation Room is also loopback-only. Its browser/wizard routes hold private source context and human review controls; they are local operator surfaces, not a public authenticated web application. `mno-curate` rejects non-loopback hosts. The run-bound `mno-curation-mcp` profile rejects non-loopback runtime URLs and HTTP bind hosts, and HTTP transport still requires a token.
+
+An HCR agent can read draft cards and create proposals for one bound run. It cannot change runs, force-release another curator, promote into human review truth, publish, verify, activate, install integrations, or dispatch hidden tools. Human/operator actions remain audited through the existing wizard state.
+
 If you deploy outside a single-user local machine, put MNO behind your own network controls, TLS termination, process isolation, log retention policy, and secret management. The clean repo does not claim to be a hardened multi-tenant hosted service out of the box.
 
 ## Tokens

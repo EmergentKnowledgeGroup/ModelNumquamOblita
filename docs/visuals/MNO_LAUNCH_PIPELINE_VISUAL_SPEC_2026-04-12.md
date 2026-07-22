@@ -47,11 +47,11 @@ Show the launch flow in three areas:
 - draft episode card build
 
 ### Review And Truth
-- optional assistant/agent draft curation
+- Headless Curation Room or desktop Review; agent proposals stay draft-only and human decisions remain authoritative
 - human review
-- compile reviewed cards
+- compile reviewed cards, then pass the explicit Publish -> Safe Verify -> Activate gates
 - truth-lineage finalize
-- reviewed cards go live
+- reviewed cards go live only after Publish -> Safe Verify -> Activate
 
 ### Runtime Launch And Operate
 - launch_setup_workspace entrypoint

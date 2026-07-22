@@ -3162,6 +3162,86 @@ def test_mcp_wizard_draft_curation_session_and_upsert_roundtrip() -> None:
     assert any(str(dict(row).get("episode_id") or "") == "ep_2" for row in proposals)
 
 
+def test_mcp_headless_curation_profile_is_run_bound_and_allowlisted() -> None:
+    client = _FakeApiClient()
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            mutations_enabled=True,
+            tool_profile="headless_curation",
+            bound_wizard_run_id="wizard_bound_123",
+        ),
+        api_client=client,
+    )
+
+    _call(server, 1, "initialize", {})
+    listed = _call(server, 2, "tools/list")
+    names = {str(dict(item).get("name") or "") for item in list(dict(listed["result"]).get("tools") or [])}
+    expected_names = {
+        "wizard.draft_curation_status",
+        "wizard.draft_curation_cards",
+        "wizard.draft_curation_get_card",
+        "wizard.draft_curation_proposals",
+        "wizard.draft_curation_session_start",
+        "wizard.draft_curation_session_heartbeat",
+        "wizard.draft_curation_session_release",
+        "wizard.draft_curation_proposal_upsert",
+    }
+    assert names == expected_names
+
+    capabilities = _call(server, 3, "resources/read", {"uri": "resource://capabilities"})
+    contents = list(dict(capabilities["result"]).get("contents") or [])
+    capabilities_payload = json.loads(str(dict(contents[0]).get("text") or "{}"))
+    assert set(capabilities_payload.get("enabled_tools") or []) == expected_names
+
+    status = _call(server, 4, "tools/call", {"name": "wizard.draft_curation_status", "arguments": {}})
+    assert "result" in status
+    assert client.calls[-1] == ("/api/wizard/draft-curation/status", {"run_id": "wizard_bound_123"})
+
+    mismatched = _call(
+        server,
+        5,
+        "tools/call",
+        {"name": "wizard.draft_curation_cards", "arguments": {"run_id": "wizard_other_456"}},
+    )
+    assert int(dict(mismatched["error"]).get("code") or 0) == -32602
+    assert "does not match" in str(dict(mismatched["error"]).get("message") or "")
+    assert len(client.calls) == 1
+
+    unavailable = _call(server, 6, "tools/call", {"name": "wizard.review_update", "arguments": {}})
+    assert int(dict(unavailable["error"]).get("code") or 0) == -32002
+    assert "not enabled" in str(dict(unavailable["error"]).get("message") or "")
+
+
+def test_mcp_headless_curation_profile_rejects_agent_force_release() -> None:
+    client = _FakeApiClient()
+    server = MCPServer(
+        config=ServerConfig(
+            runtime_base_url="http://127.0.0.1:7340",
+            auth=AuthConfig(default_role="viewer"),
+            mutations_enabled=True,
+            tool_profile="headless_curation",
+            bound_wizard_run_id="wizard_bound_123",
+        ),
+        api_client=client,
+    )
+
+    _call(server, 1, "initialize", {})
+    rejected = _call(
+        server,
+        2,
+        "tools/call",
+        {
+            "name": "wizard.draft_curation_session_start",
+            "arguments": {"owner_id": "agent", "session_id": "session_1", "force_release": True},
+        },
+    )
+    assert int(dict(rejected["error"]).get("code") or 0) == -32002
+    assert "force_release" in str(dict(rejected["error"]).get("message") or "")
+    assert client.post_calls == []
+
+
 def test_mcp_organizer_tools_surface() -> None:
     client = _FakeApiClient()
     config = ServerConfig(

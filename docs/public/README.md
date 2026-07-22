@@ -21,6 +21,7 @@ Core pieces:
 - a built-in work-session scratchpad for strict project/thread/workstream scoped `scratchpad_ephemeral` context packages
 - verifier-guarded runtime behavior
 - optional MCP and adapter surfaces
+- a generic Headless Curation Room for human review without the desktop shell
 
 Truth order is simple: human-reviewed canonical truth wins; evidence atoms remain source-backed substrate; provisional memory is labeled and revisable. A work-session scratchpad or short-term session context can help an agent continue work, but neither is evidence.
 
@@ -30,6 +31,7 @@ Further reading:
 - [human changelog](../CHANGELOG.md)
 - [Compatibility and support](../COMPATIBILITY_AND_SUPPORT.md)
 - [Agent support tickets](../SUPPORT_TICKETS_FOR_AGENTS.md)
+- [Headless Curation Room](../HEADLESS_CURATION_ROOM.md)
 - [Public Architecture](ARCHITECTURE.md)
 - [Work-Session Scratchpad](../WORK_SESSION_SCRATCHPAD.md)
 - [Response To "Why Long-Term Memory Remains Unsolved"](MNO_RESPONSE_TO_WHY_LONG_TERM_MEMORY_REMAINS_UNSOLVED_2026-04-12.md)

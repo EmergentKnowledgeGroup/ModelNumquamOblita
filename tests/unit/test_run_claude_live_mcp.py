@@ -94,6 +94,7 @@ def test_print_claude_config_exits_without_starting_runtime(tmp_path: Path) -> N
             str(SCRIPT_PATH),
             "--memories",
             str(store),
+            "--allow-uncurated",
             "--print-claude-config",
             "--server-name",
             "demo-live",
@@ -110,6 +111,7 @@ def test_print_claude_config_exits_without_starting_runtime(tmp_path: Path) -> N
     entry = payload["mcpServers"]["demo-live"]
     assert entry["command"] == str(Path(sys.executable).resolve())
     assert str(store) in entry["args"]
+    assert "--allow-uncurated" in entry["args"]
     assert "runtime_url=" not in result.stderr
 
 
@@ -136,6 +138,23 @@ def test_plan_only_loads_explicit_runtime_config(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert f"config_path={config.resolve()}" in result.stdout
+    assert "curation_state=required" in result.stdout
+
+
+def test_combined_runtime_blocks_uncurated_launch_before_opening_store(tmp_path: Path) -> None:
+    store = tmp_path / "demo.sqlite3"
+    store.write_text("", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--memories", str(store)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 3
+    assert "error_code=CURATION_REQUIRED" in result.stderr
+    assert f"curation_command=mno-curate --store {store}" in result.stderr
 
 
 def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
@@ -151,6 +170,7 @@ def test_stdio_startup_stays_quiet_without_verbose(tmp_path: Path) -> None:
             str(SCRIPT_PATH),
             "--memories",
             str(store),
+            "--allow-uncurated",
             "--runtime-port",
             "0",
             "--config",

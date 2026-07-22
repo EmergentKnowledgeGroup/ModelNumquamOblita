@@ -7,20 +7,20 @@
 <text x="594.0" y="69.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#243b53">Review And Truth</text>
 <rect x="1114.0" y="42.0" width="460.0" height="943.3" rx="8" fill="#eaf3fb" fill-opacity="0.48" stroke="#4d7fb3" stroke-width="2"/>
 <text x="1130.0" y="69.0" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="17" font-weight="700" fill="#243b53">Runtime Launch And Operate</text>
-<polyline points="753.3,333.5 753.3,361.5 752.0,368.0 752.0,480.0 753.3,487.3 753.3,459.3" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="862.7,459.3 862.7,487.3 864.0,480.0 864.0,608.0 752.0,608.0 753.3,613.0 753.3,585.0" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="862.7,585.0 862.7,613.0 864.0,608.0 864.0,736.0 800.0,736.0 808.0,738.8 808.0,710.8" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="994.0,668.9 1022.0,668.9 1024.0,672.0 1024.0,304.0 1552.0,304.0 1558.0,299.6 1530.0,299.6" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="753.3,352.4 753.3,380.4 752.0,384.0 752.0,496.0 753.3,506.2 753.3,478.2" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="862.7,478.2 862.7,506.2 864.0,512.0 864.0,624.0 752.0,624.0 753.3,631.9 753.3,603.9" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="862.7,603.9 862.7,631.9 864.0,624.0 864.0,784.0 800.0,784.0 808.0,776.6 808.0,748.6" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="994.0,697.2 1022.0,697.2 1024.0,704.0 1024.0,304.0 1552.0,304.0 1558.0,299.6 1530.0,299.6" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="1344.0,207.8 1344.0,352.0 1296.0,352.0 1289.3,361.5 1289.3,333.5" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="1398.7,333.5 1398.7,361.5 1392.0,368.0 1392.0,512.0 1344.0,512.0 1344.0,478.2" fill="none" stroke="#6c8ebf" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="272.0,226.6 272.0,240.0 64.0,240.0 64.0,512.0 224.0,512.0 217.3,525.0 217.3,497.0" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="458.0,310.5 486.0,310.5 480.0,304.0 480.0,352.0 1280.0,352.0 1280.0,288.0 1552.0,288.0 1558.0,283.7 1530.0,283.7" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="458.0,310.5 486.0,310.5 480.0,304.0 480.0,96.0 1552.0,96.0 1552.0,288.0 1558.0,283.7 1530.0,283.7" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="326.7,497.0 326.7,525.0 320.0,528.0 320.0,656.0 192.0,656.0 190.0,669.7 190.0,641.7" fill="none" stroke="#c97b63" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="272.0,641.7 272.0,786.3" fill="none" stroke="#c97b63" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="354.0,641.7 354.0,669.7 352.0,656.0 480.0,656.0 480.0,928.0 272.0,928.0 272.0,902.3" fill="none" stroke="#c97b63" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="217.3,828.3 217.3,800.3 224.0,816.0 592.0,816.0 592.0,96.0 808.0,96.0 808.0,124.0" fill="none" stroke="#c97b63" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="326.7,828.3 326.7,800.3 320.0,816.0 576.0,816.0 576.0,240.0 800.0,240.0 808.0,221.8 808.0,249.8" fill="none" stroke="#c97b63" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="808.0,207.8 808.0,235.8 800.0,240.0 800.0,352.0 864.0,352.0 862.7,361.5 862.7,333.5" fill="none" stroke="#b8549e" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="326.7,828.3 326.7,800.3 320.0,816.0 576.0,816.0 576.0,256.0 800.0,256.0 808.0,240.6 808.0,268.6" fill="none" stroke="#c97b63" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="808.0,226.6 808.0,254.6 800.0,256.0 800.0,368.0 864.0,368.0 862.7,380.4 862.7,352.4" fill="none" stroke="#b8549e" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <rect x="86.0" y="124.0" width="372.0" height="102.6" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="272.0" y="172.8"><tspan x="272.0" dy="0.0">Raw sources</tspan><tspan x="272.0" dy="16.5">conversations.json / jsonl / txt / md / mixed folders</tspan></text>
 <rect x="86.0" y="268.6" width="372.0" height="83.8" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
@@ -33,16 +33,16 @@
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="272.0" y="724.2"><tspan x="272.0" dy="0.0">Raw-context sidecar write</tspan><tspan x="272.0" dy="16.5">store original normalized wording receipts alongside</tspan><tspan x="272.0" dy="16.5">import</tspan></text>
 <rect x="86.0" y="828.3" width="372.0" height="74.0" rx="12" fill="#fde9d9" stroke="#c97b63" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="272.0" y="871.1"><tspan x="272.0" dy="0.0">Build draft episode cards</tspan></text>
-<rect x="622.0" y="124.0" width="372.0" height="83.8" rx="12" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="163.4"><tspan x="808.0" dy="0.0">Optional assistant/agent draft curation</tspan><tspan x="808.0" dy="16.5">stays between Build and Review</tspan></text>
-<rect x="622.0" y="249.8" width="372.0" height="83.8" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="289.1"><tspan x="808.0" dy="0.0">Human review</tspan><tspan x="808.0" dy="16.5">approve / edit / reject / annotate lineage</tspan></text>
-<rect x="622.0" y="375.5" width="372.0" height="83.8" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="414.9"><tspan x="808.0" dy="0.0">Compile reviewed cards</tspan><tspan x="808.0" dy="16.5">episode_cards.reviewed.json</tspan></text>
-<rect x="622.0" y="501.3" width="372.0" height="83.8" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="540.6"><tspan x="808.0" dy="0.0">Truth-lineage finalize</tspan><tspan x="808.0" dy="16.5">truth family, supersedes, current flag</tspan></text>
-<rect x="622.0" y="627.0" width="372.0" height="83.8" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="666.4"><tspan x="808.0" dy="0.0">Reviewed cards go live</tspan><tspan x="808.0" dy="16.5">trusted runtime event memory</tspan></text>
+<rect x="622.0" y="124.0" width="372.0" height="102.6" rx="12" fill="#fce5f1" stroke="#b8549e" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="164.5"><tspan x="808.0" dy="0.0">Headless Curation Room or desktop Review</tspan><tspan x="808.0" dy="16.5">agent proposes; human decisions remain</tspan><tspan x="808.0" dy="16.5">authoritative</tspan></text>
+<rect x="622.0" y="268.6" width="372.0" height="83.8" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="308.0"><tspan x="808.0" dy="0.0">Human review</tspan><tspan x="808.0" dy="16.5">approve / edit / reject / annotate lineage</tspan></text>
+<rect x="622.0" y="394.4" width="372.0" height="83.8" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="433.8"><tspan x="808.0" dy="0.0">Compile reviewed cards</tspan><tspan x="808.0" dy="16.5">episode_cards.reviewed.json</tspan></text>
+<rect x="622.0" y="520.2" width="372.0" height="83.8" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="559.5"><tspan x="808.0" dy="0.0">Truth-lineage finalize</tspan><tspan x="808.0" dy="16.5">truth family, supersedes, current flag</tspan></text>
+<rect x="622.0" y="645.9" width="372.0" height="102.6" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="686.5"><tspan x="808.0" dy="0.0">Publish → Safe Verify → Activate</tspan><tspan x="808.0" dy="16.5">reviewed cards become trusted runtime event</tspan><tspan x="808.0" dy="16.5">memory</tspan></text>
 <rect x="1158.0" y="124.0" width="372.0" height="83.8" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1344.0" y="163.4"><tspan x="1344.0" dy="0.0">launch_setup_workspace.*</tspan><tspan x="1344.0" dy="16.5">one-click guided setup and integration flow</tspan></text>
 <rect x="1158.0" y="249.8" width="372.0" height="83.8" rx="12" fill="#dae8fc" stroke="#6c8ebf" stroke-width="2"/>
@@ -51,9 +51,9 @@
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="1344.0" y="416.1"><tspan x="1344.0" dy="0.0">Runtime memory sources</tspan><tspan x="1344.0" dy="16.5">reviewed canonical + evidence atoms + provisional;</tspan><tspan x="1344.0" dy="16.5">WSS/STM are helper context only</tspan></text>
 <rect x="418.0" y="1027.3" width="780.0" height="102.6" rx="12" fill="#f8cecc" stroke="#b85450" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="808.0" y="1067.9"><tspan x="808.0" dy="0.0">Key launch rule</tspan><tspan x="808.0" dy="16.5">import creates atoms; live observe creates provisional notes; reviewer apply creates noncanonical evidence; separate</tspan><tspan x="808.0" dy="16.5">publish makes canonical truth</tspan></text>
-<polygon points="753.3,459.3 758.6,470.1 748.1,470.1" fill="#82b366"/>
-<polygon points="753.3,585.0 758.6,595.8 748.1,595.8" fill="#82b366"/>
-<polygon points="808.0,710.8 813.3,721.6 802.7,721.6" fill="#82b366"/>
+<polygon points="753.3,478.2 758.6,488.9 748.1,488.9" fill="#82b366"/>
+<polygon points="753.3,603.9 758.6,614.7 748.1,614.7" fill="#82b366"/>
+<polygon points="808.0,748.6 813.3,759.3 802.7,759.3" fill="#82b366"/>
 <polygon points="1530.0,299.6 1540.8,294.3 1540.8,304.9" fill="#82b366"/>
 <polygon points="1289.3,333.5 1294.6,344.3 1284.1,344.3" fill="#6c8ebf"/>
 <polygon points="1344.0,478.2 1349.3,488.9 1338.7,488.9" fill="#6c8ebf"/>
@@ -63,6 +63,6 @@
 <polygon points="272.0,786.3 266.7,775.5 277.3,775.5" fill="#c97b63"/>
 <polygon points="272.0,902.3 277.3,913.1 266.7,913.1" fill="#c97b63"/>
 <polygon points="808.0,124.0 802.7,113.2 813.3,113.2" fill="#c97b63"/>
-<polygon points="808.0,249.8 802.7,239.0 813.3,239.0" fill="#c97b63"/>
-<polygon points="862.7,333.5 867.9,344.3 857.4,344.3" fill="#b8549e"/>
+<polygon points="808.0,268.6 802.7,257.9 813.3,257.9" fill="#c97b63"/>
+<polygon points="862.7,352.4 867.9,363.2 857.4,363.2" fill="#b8549e"/>
 </svg>

@@ -70,6 +70,26 @@ The config-print flag keeps its older internal name for compatibility.
 
 Installed-package equivalents are `mno-mcp` and `mno-agent-mcp`. Generated bundles use these commands so they remain relocatable; they do not rerun source setup.
 
+### Headless Curation Room agent profile
+
+If a store has not completed human episode-card review, normal runtime/MCP activation returns `CURATION_REQUIRED`. Start or resume the local room first:
+
+```bash
+mno-curate --store /absolute/path/to/atoms.sqlite3
+```
+
+Then connect the agent to that exact room:
+
+```bash
+mno-curation-mcp \
+  --runtime-base-url http://127.0.0.1:<port> \
+  --run-id wizard_...
+```
+
+This is an exact allowlisted profile: draft status/cards/context/proposals plus lease, heartbeat, release, and proposal upsert. The configured run ID is injected when omitted; a different run ID fails before an API call. Human promotion, direct review decisions, publish, verify, activate, MCP installation, force-release, chat, and unrelated memory/admin tools are unavailable and rejected even if called directly.
+
+HCR is loopback-only in this release. HTTP MCP additionally requires authentication; local stdio is the simplest path. See [Headless Curation Room](HEADLESS_CURATION_ROOM.md).
+
 ## Stable parity tool names
 
 The clean repo ships stable MCP parity tools for the public integration contract:
@@ -134,6 +154,7 @@ MCP is good for:
 - local assistant/agent tool use
 - operator-side workflows
 - draft curation tool wiring
+- run-bound HCR draft proposal work
 - read-heavy agent flows
 
 ## What MCP is not
@@ -148,3 +169,4 @@ Do not treat MCP as the only official contract if you are building a new orchest
 - [API](API.md)
 - [Configuration](CONFIGURATION.md)
 - [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md)
+- [Headless Curation Room](HEADLESS_CURATION_ROOM.md)

@@ -329,6 +329,67 @@ body.simple-mode .tab-btn.ops-only {
   gap: 8px;
 }
 
+/* ─── Headless Curation Room ─── */
+body.hcr-mode .metrics,
+body.hcr-mode .masthead-right,
+body.hcr-mode .tab-bar,
+body.hcr-mode .tab-pane:not([data-pane="setup"]),
+body.hcr-mode .wizard-head-actions,
+body.hcr-mode .wizard-head-copy,
+body.hcr-mode .wizard-card[data-wizard-step="0"],
+body.hcr-mode .wizard-card[data-wizard-step="1"],
+body.hcr-mode .wizard-card[data-wizard-step="6"],
+body.hcr-mode .wizard-stage[data-stage="import"],
+body.hcr-mode .wizard-stage[data-stage="build_episodes"],
+body.hcr-mode .wizard-stage[data-stage="operate"] {
+  display: none !important;
+}
+
+body.hcr-mode .shell {
+  max-width: 1120px;
+}
+
+body.hcr-mode {
+  height: auto;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+body.hcr-mode .shell {
+  height: auto;
+  min-height: 100vh;
+  grid-template-rows: auto auto auto;
+  overflow: visible;
+}
+
+body.hcr-mode .tab-content,
+body.hcr-mode .tab-pane.active,
+body.hcr-mode .wizard-shell,
+body.hcr-mode .wizard-grid,
+body.hcr-mode .wizard-grid .wizard-card.wizard-active,
+body.hcr-mode .wizard-review-workspace,
+body.hcr-mode .wizard-review-main,
+body.hcr-mode .wizard-review-side {
+  flex: none;
+  min-height: auto;
+  overflow: visible;
+}
+
+body.hcr-mode .wizard-review-list {
+  overflow: visible;
+}
+
+@media (max-width: 980px) {
+  body.hcr-mode .wizard-review-side {
+    order: 0;
+  }
+}
+
+.hcr-room-status {
+  margin: 10px 0 0;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    SHARED COMPONENTS
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -5077,6 +5138,80 @@ body.simple-mode .ops-shell { display: none; }
 
 .brand-orb {
   animation: orbPulse 4s ease-in-out infinite alternate;
+}
+
+/* HCR is a browser document, not the fixed-height desktop shell. Keep these
+   overrides after the shared wizard rules so narrow viewports cannot be
+   forced back into the desktop grid. */
+@media (max-width: 980px) {
+  body.hcr-mode .wizard-review-workspace,
+  body.hcr-mode .wizard-review-cockpit,
+  body.hcr-mode .wizard-draft-curation-head,
+  body.hcr-mode .wizard-draft-curation-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.hcr-mode .wizard-review-side {
+    order: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  body.hcr-mode .masthead,
+  body.hcr-mode .masthead-left,
+  body.hcr-mode .tab-content,
+  body.hcr-mode .tab-pane.active,
+  body.hcr-mode .wizard-shell,
+  body.hcr-mode .wizard-grid,
+  body.hcr-mode .wizard-grid .wizard-card.wizard-active,
+  body.hcr-mode .wizard-review-workspace,
+  body.hcr-mode .wizard-review-main,
+  body.hcr-mode .wizard-review-side,
+  body.hcr-mode .wizard-review-cockpit,
+  body.hcr-mode .wizard-review-intro-copy,
+  body.hcr-mode .wizard-card-result,
+  body.hcr-mode .wizard-review-controls-shell,
+  body.hcr-mode .wizard-review-list,
+  body.hcr-mode .wizard-review-footer {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  body.hcr-mode .wizard-stage-rail {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body.hcr-mode .wizard-stage,
+  body.hcr-mode .wizard-review-actions .btn {
+    min-width: 0;
+  }
+
+  body.hcr-mode .wizard-review-controls,
+  body.hcr-mode .wizard-review-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.hcr-mode .wizard-review-footer,
+  body.hcr-mode .wizard-review-footer-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  body.hcr-mode .wizard-review-footer-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  body.hcr-mode .wizard-review-footer-actions .btn,
+  body.hcr-mode .wizard-review-footer-actions .wizard-page-pill {
+    width: 100%;
+  }
+
+  body.hcr-mode .wizard-review-footer-sep {
+    display: none;
+  }
 }
 
 @keyframes orbPulse {

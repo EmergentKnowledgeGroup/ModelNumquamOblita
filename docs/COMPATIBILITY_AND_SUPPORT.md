@@ -6,7 +6,7 @@ This is the public support contract for MNO v0.2.2.
 
 | Surface | Supported hosts | Contract |
 | --- | --- | --- |
-| Python headless runtime, MCP, import, setup | CPython 3.12-3.14 on current x64 Windows, Ubuntu, and macOS | Wheel/sdist and source checkout; mutable state is external to installed code |
+| Python headless runtime, MCP, import, setup, and HCR | CPython 3.12-3.14 on current x64 Windows, Ubuntu, and macOS | Wheel/sdist and source checkout; `mno-curate` and `mno-curation-mcp` are generic loopback-local surfaces; mutable state is external to installed code |
 | Electron source/development shell | Node 22 on current Windows, Ubuntu, and macOS | Node tests are cross-platform; packaging uses a target-native managed runtime |
 | Exported integration bundles | POSIX shell, PowerShell, or Command Prompt with installed MNO commands | Relocatable launchers; no embedded checkout or automatic install |
 | WSL integration | WSL with Linux Python/Node executables | Windows `.cmd` files are rejected inside WSL; WSL is optional, not a Windows prerequisite |
@@ -31,6 +31,12 @@ MNO selects an argument-vector command that proves Python 3.12 or newer. It can 
 Executable presence is not client compatibility. Connector setup probes identity, version, and required subcommands. Configuration writes are current-user scoped, backup-protected, and atomic. A failed replacement keeps the prior working configuration.
 
 An integration must call capabilities and obey effective availability. Tool exposure, role authorization, separate `review_apply` authority, backend availability, policy state, and degradation are distinct facts.
+
+Normal headless launch requires an explicitly supplied reviewed episode set for
+an explicitly supplied store. Missing curation fails closed with
+`CURATION_REQUIRED`; it never borrows an unrelated global episode artifact.
+The HCR agent profile is bound to one wizard run and cannot publish, verify,
+activate, install integrations, promote proposals, or force-release a lease.
 
 ## Artifact safety
 

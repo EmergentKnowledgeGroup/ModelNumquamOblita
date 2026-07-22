@@ -27,4 +27,7 @@ WSS uses trust tier `scratchpad_ephemeral`. It is work-continuity helper state, 
 
 - native `/api/memory/*`
 - native `/api/wizard/*`
+- HCR `GET /curate/<run_id>` and `GET /api/wizard/hcr/status?run_id=...` — loopback operator handoff over the existing wizard truth state
 - runtime diagnostics and packaging helpers
+
+The model-facing HCR MCP profile is bound to one wizard run and allowlists only the eight `wizard.draft_curation_*` read/lease/proposal tools. Human promotion, direct review, publish, verify, activate, installation, force-release, and unrelated runtime tools are excluded.

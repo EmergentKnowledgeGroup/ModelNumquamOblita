@@ -36,7 +36,7 @@
 | HERMES-B07 | RESOLVED | Compatibility QA | Standalone plugin import passes 3.11; supported MNO-integrated tests pass 3.12/3.13; only pinned Windows Hermes is labeled PASS | Mark unrun surface CONDITIONAL/UNVERIFIED |
 | HERMES-B08 | RESOLVED | Package QA | Full suites, wheel/sdist, isolated install, distribution verifier, privacy scan, diff check green | Block PR |
 | HERMES-B09 | RESOLVED | Docs/visuals | Every affected canonical text/visual matches shipped behavior and authority boundary | Block PR |
-| HERMES-B10 | OPEN | Release | Focused CLEAN PR clears review/CI, merges, and public post-merge smoke passes | Keep CLEAN main unchanged |
+| HERMES-B10 | RESOLVED | Release | PR #18 cleared review/CI, merged at `241c56e`, and the fresh public v0.2.3 install plus pinned real-Hermes lifecycle smoke passed | Keep CLEAN main unchanged |
 
 ## Watched implementation risks
 

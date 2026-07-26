@@ -93,6 +93,6 @@ Statuses: `PENDING`, `IN PROGRESS`, `BLOCKED`, `DONE`.
 - `DONE` Re-run release gates in CLEAN.
 - `DONE` Commit, push, open PR, and write PR-open checkpoints in both checkouts.
 - `DONE` Run `pr-review-ci-loop`; resolve all actionable comments, nits, threads, and CI failures.
-- `PENDING` Confirm required checks/reviews green, merge/close PR, and synchronize CLEAN main.
-- `PENDING` Run post-merge installed-adapter smoke and verify public main contents.
-- `PENDING` Write post-merge checkpoints and final Seby/Lux handoff.
+- `DONE` Confirm required checks/reviews green, merge/close PR, and synchronize CLEAN main.
+- `DONE` Run post-merge installed-adapter smoke and verify public main contents.
+- `DONE` Write post-merge checkpoints and prepare the final Seby/Lux handoff.

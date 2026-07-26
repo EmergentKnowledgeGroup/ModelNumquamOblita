@@ -1,6 +1,6 @@
 # MNO v0.2.3 Release Notes
 
-**Release target:** v0.2.3
+**Release:** v0.2.3
 
 v0.2.3 closes the largest gap for headless companion-agent integrations: the agent no longer has to remember to use its memory system.
 

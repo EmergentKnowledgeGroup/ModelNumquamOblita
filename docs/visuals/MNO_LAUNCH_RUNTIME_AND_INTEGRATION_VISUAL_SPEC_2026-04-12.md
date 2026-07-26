@@ -16,6 +16,7 @@ This package should explain:
 - how reviewed truth-lineage affects runtime use of reviewed cards
 - where response, abstain, clarify, and proposal-only writeback happen
 - how integrators should think about integration-v1, MCP, and adapters
+- how the Hermes v0.19.0 adapter automates pre-turn context and post-completed-turn provisional observation without creating a new truth lane
 
 ## Authority
 
@@ -85,6 +86,7 @@ It should still explain:
 
 - integration-v1 remains the main orchestration contract
 - adapters are compatibility surfaces, not the main truth contract
+- the Hermes adapter uses only health, capabilities, `context.build`, and `memory.observe`; incomplete turns do not observe and completed turns stay provisional
 - ANN is additive only
 - raw-context sidecar is inspectability support only
 - WSS is `scratchpad_ephemeral` work-session continuity support only

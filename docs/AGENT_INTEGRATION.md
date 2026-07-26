@@ -226,11 +226,15 @@ See:
 
 ## Hermes Agent
 
-Hermes Agent has no dedicated MNO adapter in this clean repo.
+v0.2.3 adds the optional `mno-memory` Hermes general plugin, pinned to Hermes Agent v0.19.0. It automatically supplies bounded MNO context before eligible root human turns and nonblockingly offers only successful completed turns for provisional observation afterward. Skipped, incomplete, failed, interrupted, child, background, and internal turns are not observed.
 
-Recommended path:
-- use `integration-v1` for the hot loop
-- or use MCP if Hermes is already tool-driven and local
+The agent does not need to remember a routine tool call. MNO context is an information/provenance envelope, not agent instructions. The adapter is optional, fail-open, and restricted to loopback MNO HTTP; MCP remains optional for explicit inspection/actions.
+
+Its shared `NO_INTEGRATION_HERMES_ADAPTER_TOKEN` is server-scoped to `health.get`, `capabilities.get`, `context.build`, and `memory.observe`. It has no canonical or review authority. Automatic observation cannot replace initial HCR curation or human review/publish/activate gates.
+
+The lifecycle family is `mno-hermes install`, `status`, `doctor`, and `uninstall`; rerunning `install` performs the ownership-checked atomic update path. No command-line or config argument accepts a bearer-token value.
+
+Hermes v0.19.0 can persist augmented API-bound user content in `messages.api_content` and replay it in later history; the adapter does not scrub that Hermes-owned history. Explicit MCP observation may duplicate the automatic path, and a configured Hermes memory provider can overlap with it.
 
 See:
 - [Hermes Agent Integration](integrations/HERMES_AGENT.md)

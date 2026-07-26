@@ -39,6 +39,12 @@ NO_INTEGRATION_OPERATOR_TOKEN=<operator-token>
 NO_INTEGRATION_ADMIN_TOKEN=<admin-token>
 ```
 
+### Planned Hermes adapter principal
+
+v0.2.3 uses `NO_INTEGRATION_HERMES_ADAPTER_TOKEN` as a dedicated local credential shared by the Hermes plugin and MNO runtime. The runtime enforces this exact allow-list regardless of the environment-variable name: `health.get`, `capabilities.get`, `context.build`, and `memory.observe`. It is denied all canonical, review, writeback-apply, publish, verify, and activation operations. The token value is environment-only: it is not accepted as a command-line or adapter-config value.
+
+This optional client is loopback HTTP only and fail-open. It sends a context request before eligible Hermes turns and one background observation attempt after a completed turn; skipped or incomplete turns send no observation. Its `mno.agent_context.v2` context is factual data, not behavioral instruction. MCP remains a separate optional client; explicit MCP observation can duplicate the adapter's provisional observation.
+
 ## Authority And Permission Matrix
 
 | Operation | Viewer | Operator | Admin |

@@ -26,10 +26,13 @@ def test_pyproject_packages_runnable_engine_and_cli_surfaces() -> None:
         "mno-setup": "tools.setup_local:main",
         "mno-import": "tools.import_memories:main",
         "mno-report": "tools.report_issue:main",
+        "mno-hermes": "tools.hermes_adapter_installer:main",
     }
     runtime_data = pyproject.get("tool", {}).get("setuptools", {}).get("package-data", {}).get("engine.runtime", [])
     assert "ui/*" in runtime_data
     assert "resources/*.md" in runtime_data
+    integration_data = pyproject.get("tool", {}).get("setuptools", {}).get("package-data", {}).get("engine.integrations", [])
+    assert "hermes_plugin/*.yaml" in integration_data
 
 
 def test_llm_and_agent_docs_require_capability_refresh_before_each_mutating_operation() -> None:

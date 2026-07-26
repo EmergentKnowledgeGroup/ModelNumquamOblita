@@ -2711,6 +2711,26 @@ class RuntimeSession:
             "rolling_summary": session.rolling_summary,
         }
 
+    def ensure_external_session(self, session_id: str) -> dict[str, Any]:
+        """Idempotently bind an authenticated external caller's opaque session.
+
+        Integration-v1 callers do not share the desktop/chat session-start
+        lifecycle. Their already-opaque identifier is therefore the session
+        key; establishing it here must not create review or canonical truth.
+        """
+        raw = str(session_id or "").strip()
+        if not raw:
+            raise ValueError("session_id is required")
+        session = self._ensure_session(raw)
+        return {
+            "session_id": session.session_id,
+            "label": session.label,
+            "created_at": session.created_at.isoformat(),
+            "updated_at": session.updated_at.isoformat(),
+            "turn_count": len(session.turn_ids),
+            "rolling_summary": session.rolling_summary,
+        }
+
     def rename_session(self, session_id: str, *, label: str) -> dict[str, Any]:
         normalized = self._normalize_session_id(session_id)
         cleaned = self._compact_text(str(label or "").strip(), max_chars=120)

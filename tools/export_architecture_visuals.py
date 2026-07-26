@@ -542,7 +542,7 @@ def system_context() -> Diagram:
         Node("verifier", "Verifier and responder\nanswer, abstain, or clarify", 930, 655, 255, 92, "decision"),
         Node("desktop", "Desktop shell\nmanaged local operator surface", 1430, 165, 280, 86, "integration"),
         Node("iv1", "integration-v1\npreferred orchestration contract", 1430, 315, 280, 86, "integration"),
-        Node("mcp", "MCP sidecar and adapters\nOpenClaw, Hermes, Nanobot", 1430, 465, 280, 96, "integration"),
+        Node("mcp", "MCP sidecar + adapters\nHermes auto-turn plugin; OpenClaw / Nanobot wrappers", 1430, 465, 280, 96, "integration"),
         Node("outcomes", "Response metadata\ncontext.why and proposal writeback", 1430, 625, 280, 100, "govern"),
     ]
     edges = [
@@ -790,7 +790,7 @@ def integration_contract() -> Diagram:
         Node("retrieval", "Retrieval engine\nmemory fusion and evidence assembly", 925, 375, 260, 96, "runtime"),
         Node("store", "Local stores\natoms, reviewed cards, raw receipts, WSS scratchpad_ephemeral sidecar", 925, 550, 260, 100, "store"),
         Node("mcp", "MCP sidecar\nstdio or HTTP over running runtime", 1350, 225, 220, 88, "integration"),
-        Node("adapters", "Compatibility adapters\nOpenClaw, Hermes, Nanobot, generic", 1350, 405, 220, 94, "integration"),
+        Node("adapters", "Compatibility adapters\nHermes: auto context → completed-turn provisional observe\nOpenClaw, Nanobot, generic", 1350, 385, 220, 134, "integration"),
         Node("response", "Answer / abstain / clarify\nsame evidence envelope", 1715, 230, 205, 92, "decision"),
         Node("why", "context.why\ntraceable IDs and citations", 1715, 405, 205, 86, "integration"),
         Node("writeback", "Proposal queue\noperator resolve before truth", 1715, 575, 205, 92, "govern"),
@@ -817,7 +817,7 @@ def integration_contract() -> Diagram:
         Edge("store", "writeback", "#bb5b54", source_pos=0.65, target_pos=0.5),
     ]
     notes = [
-        Node("contract_rule", "Integration rule\nUse context.build → memory.observe for live provisional memory. WSS enters strict-scope context only, never the truth contract.", 585, 870, 920, 78, "note", 17, True)
+        Node("contract_rule", "Integration rule\nHermes automates context.build → memory.observe with a four-operation token; completed turns stay provisional. WSS enters strict-scope context only.", 585, 870, 920, 78, "note", 17, True)
     ]
     boundaries = [Boundary("preferred public boundary", 415, 145, 660, "#8b5fbf")]
     return Diagram(

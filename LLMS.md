@@ -53,6 +53,14 @@ Before using every write or maintenance operation, call `integration.capabilitie
 
 `context.build` is read-only. `memory.observe` is the explicit live write that lets MNO evaluate safe provisional evidence. Do not use raw import as the day-to-day “remember this” path.
 
+## Hermes Agent automatic adapter (v0.2.3)
+
+The optional `mno-memory` plugin is pinned to Hermes Agent v0.19.0. For eligible root human turns it obtains bounded MNO context before the model call and, only after a successful completed turn, makes one nonblocking provisional-observation attempt. The model does not need to remember a tool call for this routine path. Incomplete, interrupted, failed, empty, child, background, internal, or otherwise skipped turns are not automatically observed.
+
+The injected `mno.agent_context.v2` envelope is information and provenance, not behavior instructions. Automatic observations stay provisional; they do not create canonical truth, review decisions, or publish/activation state, and initial HCR curation remains required.
+
+The local shared `NO_INTEGRATION_HERMES_ADAPTER_TOKEN` is limited by the server to `health.get`, `capabilities.get`, `context.build`, and `memory.observe`. The optional adapter is fail-open, loopback-only, and independent of MCP. Explicit MCP observation can duplicate it, and Hermes's own memory provider can overlap. Hermes v0.19.0 may persist/replay augmented API-bound user content in `messages.api_content`; adapter removal does not erase that Hermes-owned history.
+
 ## Source identity and self-echo rules
 
 - Never invent or edit a `source_registration` or `retrieval_receipt`.

@@ -91,6 +91,14 @@ Good first probe:
 curl "http://127.0.0.1:7340/api/integration/v1/capabilities?schema_version=integration.v1&request_id=troubleshoot_caps"
 ```
 
+## Hermes adapter is disabled or degraded
+
+The optional v0.2.3 Hermes adapter is pinned to Hermes Agent v0.19.0 and uses `NO_INTEGRATION_HERMES_ADAPTER_TOKEN`, shared locally by Hermes and MNO. The runtime limits that principal to `health.get`, `capabilities.get`, `context.build`, and `memory.observe`; it cannot hold canonical or review authority. The token value is not a supported command-line or config input.
+
+The adapter accepts only plain loopback HTTP runtime URLs and fails open: missing credentials, unavailable capabilities, invalid context, or an unavailable/slow runtime leave the Hermes reply path unchanged. Automatic observation applies only to successful completed eligible turns; skipped, empty, interrupted, or failed turns are not observed.
+
+`mno-hermes doctor` and `status --live` are read-only health/capability checks and do not report hook history. The lifecycle family is install/status/doctor/uninstall; rerun `install` for an atomic owned-file update. HCR initial curation remains a separate readiness gate. MCP is optional; explicit manual `memory.observe` can duplicate the automatic observation. Hermes v0.19.0 can retain/replay augmented API-bound user content through `messages.api_content`, which adapter removal does not erase.
+
 ## WSS context does not appear
 
 WSS attaches only to runtime v2 context packages when policy allows injection, the request has not explicitly disabled `include_work_session_context`, and strict active scope identity is present. Check that the request supplies stable `work_session_scope.thread_id` and `work_session_scope.workstream_key`, uses the same project/runtime store, and is going through a context-package route rather than the evidence-focused `integration-v1` envelope.

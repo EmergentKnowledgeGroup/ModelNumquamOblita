@@ -7,6 +7,8 @@ scoped continuity helper for active agent work. It attaches only when that scope
 gate passes, and its label is intentionally separate from reviewed memory and
 evidence paths.
 
+The runtime/integration view includes the v0.2.3 Hermes automatic turn adapter and makes explicit that its completed-turn observations remain provisional.
+
 Regenerate them with:
 
 ```bash

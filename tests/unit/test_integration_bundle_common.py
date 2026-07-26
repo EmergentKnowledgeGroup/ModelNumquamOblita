@@ -43,9 +43,12 @@ def test_generic_mcp_bundle_contains_launcher_and_entry_artifacts(tmp_path: Path
     assert "launch_runtime.sh" in artifacts
     assert "launch_agent_mcp.sh" in artifacts
     assert "generic_mcp_entry.posix.json" in artifacts
-    assert bundle["agent_context_format"] == "mno_memory_context.v1"
+    assert bundle["agent_context_format"] == "mno.agent_context.v2"
     assert "agent_memory_context_instructions.md" in artifacts
-    assert "<MNO_MEMORY_CONTEXT>" in artifacts["agent_memory_context_instructions.md"]
+    assert "<MNO_MEMORY_CONTEXT_V1>" in artifacts["agent_memory_context_instructions.md"]
+    assert "What the block means:" in artifacts["agent_memory_context_instructions.md"]
+    assert "Agent behavior:" not in artifacts["agent_memory_context_instructions.md"]
+    assert "Suggested system instruction:" not in artifacts["agent_memory_context_instructions.md"]
 
 
 def test_exported_launchers_are_relocatable_and_do_not_run_setup(tmp_path: Path) -> None:
@@ -78,3 +81,14 @@ def test_openclaw_bundle_contains_adapter_and_sidecar_hints(tmp_path: Path) -> N
     assert "integration_v1" in bundle
     assert "openclaw_bundle.json" in dict(bundle["artifacts"])
     assert "agent_memory_context_instructions.md" in dict(bundle["artifacts"])
+
+
+def test_ordinary_hermes_bundle_has_adapter_artifacts_but_hcr_generic_export_does_not(tmp_path: Path) -> None:
+    hermes = build_integration_bundle(target="hermes_agent", preview=_preview(tmp_path), repo_root=Path(__file__).resolve().parents[2])
+    hermes_artifacts = dict(hermes["artifacts"])
+    assert hermes["integration_v1"]["memory_observe"].endswith("/api/integration/v1/memory/observe")
+    assert set(("hermes_plugin/plugin.yaml", "hermes_plugin/__init__.py", "hermes_plugin/adapter.py")).issubset(hermes_artifacts)
+    assert {"hermes_mno_memory.example.json", "install_mno_hermes.ps1", "install_mno_hermes.sh", "HERMES_MNO_QUICKSTART.md"}.issubset(hermes_artifacts)
+
+    hcr = build_integration_bundle(target="generic_mcp", preview=_preview(tmp_path), repo_root=tmp_path)
+    assert not any("hermes" in name.lower() for name in dict(hcr["artifacts"]))

@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2f7d4f?style=for-the-badge"></a>
-  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases/tag/v0.2.2"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
+  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases/tag/v0.2.3"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
   <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge"></a>
   <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=ask"></a>
 </p>
@@ -155,7 +155,7 @@ MNO can:
 
 The main public integration boundary is `integration-v1`.
 
-MCP is available when you want tool-style local agent integration. Compatibility adapters also exist for `reference`, `openclaw`, and `nanobot`.
+MCP is available when you want tool-style local agent integration. Compatibility adapters also exist for `reference`, `openclaw`, and `nanobot`; v0.2.3 adds an optional automatic turn adapter for Hermes Agent v0.19.0.
 
 ## 🚫 What It Does Not Promise
 
@@ -249,6 +249,17 @@ Run MCP against the runtime:
 python3 tools/run_mcp_server.py --transport stdio --runtime-base-url http://127.0.0.1:7340
 ```
 
+Connect Hermes Agent v0.19.0 after MNO and HCR are ready:
+
+```bash
+export NO_INTEGRATION_HERMES_ADAPTER_TOKEN="generate-a-long-local-secret"
+# Start MNO with the same environment variable, then:
+mno-hermes install
+mno-hermes doctor
+```
+
+Restart Hermes after install. The plugin then retrieves MNO context before eligible human turns and offers successful completed turns to provisional memory in the background. It cannot approve cards or change canonical truth. Rerun `mno-hermes install` to update owned adapter files; use `mno-hermes uninstall` to remove them and restore the prior Hermes plugin state.
+
 ## 📚 Start Reading Here
 
 If you are new to the project:
@@ -318,6 +329,7 @@ Engineer-facing diagrams:
 
 - [v0.2.1 Release Notes](docs/RELEASE_NOTES_v0.2.1.md)
 - [v0.2.2 Temporal Agency Notes](docs/RELEASE_NOTES_v0.2.2.md)
+- [v0.2.3 Hermes Adapter And HCR Notes](docs/RELEASE_NOTES_v0.2.3.md)
 - [Human Changelog](docs/CHANGELOG.md)
 - [Compatibility and Support Matrix](docs/COMPATIBILITY_AND_SUPPORT.md)
 - [License](LICENSE)

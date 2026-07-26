@@ -22,6 +22,7 @@ mno-mcp --help
 mno-agent-mcp --help
 mno-curate --help
 mno-curation-mcp --help
+mno-hermes --help
 ```
 
 Mutable stores and logs are placed in a platform user-state directory unless `MNO_RUNTIME_STATE_ROOT` is set. They are never written inside the installed package.
@@ -191,6 +192,26 @@ mno-curation-mcp \
 ```
 
 That MCP profile cannot promote, publish, verify, activate, install integrations, force-release another curator, or access a different run. See [Headless Curation Room](HEADLESS_CURATION_ROOM.md).
+
+## Hermes Agent automatic turn adapter
+
+The optional adapter is pinned to Hermes Agent v0.19.0. Complete initial HCR curation first, keep the MNO runtime on loopback, and provide the same dedicated secret to both processes:
+
+```bash
+export NO_INTEGRATION_HERMES_ADAPTER_TOKEN="generate-a-long-local-secret"
+mno-runtime --memories /absolute/path/to/atoms.sqlite3 --episodes /absolute/path/to/episode_cards.reviewed.json
+```
+
+In another shell with the same environment variable:
+
+```bash
+mno-hermes install
+mno-hermes doctor
+```
+
+PowerShell uses `$env:NO_INTEGRATION_HERMES_ADAPTER_TOKEN = "..."`. Restart Hermes after install. `mno-hermes status` is static; `mno-hermes status --live` and `doctor` make only read-only health/capability probes. Rerun `install` for an atomic owned-file update. Back out with `mno-hermes uninstall`, then restart Hermes.
+
+The agent does not need to remember a routine MNO call. The plugin automatically supplies bounded factual context before eligible human turns and enqueues one provisional observation only after a successful completed turn. It fails open if MNO is unavailable and has no canonical/review authority. See [Hermes Agent Integration](integrations/HERMES_AGENT.md).
 
 ## MCP launch
 

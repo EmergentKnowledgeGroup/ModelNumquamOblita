@@ -502,6 +502,21 @@ class IntegrationAuthManager:
                     "roles": ["operator"],
                     "capabilities": ["review_apply"],
                 }
+        # This credential is intentionally opt-in and separate from the
+        # development defaults above.  Its environment-variable name is not
+        # authority: the server enforces this exact four-operation allow-list.
+        hermes_adapter_token = str(os.getenv("NO_INTEGRATION_HERMES_ADAPTER_TOKEN", "") or "").strip()
+        if hermes_adapter_token:
+            default_tokens[hermes_adapter_token] = {
+                "principal_id": "integration_hermes_adapter",
+                "roles": ["operator"],
+                "allowed_operations": [
+                    "health.get",
+                    "capabilities.get",
+                    "context.build",
+                    "memory.observe",
+                ],
+            }
         jwt_secret = str(os.getenv("NO_INTEGRATION_JWT_HS256_SECRET", "") or "").strip()
         return cls(
             token_file=token_file,
@@ -954,6 +969,46 @@ def _integration_redact_value(value: Any, *, key_name: str | None = None, depth:
             return text[:max_chars]
         return text
     return value
+
+
+def _integration_log_payload(operation: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Return diagnostics without hot-loop conversation text or signed handles."""
+    if operation == "context.build":
+        message = payload.get("message")
+        message_text = message if isinstance(message, str) else ""
+        return {
+            "message_present": bool(message_text),
+            "message_utf8_bytes": len(message_text.encode("utf-8", "replace")),
+            "include_temporal": bool(payload.get("include_temporal", True)),
+            "has_retrieval_override": isinstance(payload.get("retrieval_override"), Mapping),
+        }
+    if operation == "memory.observe":
+        messages = payload.get("messages")
+        rows = messages if isinstance(messages, list) else []
+        roles = [
+            str(row.get("role") or "")
+            for row in rows
+            if isinstance(row, Mapping)
+        ]
+        encoded_bytes = 0
+        for row in rows:
+            try:
+                encoded_bytes += len(
+                    json.dumps(row, ensure_ascii=False, separators=(",", ":"), default=str).encode(
+                        "utf-8", "replace"
+                    )
+                )
+            except (TypeError, ValueError):
+                continue
+        return {
+            "message_count": len(rows),
+            "message_roles": roles[:INTEGRATION_MAX_ARRAY_ITEMS],
+            "message_utf8_bytes": encoded_bytes,
+            "has_source_registration": isinstance(payload.get("source_registration"), Mapping),
+            "has_retrieval_receipt": isinstance(payload.get("retrieval_receipt"), Mapping),
+        }
+    redacted = _integration_redact_value(dict(payload), key_name="payload")
+    return dict(redacted) if isinstance(redacted, dict) else {}
 
 
 def _integration_new_request_id() -> str:
@@ -7684,7 +7739,7 @@ def _integration_log_event(
     degrade_mode: bool,
     payload: dict[str, Any] | None,
 ) -> None:
-    redacted = _integration_redact_value(payload or {}, key_name="payload")
+    redacted = _integration_log_payload(operation, payload or {})
     log_payload = {
         "timestamp_utc": _utc_iso(),
         "level": str(level),
@@ -8146,6 +8201,11 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     "authority_tier": "proposal_pending",
                 }
             elif operation == "context.build":
+                # integration-v1 is a headless contract: callers must not
+                # depend on the desktop/chat session-start route. Bind the
+                # authenticated caller's opaque session idempotently before
+                # preview/history access.
+                self.server.runtime.ensure_external_session(session_id)
                 message = str(request_payload.get("message") or "").strip()
                 message_window_raw = request_payload.get("message_window")
                 window_snapshot = ""

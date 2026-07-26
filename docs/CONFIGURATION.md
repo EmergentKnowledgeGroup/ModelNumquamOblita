@@ -192,6 +192,14 @@ Useful env vars for the HTTP integration contract:
 - `NO_INTEGRATION_SECRET_MANAGER_PROVIDER`
 - `NO_INTEGRATION_SECRET_MANAGER_COMMAND`
 
+### Planned Hermes adapter configuration
+
+The optional v0.2.3 Hermes adapter uses `NO_INTEGRATION_HERMES_ADAPTER_TOKEN`, a dedicated process-shared credential whose server-side allow-list is only `health.get`, `capabilities.get`, `context.build`, and `memory.observe`. The token value belongs only in the named environment variable; neither `mno-hermes` nor `mno-memory.json` accepts a bearer-token value.
+
+Its configuration schema is `mno.hermes-adapter.v1`. The runtime URL is plain loopback HTTP (`127.0.0.0/8`, `::1`, or `localhost`) without userinfo, query, fragment, redirect, or proxy routing. Invalid configuration disables the optional plugin rather than broadening access or blocking Hermes. The bounded context is `mno.agent_context.v2` information, never agent behavior instructions.
+
+The lifecycle family is `mno-hermes install`, `status`, `doctor`, and `uninstall`; rerunning `install` performs the atomic owned-file update. The adapter's automatic path is independent of MCP and cannot bypass HCR curation or human review authority.
+
 Practical rule:
 - local/dev can use simple local tokens
 - production should load tokens from a real file or secret manager path

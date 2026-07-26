@@ -24,7 +24,7 @@
 <polyline points="428.0,291.6 456.0,291.6 448.0,288.0 448.0,96.0 1472.0,96.0 1472.0,144.0 1468.0,149.6 1440.0,149.6" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="428.0,417.4 456.0,417.4 448.0,416.0 560.0,416.0 560.0,96.0 1456.0,96.0 1456.0,160.0 1472.0,160.0 1468.0,157.2 1440.0,157.2" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="428.0,543.2 456.0,543.2 448.0,544.0 448.0,624.0 1040.0,624.0 1040.0,176.0 1472.0,176.0 1472.0,160.0 1468.0,164.8 1440.0,164.8" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-<polyline points="428.0,678.4 456.0,678.4 448.0,672.0 496.0,672.0 496.0,624.0 1024.0,624.0 1024.0,192.0 1472.0,192.0 1472.0,176.0 1468.0,172.4 1440.0,172.4" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="428.0,687.8 456.0,687.8 448.0,688.0 480.0,688.0 480.0,624.0 1024.0,624.0 1024.0,192.0 1472.0,192.0 1472.0,176.0 1468.0,172.4 1440.0,172.4" fill="none" stroke="#d6b656" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="934.0,165.9 962.0,165.9 960.0,160.0 960.0,272.0 1472.0,272.0 1468.0,267.6 1440.0,267.6" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="934.0,301.1 962.0,301.1 960.0,304.0 960.0,288.0 1472.0,288.0 1472.0,272.0 1468.0,277.1 1440.0,277.1" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
 <polyline points="934.0,436.3 962.0,436.3 960.0,432.0 1056.0,432.0 1056.0,288.0 1472.0,288.0 1468.0,286.7 1440.0,286.7" fill="none" stroke="#82b366" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
@@ -36,8 +36,8 @@
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="257.0" y="414.9"><tspan x="257.0" dy="0.0">integration-v1</tspan><tspan x="257.0" dy="16.5">main public orchestration contract</tspan></text>
 <rect x="86.0" y="501.3" width="342.0" height="83.8" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="257.0" y="540.6"><tspan x="257.0" dy="0.0">MCP</tspan><tspan x="257.0" dy="16.5">tool-driven local assistant/agent path</tspan></text>
-<rect x="86.0" y="627.0" width="342.0" height="102.6" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
-<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="257.0" y="675.8"><tspan x="257.0" dy="0.0">Adapters</tspan><tspan x="257.0" dy="16.5">OpenClaw / Hermes / Nanobot / generic sidecar</tspan></text>
+<rect x="86.0" y="627.0" width="342.0" height="121.5" rx="12" fill="#fff2cc" stroke="#d6b656" stroke-width="2"/>
+<text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="257.0" y="668.8"><tspan x="257.0" dy="0.0">Adapters</tspan><tspan x="257.0" dy="16.5">Hermes: automatic context + completed-turn</tspan><tspan x="257.0" dy="16.5">provisional observe</tspan><tspan x="257.0" dy="16.5">OpenClaw / Nanobot / generic</tspan></text>
 <rect x="592.0" y="124.0" width="342.0" height="83.8" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>
 <text text-anchor="middle" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="14" font-weight="500" fill="#1f2933" x="763.0" y="163.4"><tspan x="763.0" dy="0.0">STM</tspan><tspan x="763.0" dy="16.5">short-term session state</tspan></text>
 <rect x="592.0" y="249.8" width="342.0" height="102.6" rx="12" fill="#d5e8d4" stroke="#82b366" stroke-width="2"/>

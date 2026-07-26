@@ -28,7 +28,7 @@
         <mxCell id="r4" value="MCP&amp;#10;tool-driven local assistant/agent path" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
           <mxGeometry x="50" y="350" width="200" height="60" as="geometry" />
         </mxCell>
-        <mxCell id="r5" value="Adapters&amp;#10;OpenClaw / Hermes / Nanobot / generic sidecar" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+        <mxCell id="r5" value="Adapters&amp;#10;Hermes: automatic context + completed-turn provisional observe&amp;#10;OpenClaw / Nanobot / generic" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
           <mxGeometry x="50" y="435" width="200" height="80" as="geometry" />
         </mxCell>
         <mxCell id="r6" value="STM&amp;#10;short-term session state" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
@@ -141,7 +141,7 @@
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="z1" value="1. Agent or user asks MNO for memory help." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+        <mxCell id="z1" value="1. A user turn reaches MNO. Hermes can do this automatically." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
           <mxGeometry x="60" y="90" width="240" height="70" as="geometry" />
         </mxCell>
         <mxCell id="z2" value="2. MNO checks the short-term chat first." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">

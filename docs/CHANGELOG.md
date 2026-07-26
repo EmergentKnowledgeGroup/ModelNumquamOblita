@@ -1,12 +1,18 @@
 # Human Changelog
 
-## Unreleased — Headless Curation Room
+## v0.2.3 — Headless Curation Room + automatic Hermes memory (2026-07-26)
 
 Agents that run MNO without the desktop app now have a proper human handoff instead of silently operating on raw imported memory. `mno-curate` prepares or resumes one local Headless Curation Room, where the agent can do draft work and the human can review every episode card before Publish, Verify, and Activate.
 
 The agent connection is pinned to one run and exposes only draft-reading and proposal tools. It cannot approve itself, change rooms, publish, verify, activate, install integrations, or force another curator out. Normal `mno-runtime` and `mno-agent-mcp` launches now stop with `CURATION_REQUIRED` when reviewed episode cards are missing. A loud `--allow-uncurated` switch remains for deliberate development or recovery work.
 
 The shared curation screen now behaves like a normal responsive web page on desktop and mobile instead of inheriting the desktop shell's fixed-height layout. The Windows PowerShell runtime wrapper also avoids PowerShell's reserved `$Host` variable, forwards the reviewed-episode and explicit-bypass flags, and uses the same canonical `runtime/imports` path as the Python launchers.
+
+Hermes Agent v0.19.0 can now use an optional installed `mno-memory` plugin instead of relying on Lux—or any model—to remember to call MNO manually. Before an eligible human turn, it asks MNO for compact factual context. After a successful completed turn, it makes one background provisional-memory observation attempt. Interrupted, failed, empty, child, cron, curator, and internal turns are not recorded.
+
+The adapter is deliberately narrow: loopback only, fail-open, no proxy or redirects, and a dedicated token that can call only health, capabilities, context build, and provisional observation. It cannot approve cards, mutate review truth, publish, verify, or activate. Installation, repeat-install update, diagnosis, status, rollback, and uninstall are ownership-safe and leave MNO stores alone.
+
+For setup, proof boundaries, and privacy details, see [v0.2.3 release notes](RELEASE_NOTES_v0.2.3.md).
 
 ## v0.2.2 — temporal agency (2026-07-18)
 

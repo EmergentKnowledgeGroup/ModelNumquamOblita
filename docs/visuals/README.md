@@ -19,6 +19,8 @@ For v0.2, diagrams must also keep authority and maturity separate: `human_review
 
 For v0.2.2, authority, maturity, retrieval lifecycle, and temporal disposition are four independent axes. The retrieval lifecycle is `active -> dormant -> archived`; dormant fallback is cue-aware and lower priority, and only new eligible signed evidence can reactivate. Per-turn clock/due context is neutral facts only. A due poll must never be drawn as a daemon, timer, wake-up, notification, or action path.
 
+For v0.2.3, the integration diagrams show the optional Hermes v0.19.0 plugin as an adapter over `integration-v1`: automatic `context.build` before an eligible human turn and one `memory.observe` attempt only after a completed turn. The arrow must end in provisional memory, never reviewed/canonical truth.
+
 Rendered SVG/PNG exports live in `docs/visuals/exports/`.
 
 For public docs, prefer `docs/visuals/exports/clean/`. Those images simplify dense fan-ins and fan-outs into readable public diagrams with no connector overlap through boxes.

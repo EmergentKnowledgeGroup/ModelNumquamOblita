@@ -490,6 +490,47 @@ def test_external_observe_consolidates_provisionally_and_survives_context_contra
         store.close()
 
 
+def test_context_build_bootstraps_opaque_headless_session(tmp_path) -> None:
+    store = SqliteAtomStore(tmp_path / "atoms.sqlite3")
+    runtime = RuntimeSession(
+        retriever=MemoryRetriever(store),
+        verifier=ClaimVerifier(),
+        continuity_store=ContinuityStore(),
+    )
+    server, thread = start_runtime_server(
+        runtime,
+        host="127.0.0.1",
+        port=0,
+        review_queue=MutationReviewQueue(store),
+    )
+    host, port = server.server_address
+    opaque_session = "hermes_session_" + ("a" * 64)
+    request = {
+        "schema_version": "integration.v1",
+        "request_id": "req_HEADLESSBOOTSTRAP1234",
+        "session_id": opaque_session,
+        "run_id": "hermes_turn_" + ("b" * 64),
+        "data": {"message": "Headless integration context.", "memory_preference": "memory_assist"},
+    }
+    try:
+        status, response = _http_json(
+            method="POST",
+            url=f"http://{host}:{port}/api/integration/v1/context/build",
+            payload=request,
+            headers={"Authorization": "Bearer local-integration-operator-token"},
+        )
+        assert status == 200, response
+        assert response["ok"] is True
+        sessions = {row["session_id"] for row in runtime.list_sessions()}
+        assert opaque_session in sessions
+        assert response["data"]["source_registration"]["handle"]
+        assert response["data"]["retrieval_receipt"]["handle"]
+        assert store.list_atoms() == []
+    finally:
+        stop_runtime_server(server, thread, runtime=runtime)
+        store.close()
+
+
 def test_reviewer_apply_creates_evidence_atom_and_is_restart_idempotent(tmp_path) -> None:
     db_path = tmp_path / "atoms.sqlite3"
     store = SqliteAtomStore(db_path)

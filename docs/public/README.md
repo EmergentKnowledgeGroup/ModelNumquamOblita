@@ -25,9 +25,12 @@ Core pieces:
 
 Truth order is simple: human-reviewed canonical truth wins; evidence atoms remain source-backed substrate; provisional memory is labeled and revisable. A work-session scratchpad or short-term session context can help an agent continue work, but neither is evidence.
 
+For Hermes Agent v0.19.0, the optional v0.2.3 plugin makes ordinary memory flow automatic: factual MNO context goes in before an eligible human turn, and only a successful completed turn is offered to provisional memory afterward. The plugin cannot approve its own memory or bypass HCR/human review.
+
 Further reading:
 - [v0.2.1 release notes](../RELEASE_NOTES_v0.2.1.md)
 - [v0.2.2 temporal agency notes](../RELEASE_NOTES_v0.2.2.md)
+- [v0.2.3 Hermes adapter and HCR notes](../RELEASE_NOTES_v0.2.3.md)
 - [human changelog](../CHANGELOG.md)
 - [Compatibility and support](../COMPATIBILITY_AND_SUPPORT.md)
 - [Agent support tickets](../SUPPORT_TICKETS_FOR_AGENTS.md)

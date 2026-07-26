@@ -330,7 +330,7 @@ def runtime_integration() -> Diagram:
         Lane("Outputs", 1040, 90, 430, 620, "lane_integration"),
     ]
     nodes = [
-        Node("entry", "Desktop / integration-v1 / MCP / adapters", 95, 210, 260, 100, "input"),
+        Node("entry", "Desktop / integration-v1 / MCP\nHermes automatic turn adapter", 95, 210, 260, 100, "input"),
         Node("router", "Router + query shaping", 510, 150, 420, 90, "runtime"),
         Node("memory", "Memory candidate pool\nreviewed canonical + evidence atoms + provisional + ANN; STM/WSS are not evidence", 510, 300, 420, 130, "review"),
         Node("evidence", "Context package + verifier\nbounded evidence; WSS scratchpad_ephemeral by strict active scope", 510, 500, 420, 120, "runtime"),
@@ -347,7 +347,7 @@ def runtime_integration() -> Diagram:
         Edge("evidence", "writeback", "#b85450"),
     ]
     notes = [
-        Node("rule", "Integration rule\ncontext.build is read-only; memory.observe needs signed registration/receipt; WSS is work continuity, not evidence", 260, 760, 1000, 96, "govern")
+        Node("rule", "Integration rule\nHermes can automate context.build → memory.observe for completed turns; observations stay provisional and human-reviewed truth stays separate", 260, 760, 1000, 96, "govern")
     ]
     return Diagram("mno-runtime-integration-clean", "Runtime And Integration Flow", 1520, 900, lanes, nodes, edges, notes)
 

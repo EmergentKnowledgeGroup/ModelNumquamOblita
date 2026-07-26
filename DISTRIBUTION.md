@@ -3,9 +3,9 @@
 This repo is intended to be the public source distribution for
 ModelNumquamOblita.
 
-## v0.2.2 Artifact Contract
+## v0.2.3 Artifact Contract
 
-- The Python wheel is a runnable headless runtime, MCP sidecar, import CLI, setup CLI, and Headless Curation Room (`mno-curate` + run-bound `mno-curation-mcp`). It includes the runtime web UI and uses platform user state outside `site-packages`.
+- The Python wheel is a runnable headless runtime, MCP sidecar, import CLI, setup CLI, Headless Curation Room (`mno-curate` + run-bound `mno-curation-mcp`), and Hermes adapter lifecycle CLI (`mno-hermes`). It includes the runtime web UI and packaged Hermes plugin files and uses platform user state outside `site-packages`.
 - The source distribution contains the public source tree plus an empty runtime skeleton. It must never contain a populated store, WAL/SHM file, trace, checkpoint, or private research tree.
 - The Electron desktop application is a separate artifact with a managed Python runtime. It must be built per target OS; no desktop installer is implied by the Python wheel.
 - Exported integration launchers call installed `mno-runtime` and `mno-agent-mcp` commands. They never embed the builder's checkout and never install dependencies at launch time.
@@ -62,3 +62,9 @@ public branch should be clean, cloneable, documented, and test-green.
 The temporal contract requires `tzdata` in supported Windows and minimal-container distributions so IANA timezone rules remain available. Package verification must prove a durable-store temporal smoke: capabilities advertise the temporal flags, server clock facts render, a source-backed structured schedule/list/get/resolve sequence works, and the heartbeat poll remains read-only. Do not package populated provisional stores, SQLite WAL/SHM files, receipts, delivery telemetry, logs, or backups.
 
 Release documentation must describe temporal notes as provisional facts. A package must not claim a scheduler, notification engine, background daemon, model wake-up, or action executor. See [API](docs/API.md#temporal-context-and-operations) and [release notes](docs/RELEASE_NOTES_v0.2.2.md).
+
+## v0.2.3 Hermes adapter distribution notes
+
+The wheel and sdist must contain `engine/integrations/hermes_plugin/{plugin.yaml,__init__.py,adapter.py}` plus the `mno-hermes` entry point. Artifact verification must prove those files and the entry point from an isolated install.
+
+The supported product pair is MNO Python 3.12+ with Hermes Agent v0.19.0. The copied plugin is stdlib-only and imports under Hermes's Python 3.11/3.12/3.13 range, but the MNO package itself still requires Python 3.12+. Release claims remain limited to the operating system and real Hermes lifecycle actually tested.

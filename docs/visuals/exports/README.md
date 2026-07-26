@@ -1,6 +1,6 @@
 # Rendered Visual Exports
 
-These files are generated from the canonical `2026-04-12` draw.io sources plus the v0.2.2 temporal-agency source in `docs/visuals`.
+These files are generated from the canonical `2026-04-12` draw.io sources plus the v0.2.2 temporal-agency source in `docs/visuals`. The runtime/integration source now also carries the v0.2.3 Hermes automatic-turn adapter boundary.
 
 The current exports identify WSS as built-in strict active-scope work-continuity helper
 state. It appears as `scratchpad_ephemeral` context for runtime context packages,

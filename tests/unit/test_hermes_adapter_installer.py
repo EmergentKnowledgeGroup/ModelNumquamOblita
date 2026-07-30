@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -259,6 +260,7 @@ def test_doctor_reports_credential_source_when_live_probe_fails(
     assert result["credential_source"] == "credential_file"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX credential permissions")
 def test_doctor_rejects_permissions_the_posix_plugin_rejects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -272,7 +274,34 @@ def test_doctor_rejects_permissions_the_posix_plugin_rejects(
         environ={installer.DEFAULT_TOKEN_ENV: "token"},
     )
     (home / "mno" / "adapter-token").chmod(0o644)
-    monkeypatch.setattr(installer, "_credential_file_usable", lambda _path: False)
+
+    result = installer.doctor(home=home, runner=runner, environ={})
+
+    assert result["status"] == "auth_missing"
+    assert result["credential_source"] == "missing"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b'{"schema_version":"wrong","ownership_id":"owner","token":"secret"}',
+        b"\xff\xfe\x00",
+    ],
+)
+def test_doctor_rejects_invalid_persisted_credential(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    content: bytes,
+) -> None:
+    monkeypatch.setattr(installer, "_live_probe", _healthy_probe)
+    home = tmp_path / "hermes"
+    runner = HermesRunner()
+    installer.install(
+        home=home,
+        runner=runner,
+        environ={installer.DEFAULT_TOKEN_ENV: "token"},
+    )
+    (home / "mno" / "adapter-token").write_bytes(content)
 
     result = installer.doctor(home=home, runner=runner, environ={})
 

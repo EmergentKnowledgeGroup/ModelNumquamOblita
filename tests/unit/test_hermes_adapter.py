@@ -7,6 +7,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 import engine.integrations.hermes_plugin.adapter as adapter_module
 from engine.integrations.hermes_plugin import _config_path
 from engine.integrations.hermes_plugin.adapter import HermesMemoryAdapter, normalize_text
@@ -165,6 +167,26 @@ def test_from_path_rejects_group_readable_credential_on_posix(
     token_path.chmod(0o644)
     monkeypatch.delenv("NO_INTEGRATION_HERMES_ADAPTER_TOKEN", raising=False)
     monkeypatch.setattr(adapter_module.os, "name", "posix")
+
+    assert HermesMemoryAdapter.from_path(config_path) is None
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b'{"schema_version":"wrong","ownership_id":"owner","token":"secret"}',
+        b"\xff\xfe\x00",
+    ],
+)
+def test_from_path_rejects_invalid_persisted_credential(
+    tmp_path: Path,
+    monkeypatch,
+    content: bytes,
+):
+    config_path = tmp_path / "mno-memory.json"
+    config_path.write_text(json.dumps(_config()), encoding="utf-8")
+    (tmp_path / "adapter-token").write_bytes(content)
+    monkeypatch.delenv("NO_INTEGRATION_HERMES_ADAPTER_TOKEN", raising=False)
 
     assert HermesMemoryAdapter.from_path(config_path) is None
 

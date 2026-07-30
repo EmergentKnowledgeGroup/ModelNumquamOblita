@@ -1,5 +1,12 @@
 # Human Changelog
 
+## v0.2.4 — Hermes supervised-gateway credential fix (2026-07-29)
+
+- Removed the Hermes gateway's dependence on inheriting the install shell's adapter token.
+- Added an ownership-checked adapter credential file with POSIX permission checks.
+- Made doctor report the effective credential source without exposing the token.
+- Added real installed-Hermes proof with the token absent from the Hermes process.
+
 ## v0.2.3 — Headless Curation Room + automatic Hermes memory (2026-07-26)
 
 Agents that run MNO without the desktop app now have a proper human handoff instead of silently operating on raw imported memory. `mno-curate` prepares or resumes one local Headless Curation Room, where the agent can do draft work and the human can review every episode card before Publish, Verify, and Activate.

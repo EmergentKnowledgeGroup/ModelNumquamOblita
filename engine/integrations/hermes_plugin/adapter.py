@@ -200,7 +200,26 @@ class HermesMemoryAdapter:
     def from_path(cls, path: Path) -> "HermesMemoryAdapter | None":
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            return cls.from_mapping(data if isinstance(data, Mapping) else {})
+            if not isinstance(data, Mapping):
+                return None
+            config = AdapterConfig.parse(data)
+            if not config:
+                return None
+            token = os.environ.get(config.token_env, "")
+            if not token:
+                token_path = path.with_name("adapter-token")
+                if token_path.is_file() and not token_path.is_symlink():
+                    if os.name != "nt" and token_path.stat().st_mode & 0o077:
+                        return None
+                    credential = json.loads(token_path.read_text(encoding="utf-8"))
+                    if (
+                        not isinstance(credential, Mapping)
+                        or credential.get("schema_version")
+                        != "mno.hermes-credential.v1"
+                    ):
+                        return None
+                    token = str(credential.get("token") or "").strip()
+            return cls(config, token=token) if token else None
         except Exception:
             return None
 

@@ -211,6 +211,7 @@ def test_installed_plugin_runs_real_cli_and_gateway_shaped_turns(
         assert json.loads(installed.stdout)["status"] == "installed"
 
         hermes_env = dict(install_env)
+        hermes_env.pop("NO_INTEGRATION_HERMES_ADAPTER_TOKEN", None)
         hermes_env["HERMES_HOME"] = str(hermes_home)
         hermes_env["HERMES_CONFIG"] = str(hermes_home / "config.yaml")
         listed = subprocess.run(
@@ -229,6 +230,7 @@ def test_installed_plugin_runs_real_cli_and_gateway_shaped_turns(
 
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))
         monkeypatch.setenv("HERMES_CONFIG", str(hermes_home / "config.yaml"))
+        monkeypatch.delenv("NO_INTEGRATION_HERMES_ADAPTER_TOKEN", raising=False)
         from hermes_cli.plugins import discover_plugins, get_plugin_manager
         from hermes_state import SessionDB
         from run_agent import AIAgent

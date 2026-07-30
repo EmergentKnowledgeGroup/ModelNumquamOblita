@@ -41,7 +41,7 @@ NO_INTEGRATION_ADMIN_TOKEN=<admin-token>
 
 ### Planned Hermes adapter principal
 
-v0.2.3 uses `NO_INTEGRATION_HERMES_ADAPTER_TOKEN` as a dedicated local credential shared by the Hermes plugin and MNO runtime. The runtime enforces this exact allow-list regardless of the environment-variable name: `health.get`, `capabilities.get`, `context.build`, and `memory.observe`. It is denied all canonical, review, writeback-apply, publish, verify, and activation operations. The token value is environment-only: it is not accepted as a command-line or adapter-config value.
+v0.2.4 uses `NO_INTEGRATION_HERMES_ADAPTER_TOKEN` as a dedicated local credential shared by the Hermes plugin and MNO runtime. The runtime enforces this exact allow-list regardless of the credential source: `health.get`, `capabilities.get`, `context.build`, and `memory.observe`. It is denied all canonical, review, writeback-apply, publish, verify, and activation operations. Install reads the token from the environment and writes the ownership-checked adapter credential file; it is not accepted as a command-line or adapter-JSON value.
 
 This optional client is loopback HTTP only and fail-open. It sends a context request before eligible Hermes turns and one background observation attempt after a completed turn; skipped or incomplete turns send no observation. Its `mno.agent_context.v2` context is factual data, not behavioral instruction. MCP remains a separate optional client; explicit MCP observation can duplicate the adapter's provisional observation.
 

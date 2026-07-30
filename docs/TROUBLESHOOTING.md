@@ -93,7 +93,7 @@ curl "http://127.0.0.1:7340/api/integration/v1/capabilities?schema_version=integ
 
 ## Hermes adapter is disabled or degraded
 
-The optional v0.2.3 Hermes adapter is pinned to Hermes Agent v0.19.0 and uses `NO_INTEGRATION_HERMES_ADAPTER_TOKEN`, shared locally by Hermes and MNO. The runtime limits that principal to `health.get`, `capabilities.get`, `context.build`, and `memory.observe`; it cannot hold canonical or review authority. The token value is not a supported command-line or config input.
+The optional Hermes adapter is pinned to Hermes Agent v0.19.0 and uses `NO_INTEGRATION_HERMES_ADAPTER_TOKEN`, shared locally by Hermes and MNO. Installation also writes the scoped token to the private MNO-owned `~/.hermes/mno/adapter-token` file so a gateway launched by a supervisor does not depend on inheriting the install shell's environment. `doctor --json` reports `credential_source` as `environment` or `credential_file`; it never reports the token. The runtime limits that principal to `health.get`, `capabilities.get`, `context.build`, and `memory.observe`; it cannot hold canonical or review authority. The token value is not a supported command-line or adapter-JSON input.
 
 The adapter accepts only plain loopback HTTP runtime URLs and fails open: missing credentials, unavailable capabilities, invalid context, or an unavailable/slow runtime leave the Hermes reply path unchanged. Automatic observation applies only to successful completed eligible turns; skipped, empty, interrupted, or failed turns are not observed.
 

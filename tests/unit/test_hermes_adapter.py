@@ -102,6 +102,73 @@ def test_config_path_uses_native_windows_or_posix_hermes_home():
     assert _config_path(environ={"HERMES_HOME": "Z:/custom-hermes"}, platform_name="posix") == Path("Z:/custom-hermes/mno/mno-memory.json")
 
 
+def test_from_path_uses_private_credential_file_when_gateway_env_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+):
+    config_path = tmp_path / "mno-memory.json"
+    config_path.write_text(json.dumps(_config()), encoding="utf-8")
+    token_path = tmp_path / "adapter-token"
+    token_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "mno.hermes-credential.v1",
+                "ownership_id": "test-owner",
+                "token": "service-token",
+            }
+        ),
+        encoding="utf-8",
+    )
+    token_path.chmod(0o600)
+    monkeypatch.delenv("NO_INTEGRATION_HERMES_ADAPTER_TOKEN", raising=False)
+
+    adapter = HermesMemoryAdapter.from_path(config_path)
+
+    assert adapter is not None
+    assert adapter._token == "service-token"
+    adapter.close()
+
+
+def test_from_path_prefers_gateway_environment_over_credential_file(
+    tmp_path: Path,
+    monkeypatch,
+):
+    config_path = tmp_path / "mno-memory.json"
+    config_path.write_text(json.dumps(_config()), encoding="utf-8")
+    (tmp_path / "adapter-token").write_text("not-read", encoding="utf-8")
+    monkeypatch.setenv("NO_INTEGRATION_HERMES_ADAPTER_TOKEN", "environment-token")
+
+    adapter = HermesMemoryAdapter.from_path(config_path)
+
+    assert adapter is not None
+    assert adapter._token == "environment-token"
+    adapter.close()
+
+
+def test_from_path_rejects_group_readable_credential_on_posix(
+    tmp_path: Path,
+    monkeypatch,
+):
+    config_path = tmp_path / "mno-memory.json"
+    config_path.write_text(json.dumps(_config()), encoding="utf-8")
+    token_path = tmp_path / "adapter-token"
+    token_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "mno.hermes-credential.v1",
+                "ownership_id": "test-owner",
+                "token": "service-token",
+            }
+        ),
+        encoding="utf-8",
+    )
+    token_path.chmod(0o644)
+    monkeypatch.delenv("NO_INTEGRATION_HERMES_ADAPTER_TOKEN", raising=False)
+    monkeypatch.setattr(adapter_module.os, "name", "posix")
+
+    assert HermesMemoryAdapter.from_path(config_path) is None
+
+
 def test_normalization_and_hashed_ids_are_bounded_and_raw_ids_not_retained():
     assert normalize_text("x" * 4095) == ("x" * 4095)
     assert normalize_text("x" * 4096) == ("x" * 4096)

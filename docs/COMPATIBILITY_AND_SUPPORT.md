@@ -1,6 +1,6 @@
 # Compatibility and Support
 
-This is the public support contract for MNO v0.2.3.
+This is the public support contract for MNO v0.2.4.
 
 ## Supported surfaces
 
@@ -11,7 +11,7 @@ This is the public support contract for MNO v0.2.3.
 | Exported integration bundles | POSIX shell, PowerShell, or Command Prompt with installed MNO commands | Relocatable launchers; no embedded checkout or automatic install |
 | WSL integration | WSL with Linux Python/Node executables | Windows `.cmd` files are rejected inside WSL; WSL is optional, not a Windows prerequisite |
 
-ARM64 desktop installers are not claimed by v0.2.3. Source Python may work on additional architectures, but that is not release support until the exact artifact/host combination is gated.
+ARM64 desktop installers are not claimed by v0.2.4. Source Python may work on additional architectures, but that is not release support until the exact artifact/host combination is gated.
 
 ## Interpreter rule
 
@@ -50,7 +50,7 @@ Temporal support is additive to `integration.v1` and MCP parity. Clients discove
 
 Fresh installs and v0.2.1 upgrades expose compact server-clock facts by default. Scheduling and due injection follow provisional-memory enablement. When that feature is disabled, clock facts remain available and temporal-memory operations fail with a clear disabled reason. Generic HTTP and MCP clients need no vendor-specific executable: the heartbeat is only a bounded read poll, never a daemon or host action.
 
-## v0.2.3 Hermes adapter compatibility
+## v0.2.4 Hermes adapter compatibility
 
 `mno-memory` is an optional general plugin pinned to Hermes Agent v0.19.0. It works against a standalone loopback MNO runtime; MCP is optional. It uses a dedicated `NO_INTEGRATION_HERMES_ADAPTER_TOKEN` restricted to health, capabilities, context build, and provisional observation, with no review or canonical authority.
 

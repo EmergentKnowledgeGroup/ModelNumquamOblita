@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -117,11 +118,19 @@ def test_install_records_hashes_and_uninstall_restores_prior_enabled_state(tmp_p
     assert state["schema_version"] == installer.STATE_SCHEMA
     assert state["prior_plugin_state"] == "disabled"
     assert all(len(value) == 64 for value in state["owned_hashes"].values())
+    assert len(state["credential_ownership_id"]) == 32
+    assert len(state["owned_credential_sha256"]) == 64
     assert runner.state == "enabled"
+    credential = json.loads((home / "mno" / "adapter-token").read_text(encoding="utf-8"))
+    assert credential["token"] == "not-printed"
+    doctor = installer.doctor(home=home, runner=runner, environ={})
+    assert doctor["status"] == "healthy"
+    assert doctor["credential_source"] == "credential_file"
     removed = installer.uninstall(home=home, runner=runner)
     assert removed["status"] == "uninstalled"
     assert runner.state == "disabled"
     assert not (home / "plugins" / installer.PLUGIN_NAME).exists()
+    assert not (home / "mno" / "adapter-token").exists()
 
 
 def test_install_and_uninstall_dry_run_are_read_only(
@@ -185,6 +194,153 @@ def test_install_refuses_unowned_or_modified_paths_unless_force(tmp_path: Path, 
     with pytest.raises(installer.HermesInstallError, match="changed"):
         installer.install(home=home, runner=runner, environ={installer.DEFAULT_TOKEN_ENV: "not-printed"})
     installer.install(home=home, runner=runner, force=True, environ={installer.DEFAULT_TOKEN_ENV: "not-printed"})
+
+
+def test_install_refuses_unowned_credential_file(tmp_path: Path) -> None:
+    home = tmp_path / "hermes"
+    token_path = home / "mno" / "adapter-token"
+    token_path.parent.mkdir(parents=True)
+    token_path.write_text("somebody-elses-secret", encoding="utf-8")
+
+    with pytest.raises(installer.HermesInstallError, match="unowned.*credential"):
+        installer.install(
+            home=home,
+            runner=HermesRunner(),
+            environ={installer.DEFAULT_TOKEN_ENV: "replacement"},
+        )
+
+    assert token_path.read_text(encoding="utf-8") == "somebody-elses-secret"
+
+
+def test_update_and_uninstall_refuse_changed_owned_credential(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(installer, "_live_probe", _healthy_probe)
+    home = tmp_path / "hermes"
+    runner = HermesRunner()
+    env = {installer.DEFAULT_TOKEN_ENV: "original-token"}
+    installer.install(home=home, runner=runner, environ=env)
+    token_path = home / "mno" / "adapter-token"
+    credential = json.loads(token_path.read_text(encoding="utf-8"))
+    credential["token"] = "replaced-token"
+    token_path.write_text(json.dumps(credential, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(installer.HermesInstallError, match="credential changed"):
+        installer.install(home=home, runner=runner, environ=env)
+    with pytest.raises(installer.HermesInstallError, match="credential changed"):
+        installer.uninstall(home=home, runner=runner)
+
+    assert json.loads(token_path.read_text(encoding="utf-8"))["token"] == "replaced-token"
+
+
+def test_doctor_reports_credential_source_when_live_probe_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(installer, "_live_probe", _healthy_probe)
+    home = tmp_path / "hermes"
+    runner = HermesRunner()
+    installer.install(
+        home=home,
+        runner=runner,
+        environ={installer.DEFAULT_TOKEN_ENV: "token"},
+    )
+    monkeypatch.setattr(
+        installer,
+        "_live_probe",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            installer.HermesProbeError("runtime_unavailable", "offline")
+        ),
+    )
+
+    result = installer.doctor(home=home, runner=runner, environ={})
+
+    assert result["status"] == "runtime_unavailable"
+    assert result["credential_source"] == "credential_file"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX credential permissions")
+def test_doctor_rejects_permissions_the_posix_plugin_rejects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(installer, "_live_probe", _healthy_probe)
+    home = tmp_path / "hermes"
+    runner = HermesRunner()
+    installer.install(
+        home=home,
+        runner=runner,
+        environ={installer.DEFAULT_TOKEN_ENV: "token"},
+    )
+    (home / "mno" / "adapter-token").chmod(0o644)
+
+    result = installer.doctor(home=home, runner=runner, environ={})
+
+    assert result["status"] == "auth_missing"
+    assert result["credential_source"] == "missing"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b'{"schema_version":"wrong","ownership_id":"owner","token":"secret"}',
+        b"\xff\xfe\x00",
+    ],
+)
+def test_doctor_rejects_invalid_persisted_credential(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    content: bytes,
+) -> None:
+    monkeypatch.setattr(installer, "_live_probe", _healthy_probe)
+    home = tmp_path / "hermes"
+    runner = HermesRunner()
+    installer.install(
+        home=home,
+        runner=runner,
+        environ={installer.DEFAULT_TOKEN_ENV: "token"},
+    )
+    (home / "mno" / "adapter-token").write_bytes(content)
+
+    result = installer.doctor(home=home, runner=runner, environ={})
+
+    assert result["status"] == "auth_missing"
+    assert result["credential_source"] == "missing"
+
+
+def test_uninstall_failure_restores_owned_credential(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(installer, "_live_probe", _healthy_probe)
+    home = tmp_path / "hermes"
+    runner = HermesRunner()
+    installer.install(
+        home=home,
+        runner=runner,
+        environ={installer.DEFAULT_TOKEN_ENV: "rollback-token"},
+    )
+    token_path = home / "mno" / "adapter-token"
+    token_before = token_path.read_bytes()
+    state_path = home / "mno" / "install-state.json"
+    original_unlink = Path.unlink
+    failed = False
+
+    def fail_state_unlink(path: Path, *args, **kwargs):
+        nonlocal failed
+        if path == state_path and not failed:
+            failed = True
+            raise OSError("injected state deletion failure")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_state_unlink)
+
+    with pytest.raises(OSError, match="injected"):
+        installer.uninstall(home=home, runner=runner)
+
+    assert token_path.read_bytes() == token_before
+    assert runner.state == "enabled"
 
 
 def test_token_value_is_never_an_installer_argument_and_doctor_is_health_capabilities_only(tmp_path: Path) -> None:

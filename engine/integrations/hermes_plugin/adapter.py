@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import queue
 import re
+import stat
 import threading
 import time
 from typing import Any, Callable, Mapping
@@ -31,6 +32,8 @@ _MAX_TEXT = 4096
 _MAX_CONTEXT = 8192
 _MAX_TOKENS = 4096
 _MAX_HTTP_RESPONSE_BYTES = 262144
+_MAX_CREDENTIAL_BYTES = 65536
+_CREDENTIAL_SCHEMA = "mno.hermes-credential.v1"
 _OPERATIONS = frozenset({"health.get", "capabilities.get", "context.build", "memory.observe"})
 _PATHS = {
     "health.get": ("GET", "/api/integration/v1/health"),
@@ -38,6 +41,42 @@ _PATHS = {
     "context.build": ("POST", "/api/integration/v1/context/build"),
     "memory.observe": ("POST", "/api/integration/v1/memory/observe"),
 }
+
+
+def _read_private_credential(path: Path) -> str:
+    """Read one bounded private credential without following links where supported."""
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = -1
+    try:
+        fd = os.open(path, flags)
+        file_stat = os.fstat(fd)
+        if not stat.S_ISREG(file_stat.st_mode):
+            return ""
+        if os.name != "nt" and file_stat.st_mode & 0o077:
+            return ""
+        chunks: list[bytes] = []
+        remaining = _MAX_CREDENTIAL_BYTES + 1
+        while remaining:
+            chunk = os.read(fd, min(remaining, 8192))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        if len(raw) > _MAX_CREDENTIAL_BYTES:
+            return ""
+        credential = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return ""
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    if (
+        not isinstance(credential, Mapping)
+        or credential.get("schema_version") != _CREDENTIAL_SCHEMA
+    ):
+        return ""
+    return str(credential.get("token") or "").strip()
 
 
 def normalize_text(value: Any) -> str | None:
@@ -200,7 +239,15 @@ class HermesMemoryAdapter:
     def from_path(cls, path: Path) -> "HermesMemoryAdapter | None":
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            return cls.from_mapping(data if isinstance(data, Mapping) else {})
+            if not isinstance(data, Mapping):
+                return None
+            config = AdapterConfig.parse(data)
+            if not config:
+                return None
+            token = os.environ.get(config.token_env, "")
+            if not token:
+                token = _read_private_credential(path.with_name("adapter-token"))
+            return cls(config, token=token) if token else None
         except Exception:
             return None
 

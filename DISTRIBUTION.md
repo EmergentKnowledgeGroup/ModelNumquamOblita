@@ -3,7 +3,7 @@
 This repo is intended to be the public source distribution for
 ModelNumquamOblita.
 
-## v0.2.3 Artifact Contract
+## v0.2.4 Artifact Contract
 
 - The Python wheel is a runnable headless runtime, MCP sidecar, import CLI, setup CLI, Headless Curation Room (`mno-curate` + run-bound `mno-curation-mcp`), and Hermes adapter lifecycle CLI (`mno-hermes`). It includes the runtime web UI and packaged Hermes plugin files and uses platform user state outside `site-packages`.
 - The source distribution contains the public source tree plus an empty runtime skeleton. It must never contain a populated store, WAL/SHM file, trace, checkpoint, or private research tree.
@@ -63,7 +63,7 @@ The temporal contract requires `tzdata` in supported Windows and minimal-contain
 
 Release documentation must describe temporal notes as provisional facts. A package must not claim a scheduler, notification engine, background daemon, model wake-up, or action executor. See [API](docs/API.md#temporal-context-and-operations) and [release notes](docs/RELEASE_NOTES_v0.2.2.md).
 
-## v0.2.3 Hermes adapter distribution notes
+## v0.2.4 Hermes adapter distribution notes
 
 The wheel and sdist must contain `engine/integrations/hermes_plugin/{plugin.yaml,__init__.py,adapter.py}` plus the `mno-hermes` entry point. Artifact verification must prove those files and the entry point from an isolated install.
 

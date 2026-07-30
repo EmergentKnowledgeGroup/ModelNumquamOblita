@@ -226,7 +226,7 @@ See:
 
 ## Hermes Agent
 
-v0.2.3 adds the optional `mno-memory` Hermes general plugin, pinned to Hermes Agent v0.19.0. It automatically supplies bounded MNO context before eligible root human turns and nonblockingly offers only successful completed turns for provisional observation afterward. Skipped, incomplete, failed, interrupted, child, background, and internal turns are not observed.
+v0.2.4 ships the optional `mno-memory` Hermes general plugin, pinned to Hermes Agent v0.19.0. It automatically supplies bounded MNO context before eligible root human turns and nonblockingly offers only successful completed turns for provisional observation afterward. Its ownership-checked credential file prevents supervised gateways from silently losing that behavior when they do not inherit the install shell. Skipped, incomplete, failed, interrupted, child, background, and internal turns are not observed.
 
 The agent does not need to remember a routine tool call. MNO context is an information/provenance envelope, not agent instructions. The adapter is optional, fail-open, and restricted to loopback MNO HTTP; MCP remains optional for explicit inspection/actions.
 

@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import re
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -34,6 +35,8 @@ SUPPORTED_HERMES_VERSION = "0.19.0"
 OWNED_PLUGIN_FILES = ("plugin.yaml", "__init__.py", "adapter.py")
 ALLOWED_OPERATIONS = frozenset({"health.get", "capabilities.get", "context.build", "memory.observe"})
 MAX_PROBE_RESPONSE_BYTES = 524288
+MAX_CREDENTIAL_BYTES = 65536
+CREDENTIAL_SCHEMA = "mno.hermes-credential.v1"
 
 
 class HermesInstallError(RuntimeError):
@@ -149,6 +152,76 @@ def _state_paths(home: Path) -> tuple[Path, Path, Path]:
     config = _contained(home, home / "mno" / "mno-memory.json")
     state = _contained(home, home / "mno" / "install-state.json")
     return plugin, config, state
+
+
+def _token_path(home: Path) -> Path:
+    return _contained(home, home / "mno" / "adapter-token")
+
+
+def _read_credential(path: Path) -> tuple[str, str, str]:
+    """Read and validate one private credential without following links where supported."""
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = -1
+    try:
+        fd = os.open(path, flags)
+        file_stat = os.fstat(fd)
+        if not stat.S_ISREG(file_stat.st_mode):
+            return "", "", ""
+        if os.name != "nt" and file_stat.st_mode & 0o077:
+            return "", "", ""
+        chunks: list[bytes] = []
+        remaining = MAX_CREDENTIAL_BYTES + 1
+        while remaining:
+            chunk = os.read(fd, min(remaining, 8192))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        if len(raw) > MAX_CREDENTIAL_BYTES:
+            return "", "", ""
+        payload = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return "", "", ""
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != CREDENTIAL_SCHEMA
+    ):
+        return "", "", ""
+    return (
+        str(payload.get("token") or "").strip(),
+        str(payload.get("ownership_id") or "").strip(),
+        hashlib.sha256(raw).hexdigest(),
+    )
+
+
+def _read_adapter_token(home: Path, token_env: str, env: Mapping[str, str]) -> tuple[str, str]:
+    """Resolve the adapter token, preferring the live process environment."""
+    token = str(env.get(token_env) or "").strip()
+    if token:
+        return token, "environment"
+    token, _ownership_id, _credential_hash = _read_credential(_token_path(home))
+    return (token, "credential_file") if token else ("", "missing")
+
+
+def _verify_credential_ownership(
+    token_path: Path,
+    state: Mapping[str, Any],
+    *,
+    force: bool,
+    message: str,
+) -> None:
+    """Refuse to mutate a credential whose identity or exact bytes changed."""
+    _token, actual_ownership_id, actual_hash = _read_credential(token_path)
+    changed = (
+        str(state.get("credential_ownership_id") or "") != actual_ownership_id
+        or str(state.get("owned_credential_sha256") or "") != actual_hash
+    )
+    if changed and not force:
+        raise HermesInstallError(message)
 
 
 def _config_payload(*, runtime_url: str, token_env: str) -> dict[str, Any]:
@@ -413,7 +486,8 @@ def doctor(*, home: Path, live: bool = True, runner: Callable[..., Any] = subpro
     if not live:
         return result
     env = os.environ if environ is None else environ
-    token = str(env.get(token_env) or "")
+    token, credential_source = _read_adapter_token(home, token_env, env)
+    result["credential_source"] = credential_source
     if not token:
         result["status"] = "auth_missing"
         return result
@@ -454,12 +528,25 @@ def install(*, home: Path, runtime_url: str = DEFAULT_RUNTIME_URL, token_env: st
     plugin, config_path, state_path = _state_paths(home)
     config = _config_payload(runtime_url=runtime_url, token_env=token_env)
     env = os.environ if environ is None else environ
-    token_present = bool(str(env.get(token_env) or ""))
+    token = str(env.get(token_env) or "").strip()
+    token_present = bool(token)
     if not token_present:
         raise HermesInstallError(f"required token environment variable is missing: {token_env}")
     _hermes_version(home, runner=runner)
     previous = _plugin_state(home, runner=runner)
     prior_state = _read_json(state_path) if state_path.is_file() else None
+    token_path = _token_path(home)
+    if token_path.exists() and not prior_state and not force:
+        raise HermesInstallError(
+            "refusing to replace an unowned Hermes adapter credential file"
+        )
+    if prior_state:
+        _verify_credential_ownership(
+            token_path,
+            prior_state,
+            force=force,
+            message="owned adapter credential changed; rerun with --force to replace it",
+        )
     original_state = state_path.read_bytes() if state_path.is_file() else None
     original_prior_plugin_state = (
         str(prior_state.get("prior_plugin_state") or previous)
@@ -478,6 +565,7 @@ def install(*, home: Path, runtime_url: str = DEFAULT_RUNTIME_URL, token_env: st
         shutil.rmtree(staging)
     previous_plugin = plugin.exists()
     original_config = config_path.read_bytes() if config_path.is_file() else None
+    original_token = token_path.read_bytes() if token_path.is_file() else None
     try:
         staging.mkdir()
         for name, data in source.items():
@@ -493,15 +581,28 @@ def install(*, home: Path, runtime_url: str = DEFAULT_RUNTIME_URL, token_env: st
             _atomic_write(backup_config, original_config)
         os.replace(staging, plugin)
         _atomic_write(config_path, json.dumps(config, indent=2, sort_keys=True).encode("utf-8") + b"\n")
+        ownership_id = secrets.token_hex(16)
+        credential_payload = {
+            "schema_version": CREDENTIAL_SCHEMA,
+            "ownership_id": ownership_id,
+            "content_guard": secrets.token_hex(32),
+            "token": token,
+        }
+        _atomic_write(
+            token_path,
+            json.dumps(credential_payload, sort_keys=True).encode("utf-8") + b"\n",
+        )
         _set_plugin_state(home, "enabled", runner=runner)
         owned = _owned_hashes(home, plugin, config_path)
         state = {
             "schema_version": STATE_SCHEMA,
-            "adapter_version": "0.2.3",
+            "adapter_version": "0.2.4",
             "hermes_version": SUPPORTED_HERMES_VERSION,
             "hermes_home": str(home),
             "installed_at": _utc_now(),
             "owned_hashes": owned,
+            "credential_ownership_id": ownership_id,
+            "owned_credential_sha256": _sha256(token_path),
             "prior_plugin_state": original_prior_plugin_state,
             "backup": {
                 "path": str(backup.relative_to(home)) if backup.exists() else "",
@@ -526,6 +627,10 @@ def install(*, home: Path, runtime_url: str = DEFAULT_RUNTIME_URL, token_env: st
                 config_path.unlink(missing_ok=True)
             else:
                 _atomic_write(config_path, original_config)
+            if original_token is None:
+                token_path.unlink(missing_ok=True)
+            else:
+                _atomic_write(token_path, original_token)
             if original_state is None:
                 state_path.unlink(missing_ok=True)
             else:
@@ -550,6 +655,7 @@ def install(*, home: Path, runtime_url: str = DEFAULT_RUNTIME_URL, token_env: st
 
 def uninstall(*, home: Path, dry_run: bool = False, force: bool = False, runner: Callable[..., Any] = subprocess.run) -> dict[str, Any]:
     plugin, config_path, state_path = _state_paths(home)
+    token_path = _token_path(home)
     if not state_path.is_file():
         return {"status": "not_installed", "home": str(home)}
     state = _read_json(state_path)
@@ -559,6 +665,12 @@ def uninstall(*, home: Path, dry_run: bool = False, force: bool = False, runner:
     actual = _owned_hashes(home, plugin, config_path)
     if actual != expected and not force:
         raise HermesInstallError("adapter files changed; refusing uninstall without --force")
+    _verify_credential_ownership(
+        token_path,
+        state,
+        force=force,
+        message="adapter credential changed; refusing uninstall without --force",
+    )
     backup_state = dict(state.get("backup") or {})
     backup_rel = str(backup_state.get("path") or "").strip()
     backup_path = _contained(home, home / backup_rel) if backup_rel else None
@@ -571,6 +683,8 @@ def uninstall(*, home: Path, dry_run: bool = False, force: bool = False, runner:
     current_plugin_state = _plugin_state(home, runner=runner)
     desired_plugin_state = str(state.get("prior_plugin_state") or "neither")
     snapshots: dict[Path, bytes] = {state_path: state_path.read_bytes()}
+    if token_path.is_file():
+        snapshots[token_path] = token_path.read_bytes()
     for rel in {*expected, *actual_backup}:
         target = _contained(home, home / rel)
         if target.is_file():
@@ -580,7 +694,7 @@ def uninstall(*, home: Path, dry_run: bool = False, force: bool = False, runner:
     except Exception as original_exc:
         try:
             _restore_plugin_state(home, current_plugin_state, runner=runner)
-        except Exception as rollback_exc:
+        except Exception:
             raise HermesInstallError(
                 "adapter uninstall failed and Hermes state rollback incomplete"
             ) from original_exc
@@ -592,6 +706,7 @@ def uninstall(*, home: Path, dry_run: bool = False, force: bool = False, runner:
                 target.unlink()
         if backup_path and backup_path.is_dir():
             shutil.rmtree(backup_path)
+        token_path.unlink(missing_ok=True)
         state_path.unlink(missing_ok=True)
     except Exception as original_exc:
         rollback_errors: list[str] = []

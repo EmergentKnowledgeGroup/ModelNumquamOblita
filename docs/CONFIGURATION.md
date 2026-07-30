@@ -194,7 +194,7 @@ Useful env vars for the HTTP integration contract:
 
 ### Planned Hermes adapter configuration
 
-The optional v0.2.3 Hermes adapter uses `NO_INTEGRATION_HERMES_ADAPTER_TOKEN`, a dedicated process-shared credential whose server-side allow-list is only `health.get`, `capabilities.get`, `context.build`, and `memory.observe`. The token value belongs only in the named environment variable; neither `mno-hermes` nor `mno-memory.json` accepts a bearer-token value.
+The optional v0.2.4 Hermes adapter uses `NO_INTEGRATION_HERMES_ADAPTER_TOKEN`, a dedicated credential whose server-side allow-list is only `health.get`, `capabilities.get`, `context.build`, and `memory.observe`. Install reads the value from the named environment variable and stores it in the ownership-checked adapter credential file so a supervised gateway need not inherit the install shell; neither command-line arguments nor `mno-memory.json` accept a bearer-token value.
 
 Its configuration schema is `mno.hermes-adapter.v1`. The runtime URL is plain loopback HTTP (`127.0.0.0/8`, `::1`, or `localhost`) without userinfo, query, fragment, redirect, or proxy routing. Invalid configuration disables the optional plugin rather than broadening access or blocking Hermes. The bounded context is `mno.agent_context.v2` information, never agent behavior instructions.
 

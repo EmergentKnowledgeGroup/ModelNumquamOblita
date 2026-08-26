@@ -87,6 +87,7 @@ The design goal is not to maximize the number of signals. The goal is to recover
 - MCP sidecar
 - compatibility adapters for `reference`, `openclaw`, and `nanobot`
 - optional Hermes v0.19.0 turn adapter: automatic pre-turn context and one post-completion provisional observation attempt through the same `integration-v1` contract
+- optional OpenClaw `2026.8.1+` native plugin: automatic pre-prompt context and one post-success provisional observation attempt through the same `integration-v1` contract
 - agent support loop through the advertised `mno.support_ticket.v1` contract and local `mno-report` evidence bundle
 
 ## Truth boundaries
@@ -113,6 +114,8 @@ Due selection is deterministic and does not need a lexical retrieval hit. Canoni
 The support-ticket loop is deliberately outside memory truth: it reads no store automatically, accepts only explicitly named bounded logs, redacts secret-like content, and requires a separate explicit action before GitHub submission.
 
 The Hermes adapter does not create a second truth lane. Its dedicated credential can call only health, capabilities, `context.build`, and `memory.observe`; incomplete turns are not observed, and successful observations remain model-owned provisional memory beneath human-reviewed canonical truth.
+
+The OpenClaw native layer follows the same authority boundary. It uses host lifecycle hooks rather than MCP, hashes host scope identifiers, and can call only the same four integration operations. Its WSS scope remains short-lived helper context; it never becomes evidence because a plugin retrieved it.
 
 ## Headless curation boundary
 

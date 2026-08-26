@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "modelnumquamoblita"
-version = "0.2.4"
+version = "0.2.5"
 description = "Standalone MNO personal memory runtime"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,13 +22,14 @@ mno-setup = "tools.setup_local:main"
 mno-import = "tools.import_memories:main"
 mno-report = "tools.report_issue:main"
 mno-hermes = "tools.hermes_adapter_installer:main"
+mno-openclaw = "tools.openclaw_adapter_installer:main"
 
 [tool.setuptools.packages.find]
 include = ["engine*", "tools*"]
 
 [tool.setuptools.package-data]
 "engine.runtime" = ["ui/*", "resources/*.md"]
-"engine.integrations" = ["hermes_plugin/*.yaml"]
+"engine.integrations" = ["hermes_plugin/*.yaml", "openclaw_plugin/*.json", "openclaw_plugin/*.js"]
 
 [tool.setuptools.exclude-package-data]
 "*" = [".DS_Store"]

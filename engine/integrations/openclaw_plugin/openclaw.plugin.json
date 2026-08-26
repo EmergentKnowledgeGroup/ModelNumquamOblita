@@ -1,0 +1,34 @@
+{
+  "id": "mno-openclaw-memory",
+  "name": "MNO OpenClaw Memory",
+  "version": "0.2.5",
+  "description": "Optional fail-open per-turn MNO recall and provisional observation for root human OpenClaw turns.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean", "default": true },
+      "runtimeUrl": { "type": "string", "default": "http://127.0.0.1:7340" },
+      "contextTimeoutMs": { "type": "integer", "minimum": 100, "maximum": 2500, "default": 2500 },
+      "contextResponseMaxCharacters": { "type": "integer", "minimum": 1, "maximum": 8192, "default": 8192 },
+      "observeTimeoutMs": { "type": "integer", "minimum": 100, "maximum": 5500, "default": 5500 },
+      "observeQueueMaxItems": { "type": "integer", "minimum": 1, "maximum": 16, "default": 16 },
+      "observeQueueMaxAgeSeconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 60 },
+      "pendingMaxItems": { "type": "integer", "minimum": 1, "maximum": 256, "default": 256 },
+      "pendingTtlSeconds": { "type": "integer", "minimum": 1, "maximum": 600, "default": 600 },
+      "capabilityCacheTtlSeconds": { "type": "integer", "minimum": 1, "maximum": 30, "default": 30 },
+      "workSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean", "default": true },
+          "workstreamKey": { "type": "string", "maxLength": 256 },
+          "explicitResume": { "type": "boolean", "default": false }
+        }
+      }
+    }
+  }
+}

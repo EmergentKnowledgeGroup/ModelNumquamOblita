@@ -8,6 +8,8 @@ mno-mcp --help
 mno-import --help
 mno-curate --help
 mno-curation-mcp --help
+mno-hermes --help
+mno-openclaw --help
 ```
 
 Mutable databases, policy, locks, reports, and diagnostics live in the
@@ -17,6 +19,16 @@ an explicit writable location.
 The Electron desktop application is distributed separately from the Python
 wheel. See the public repository documentation for desktop packaging and the
 full build/review/publish workflow.
+
+## Automatic host layers
+
+`mno-hermes` and `mno-openclaw` install optional native lifecycle layers over a
+loopback MNO runtime. They are not MCP replacements and have no review or
+canonical-memory authority. Keep their dedicated adapter tokens in the runtime
+and host parent environments, run each command's `doctor`, then prove one real
+eligible host turn before describing the layer as active. For OpenClaw, the
+host needs plugin API `2026.8.1+` and the named plugin's conversation-access
+and prompt-injection grants.
 
 ## Headless curation
 

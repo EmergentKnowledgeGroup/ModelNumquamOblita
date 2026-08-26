@@ -233,6 +233,25 @@ def test_hermes_adapter_env_token_is_dedicated_to_its_four_server_operations(mon
         _integration_require_role(principal=dict(principal or {}), operation="writeback.resolve")
 
 
+def test_openclaw_adapter_env_token_is_dedicated_to_its_four_server_operations(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN", "openclaw-scoped-token")
+    monkeypatch.setenv("NO_INTEGRATION_DISABLE_DEFAULT_TOKENS", "1")
+    monkeypatch.delenv("NO_INTEGRATION_ENABLE_DEFAULT_TOKENS", raising=False)
+    manager = IntegrationAuthManager.from_env()
+    principal, error = manager.resolve_authorization("Bearer openclaw-scoped-token")
+    assert error is None
+    assert dict(principal or {}).get("principal_id") == "integration_openclaw_adapter"
+    assert set(dict(principal or {}).get("allowed_operations") or []) == {
+        "health.get",
+        "capabilities.get",
+        "context.build",
+        "memory.observe",
+    }
+    _integration_require_role(principal=dict(principal or {}), operation="context.build")
+    with pytest.raises(IntegrationContractError, match="token scope is not authorized"):
+        _integration_require_role(principal=dict(principal or {}), operation="writeback.resolve")
+
+
 def test_automatic_turn_operations_log_metadata_without_message_or_handle_content() -> None:
     secret_text = "private tea preference"
     source_handle = "signed-source-handle"

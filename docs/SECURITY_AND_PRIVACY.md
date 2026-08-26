@@ -20,6 +20,14 @@ HTTP integration and MCP entrypoints support bearer tokens. Treat viewer, operat
 
 The optional Hermes adapter uses its own `NO_INTEGRATION_HERMES_ADAPTER_TOKEN`. Keep the same value in the MNO and Hermes process environments; never put its value in CLI arguments or adapter JSON. The server restricts it to health, capabilities, `context.build`, and `memory.observe`. The adapter accepts only plain loopback HTTP and disables proxy/redirect routing.
 
+The optional OpenClaw native layer uses its own
+`NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN`. Keep it only in the MNO runtime and
+OpenClaw Gateway parent environments; never place it in OpenClaw plugin JSON,
+OpenClaw config, generated bundles, CLI arguments, or reports. The server
+restricts it to the same four operations. The plugin accepts only plain
+loopback HTTP, rejects proxy/redirect routing, hashes host identifiers, and
+logs metadata rather than prompt/context/handle contents.
+
 Automatic hot-loop diagnostics contain operation status, timing, counts, roles, and byte sizes—not conversation text, recalled context, or signed handles. Hermes v0.19.0 may independently persist and replay augmented API-bound user content in `messages.api_content`; uninstalling the adapter does not erase Hermes-owned session history.
 
 Recommended handling:

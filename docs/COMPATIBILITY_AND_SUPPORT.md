@@ -1,6 +1,6 @@
 # Compatibility and Support
 
-This is the public support contract for MNO v0.2.4.
+This is the public support contract for MNO v0.2.5.
 
 ## Supported surfaces
 
@@ -9,6 +9,7 @@ This is the public support contract for MNO v0.2.4.
 | Python headless runtime, MCP, import, setup, and HCR | CPython 3.12-3.14 on current x64 Windows, Ubuntu, and macOS | Wheel/sdist and source checkout; `mno-curate` and `mno-curation-mcp` are generic loopback-local surfaces; mutable state is external to installed code |
 | Electron source/development shell | Node 22 on current Windows, Ubuntu, and macOS | Node tests are cross-platform; packaging uses a target-native managed runtime |
 | Exported integration bundles | POSIX shell, PowerShell, or Command Prompt with installed MNO commands | Relocatable launchers; no embedded checkout or automatic install |
+| OpenClaw automatic memory layer | OpenClaw plugin API `2026.8.1+` with a local loopback MNO runtime | Native `before_prompt_build` + `agent_end` plugin; doctor plus one real Gateway turn required per host |
 | WSL integration | WSL with Linux Python/Node executables | Windows `.cmd` files are rejected inside WSL; WSL is optional, not a Windows prerequisite |
 
 ARM64 desktop installers are not claimed by v0.2.4. Source Python may work on additional architectures, but that is not release support until the exact artifact/host combination is gated.
@@ -57,3 +58,9 @@ Fresh installs and v0.2.1 upgrades expose compact server-clock facts by default.
 The adapter is designed to fail open and to observe only successful completed eligible turns. It supplies factual `mno.agent_context.v2` context before a turn and keeps automatic observations provisional. HCR curation and the ordinary human review/publish/activate gates remain unchanged.
 
 Native Windows with Python 3.12 has a real installed-Hermes proof for CLI and a Discord/gateway-shaped human turn, including interrupted-turn suppression. macOS and Linux installed-Hermes lifecycles remain unclaimed until the same proof runs there. MNO itself requires Python 3.12+; the copied stdlib-only plugin also has a standalone Python 3.11 import proof. Hermes v0.19.0's `messages.api_content` persistence/replay of augmented API-bound user content is a disclosed host behavior, not an MNO persistence guarantee.
+
+## v0.2.5 OpenClaw automatic-layer compatibility
+
+`mno-openclaw-memory` is an optional native OpenClaw plugin pinned to plugin API `2026.8.1+`. It is loopback-only, fail-open, and restricted to the same four-operation MNO token scope as the Hermes adapter. The installer makes only the named plugin's conversation-access and prompt-injection grants through the OpenClaw CLI; a restrictive global plugin allowlist remains an operator decision.
+
+Repository proof covers the host lifecycle contract with a Node mock plus a real local MNO HTTP lifecycle. A particular remote Gateway is not claimed active until its operator runs `mno-openclaw doctor --json`, restarts the Gateway with the scoped token, and records one successful root-user `context.build -> memory.observe` pair.

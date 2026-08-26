@@ -3,9 +3,9 @@
 This repo is intended to be the public source distribution for
 ModelNumquamOblita.
 
-## v0.2.4 Artifact Contract
+## v0.2.5 Artifact Contract
 
-- The Python wheel is a runnable headless runtime, MCP sidecar, import CLI, setup CLI, Headless Curation Room (`mno-curate` + run-bound `mno-curation-mcp`), and Hermes adapter lifecycle CLI (`mno-hermes`). It includes the runtime web UI and packaged Hermes plugin files and uses platform user state outside `site-packages`.
+- The Python wheel is a runnable headless runtime, MCP sidecar, import CLI, setup CLI, Headless Curation Room (`mno-curate` + run-bound `mno-curation-mcp`), Hermes lifecycle CLI (`mno-hermes`), and OpenClaw lifecycle CLI (`mno-openclaw`). It includes the runtime web UI plus packaged Hermes and OpenClaw plugin files and uses platform user state outside `site-packages`.
 - The source distribution contains the public source tree plus an empty runtime skeleton. It must never contain a populated store, WAL/SHM file, trace, checkpoint, or private research tree.
 - The Electron desktop application is a separate artifact with a managed Python runtime. It must be built per target OS; no desktop installer is implied by the Python wheel.
 - Exported integration launchers call installed `mno-runtime` and `mno-agent-mcp` commands. They never embed the builder's checkout and never install dependencies at launch time.
@@ -68,3 +68,9 @@ Release documentation must describe temporal notes as provisional facts. A packa
 The wheel and sdist must contain `engine/integrations/hermes_plugin/{plugin.yaml,__init__.py,adapter.py}` plus the `mno-hermes` entry point. Artifact verification must prove those files and the entry point from an isolated install.
 
 The supported product pair is MNO Python 3.12+ with Hermes Agent v0.19.0. The copied plugin is stdlib-only and imports under Hermes's Python 3.11/3.12/3.13 range, but the MNO package itself still requires Python 3.12+. Release claims remain limited to the operating system and real Hermes lifecycle actually tested.
+
+## v0.2.5 OpenClaw automatic-layer distribution notes
+
+The wheel and sdist must contain `engine/integrations/openclaw_plugin/{package.json,openclaw.plugin.json,index.js,runtime.js}` plus `tools/openclaw_adapter_installer.py` and the `mno-openclaw` entry point. Artifact verification must prove these files and the CLI from an isolated install.
+
+The supported host contract is OpenClaw plugin API `2026.8.1+` with loopback MNO HTTP. The bundled plugin has no npm dependencies and is fail-open. Release claims remain limited to the local lifecycle contract until a target Gateway completes the documented doctor and one real root-user-turn smoke check.

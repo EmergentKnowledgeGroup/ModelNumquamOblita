@@ -61,6 +61,14 @@ The injected `mno.agent_context.v2` envelope is information and provenance, not 
 
 The local shared `NO_INTEGRATION_HERMES_ADAPTER_TOKEN` is limited by the server to `health.get`, `capabilities.get`, `context.build`, and `memory.observe`. The optional adapter is fail-open, loopback-only, and independent of MCP. Explicit MCP observation can duplicate it, and Hermes's own memory provider can overlap. Hermes v0.19.0 may persist/replay augmented API-bound user content in `messages.api_content`; adapter removal does not erase that Hermes-owned history.
 
+## OpenClaw native automatic layer (v0.2.5)
+
+The optional `mno-openclaw-memory` plugin is a native OpenClaw plugin for plugin API `2026.8.1+`, not an MCP tool or a replacement agent. On an eligible root `user` turn, it obtains one bounded MNO context packet before the model call. Only a matching successful `agent_end` can enqueue one provisional observation afterward. Subagents, cron/heartbeat activity, failed, empty, and unmatched turns are skipped.
+
+The plugin uses opaque host identifiers, loopback HTTP only, a tag-safe context wrapper, and the dedicated `NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN`. MNO scopes that credential to `health.get`, `capabilities.get`, `context.build`, and `memory.observe`; it has no review, writeback-apply, publish, verify, activation, or canonical-memory authority. MNO facts remain data, not OpenClaw behavior instructions.
+
+Do not add a second manual `memory.observe` for a turn already handled by the native layer unless duplicate provisional capture is explicitly intended. `mno-openclaw doctor --json` proves plugin registration and restricted MNO authorization, not that the long-running Gateway inherited the token. A real root-user turn must show `context.build` followed by `memory.observe` in MNO's redacted integration logs.
+
 ## Source identity and self-echo rules
 
 - Never invent or edit a `source_registration` or `retrieval_receipt`.

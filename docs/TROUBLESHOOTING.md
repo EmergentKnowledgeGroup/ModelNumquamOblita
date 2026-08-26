@@ -99,6 +99,23 @@ The adapter accepts only plain loopback HTTP runtime URLs and fails open: missin
 
 `mno-hermes doctor` and `status --live` are read-only health/capability checks and do not report hook history. The lifecycle family is install/status/doctor/uninstall; rerun `install` for an atomic owned-file update. HCR initial curation remains a separate readiness gate. MCP is optional; explicit manual `memory.observe` can duplicate the automatic observation. Hermes v0.19.0 can retain/replay augmented API-bound user content through `messages.api_content`, which adapter removal does not erase.
 
+## OpenClaw automatic layer is missing or inactive
+
+The native plugin requires OpenClaw plugin API `2026.8.1+`, a loopback MNO
+runtime, and the same `NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN` in the runtime
+and Gateway parent environments. Run `mno-openclaw doctor --json` and verify
+that `openclaw plugins inspect mno-openclaw-memory --runtime --json` shows both
+`before_prompt_build` and `agent_end`. The installer asks only for this
+plugin's conversation-access and prompt-injection hook permissions; a
+restrictive host-global allowlist still needs an explicit operator decision.
+
+Restart the Gateway after install. `doctor` cannot prove inheritance by a
+supervisor or that hooks fired. Send one normal root-user turn and check MNO's
+redacted integration logs for ordered `context.build` then `memory.observe`.
+Subagent, cron, heartbeat, failed, empty, and unmatched turns are expected to
+produce no observation. The plugin is fail-open, so an unavailable MNO runtime
+does not block the OpenClaw reply.
+
 ## WSS context does not appear
 
 WSS attaches only to runtime v2 context packages when policy allows injection, the request has not explicitly disabled `include_work_session_context`, and strict active scope identity is present. Check that the request supplies stable `work_session_scope.thread_id` and `work_session_scope.workstream_key`, uses the same project/runtime store, and is going through a context-package route rather than the evidence-focused `integration-v1` envelope.

@@ -1,5 +1,13 @@
 # Human Changelog
 
+## v0.2.5 — OpenClaw automatic memory layer (2026-08-26)
+
+OpenClaw can now use MNO as a native automatic memory layer instead of relying on a manual sidecar/MCP call for every turn. The `mno-openclaw-memory` plugin asks MNO for compact factual context before eligible root-user turns and, after a successful completed turn, sends one provisional observation attempt. It is deliberately fail-open: missing credentials, bad packets, unavailable MNO, or a slow loopback runtime leave the host reply path alone.
+
+The integration follows the same authority fence as Hermes. Its dedicated token can only call health, capabilities, context build, and provisional observation; it cannot approve, publish, verify, activate, resolve review decisions, or create canonical truth. OpenClaw identifiers are hashed before MNO sees them, WSS stays helper context rather than evidence, and plugin diagnostics omit text, tokens, signed handles, and raw host identifiers.
+
+The wheel, source distribution, integration bundle, installer, and doctor now carry the OpenClaw plugin and `mno-openclaw` lifecycle command. Installation applies only the named plugin's required conversation-access and prompt-injection grants through OpenClaw's own CLI. `doctor` validates registration and least-privilege MNO access; one real root-user Gateway turn remains the explicit host-side activation proof.
+
 ## v0.2.4 — Hermes supervised-gateway credential fix (2026-07-29)
 
 - Removed the Hermes gateway's dependence on inheriting the install shell's adapter token.

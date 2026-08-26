@@ -200,6 +200,27 @@ Its configuration schema is `mno.hermes-adapter.v1`. The runtime URL is plain lo
 
 The lifecycle family is `mno-hermes install`, `status`, `doctor`, and `uninstall`; rerunning `install` performs the atomic owned-file update. The adapter's automatic path is independent of MCP and cannot bypass HCR curation or human review authority.
 
+### OpenClaw automatic-layer configuration
+
+The optional v0.2.5 OpenClaw layer uses
+`NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN`, a dedicated credential whose
+server-side allow-list is only `health.get`, `capabilities.get`,
+`context.build`, and `memory.observe`. The value belongs in the MNO runtime and
+OpenClaw Gateway parent environments, not in plugin JSON, OpenClaw config, or
+CLI arguments.
+
+Its native plugin requires OpenClaw plugin API `2026.8.1+`. Configuration
+permits only a loopback HTTP runtime URL and bounded optional work-session
+scope. Invalid configuration, missing credentials, unavailable MNO, or invalid
+context fail open and leave the host reply path unchanged. The installer grants
+only this plugin's required conversation-access and prompt-injection hook
+permissions through OpenClaw's own CLI; it does not change a host-global allow
+list.
+
+Use `mno-openclaw install`, `status`, `doctor`, and `uninstall`. `doctor` is a
+registration/least-privilege probe, not proof that a long-running Gateway has
+inherited the credential; use one real root-user turn to prove activation.
+
 Practical rule:
 - local/dev can use simple local tokens
 - production should load tokens from a real file or secret manager path

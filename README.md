@@ -155,7 +155,7 @@ MNO can:
 
 The main public integration boundary is `integration-v1`.
 
-MCP is available when you want tool-style local agent integration. Compatibility adapters also exist for `reference`, `openclaw`, and `nanobot`; v0.2.3 adds an optional automatic turn adapter for Hermes Agent v0.19.0.
+MCP is available when you want tool-style local agent integration. Compatibility adapters also exist for `reference`, `openclaw`, and `nanobot`. Optional native automatic-turn layers are available for Hermes Agent v0.19.0 and OpenClaw plugin API `2026.8.1+`; they use the host lifecycle rather than relying on a model to remember a tool call.
 
 ## 🚫 What It Does Not Promise
 
@@ -260,6 +260,17 @@ mno-hermes doctor
 
 Restart Hermes after install. The plugin then retrieves MNO context before eligible human turns and offers successful completed turns to provisional memory in the background. It cannot approve cards or change canonical truth. Rerun `mno-hermes install` to update owned adapter files; use `mno-hermes uninstall` to remove them and restore the prior Hermes plugin state.
 
+Connect OpenClaw `2026.8.1+` through the native memory layer:
+
+```bash
+export NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN="generate-a-long-local-secret"
+# Start MNO and the OpenClaw Gateway with the same environment variable, then:
+mno-openclaw install
+mno-openclaw doctor --json
+```
+
+Restart the Gateway after install. The plugin supplies bounded MNO facts before eligible root-user turns and offers successful completed turns to provisional memory afterward. It is fail-open, cannot approve or publish memory, and keeps the legacy OpenClaw adapter only for manual compatibility. See [OpenClaw Integration](docs/integrations/OPENCLAW.md) for the required per-plugin hook policy and real-turn smoke check.
+
 ## 📚 Start Reading Here
 
 If you are new to the project:
@@ -331,6 +342,7 @@ Engineer-facing diagrams:
 - [v0.2.2 Temporal Agency Notes](docs/RELEASE_NOTES_v0.2.2.md)
 - [v0.2.4 Hermes supervised-gateway fix](docs/RELEASE_NOTES_v0.2.4.md)
 - [v0.2.3 Hermes Adapter And HCR Notes](docs/RELEASE_NOTES_v0.2.3.md)
+- [v0.2.5 OpenClaw automatic memory layer](docs/RELEASE_NOTES_v0.2.5.md)
 - [Human Changelog](docs/CHANGELOG.md)
 - [Compatibility and Support Matrix](docs/COMPATIBILITY_AND_SUPPORT.md)
 - [License](LICENSE)

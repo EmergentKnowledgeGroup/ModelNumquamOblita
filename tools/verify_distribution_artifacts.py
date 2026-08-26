@@ -83,9 +83,14 @@ def verify_manifests(dist_dir: Path) -> tuple[Path, Path]:
         "tools/setup_local.py",
         "tools/report_issue.py",
         "tools/hermes_adapter_installer.py",
+        "tools/openclaw_adapter_installer.py",
         "engine/integrations/hermes_plugin/plugin.yaml",
         "engine/integrations/hermes_plugin/__init__.py",
         "engine/integrations/hermes_plugin/adapter.py",
+        "engine/integrations/openclaw_plugin/package.json",
+        "engine/integrations/openclaw_plugin/openclaw.plugin.json",
+        "engine/integrations/openclaw_plugin/index.js",
+        "engine/integrations/openclaw_plugin/runtime.js",
     }
     missing_wheel = sorted(required_wheel - wheel_names)
     if missing_wheel:
@@ -100,6 +105,7 @@ def verify_manifests(dist_dir: Path) -> tuple[Path, Path]:
         "mno-import",
         "mno-report",
         "mno-hermes",
+        "mno-openclaw",
     ):
         if f"{script} = " not in entry_points:
             raise AssertionError(f"wheel missing console entry point: {script}")
@@ -109,6 +115,11 @@ def verify_manifests(dist_dir: Path) -> tuple[Path, Path]:
     required_sdist = {
         "README.md",
         "LLMS.md",
+        "tools/openclaw_adapter_installer.py",
+        "engine/integrations/openclaw_plugin/package.json",
+        "engine/integrations/openclaw_plugin/openclaw.plugin.json",
+        "engine/integrations/openclaw_plugin/index.js",
+        "engine/integrations/openclaw_plugin/runtime.js",
         "app/desktop/package.json",
         "docs/QUICKSTART.md",
         "tests/unit/test_pyproject_packaging.py",
@@ -171,7 +182,7 @@ print(json.dumps(payload))
         text=True,
     )
     payload = json.loads(result.stdout.strip().splitlines()[-1])
-    if payload["version"] != "0.2.4":
+    if payload["version"] != "0.2.5":
         raise AssertionError(f"installed wheel reports wrong release version: {payload}")
     if not payload["ui"] or not payload["guide"]:
         raise AssertionError(f"installed wheel assets unavailable: {payload}")
@@ -188,6 +199,7 @@ print(json.dumps(payload))
         "tools.import_memories",
         "tools.report_issue",
         "tools.hermes_adapter_installer",
+        "tools.openclaw_adapter_installer",
     ):
         module_probe = (
             "import runpy,sys;"

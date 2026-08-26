@@ -9,6 +9,11 @@ Use MCP when you want:
 
 Do not use MCP as your first choice for a high-throughput orchestration hot loop if plain HTTP is easier. For that, use `integration-v1`.
 
+For OpenClaw plugin API `2026.8.1+`, use the native `mno-openclaw-memory`
+layer when you want automatic pre-prompt retrieval and post-success provisional
+observation. That layer does not require MCP; MCP remains available for
+explicit inspection and operator actions. See [OpenClaw Integration](integrations/OPENCLAW.md).
+
 ## Runtime first
 
 MCP points at a running runtime, usually:

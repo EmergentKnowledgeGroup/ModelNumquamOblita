@@ -115,6 +115,11 @@ def verify_manifests(dist_dir: Path) -> tuple[Path, Path]:
     required_sdist = {
         "README.md",
         "LLMS.md",
+        "tools/openclaw_adapter_installer.py",
+        "engine/integrations/openclaw_plugin/package.json",
+        "engine/integrations/openclaw_plugin/openclaw.plugin.json",
+        "engine/integrations/openclaw_plugin/index.js",
+        "engine/integrations/openclaw_plugin/runtime.js",
         "app/desktop/package.json",
         "docs/QUICKSTART.md",
         "tests/unit/test_pyproject_packaging.py",

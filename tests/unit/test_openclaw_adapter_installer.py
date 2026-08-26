@@ -84,6 +84,7 @@ def test_doctor_fails_closed_for_missing_hook_or_broader_mno_authorization() -> 
     [
         "https://127.0.0.1:7340",
         "http://example.test:7340",
+        "http://127.attacker.example:7340",
         "http://127.0.0.1:7340/?query=1",
         "http://user@127.0.0.1:7340",
     ],

@@ -9,6 +9,8 @@ import subprocess
 import tomllib
 import time
 
+import pytest
+
 from engine.continuity import ContinuityStore
 from engine.memory import MutationReviewQueue, SqliteAtomStore
 from engine.retrieval import ClaimVerifier, MemoryRetriever
@@ -23,7 +25,7 @@ RUNTIME_JS = PLUGIN_ROOT / "runtime.js"
 def _node() -> str:
     executable = shutil.which("node")
     if not executable:
-        raise RuntimeError("Node.js is required for the OpenClaw plugin lifecycle test")
+        pytest.skip("Node.js is required for the OpenClaw plugin lifecycle test")
     return executable
 
 
@@ -57,6 +59,7 @@ const config = parseMnoOpenClawConfig({{
   workSession: {{ enabled: true, workstreamKey: "sage-main", explicitResume: false }},
 }});
 assert.ok(config);
+assert.equal(parseMnoOpenClawConfig({{ runtimeUrl: "http://127.attacker.example:7340" }}), null);
 const adapter = createMnoOpenClawMemoryAdapter({{ config, token: "adapter-token", transport }});
 const context = {{ trigger: "user", agentId: "sage", sessionKey: "agent:sage:main", runId: "raw-run-17" }};
 const before = await adapter.beforePromptBuild({{

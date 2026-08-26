@@ -9,6 +9,7 @@
 
 import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 
 export const PLUGIN_ID = "mno-openclaw-memory";
 export const SCHEMA_VERSION = "mno.openclaw-adapter.v1";
@@ -67,7 +68,9 @@ export function normalizeMnoRuntimeUrl(value) {
   try {
     const url = new URL(value.trim());
     const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    const loopback = host === "localhost" || host === "::1" || /^127\./.test(host);
+    const loopback = host === "localhost" ||
+      (isIP(host) === 4 && /^127\./.test(host)) ||
+      (isIP(host) === 6 && host === "::1");
     if (
       url.protocol !== "http:" || !loopback || url.username || url.password ||
       url.search || url.hash || (url.pathname !== "" && url.pathname !== "/")

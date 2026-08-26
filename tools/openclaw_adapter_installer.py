@@ -11,6 +11,7 @@ particular Gateway process.
 from __future__ import annotations
 
 import argparse
+from ipaddress import ip_address
 import json
 import os
 from pathlib import Path
@@ -57,9 +58,13 @@ def _valid_runtime_url(value: str) -> str:
     except ValueError as exc:
         raise OpenClawInstallError("runtime URL is invalid") from exc
     host = str(parsed.hostname or "").lower()
+    try:
+        loopback_host = host == "localhost" or ip_address(host).is_loopback
+    except ValueError:
+        loopback_host = host == "localhost"
     if (
         parsed.scheme != "http"
-        or (host not in {"localhost", "127.0.0.1", "::1"} and not host.startswith("127."))
+        or not loopback_host
         or parsed.username
         or parsed.password
         or parsed.query

@@ -1,7 +1,7 @@
 {
   "id": "mno-openclaw-memory",
   "name": "MNO OpenClaw Memory",
-  "version": "0.2.3",
+  "version": "0.2.5",
   "description": "Optional fail-open per-turn MNO recall and provisional observation for root human OpenClaw turns.",
   "activation": {
     "onStartup": true

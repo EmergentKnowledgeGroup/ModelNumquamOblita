@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import tomllib
 import time
 
 from engine.continuity import ContinuityStore
@@ -115,6 +116,9 @@ console.log(JSON.stringify({{ ok: true, calls: calls.map((entry) => entry.operat
 def test_plugin_manifest_is_package_ready_and_plain_js_is_syntax_checked() -> None:
     package = json.loads((PLUGIN_ROOT / "package.json").read_text(encoding="utf-8"))
     manifest = json.loads((PLUGIN_ROOT / "openclaw.plugin.json").read_text(encoding="utf-8"))
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert package["version"] == project["project"]["version"]
+    assert manifest["version"] == project["project"]["version"]
     assert package["type"] == "module"
     assert package["openclaw"]["extensions"] == ["./index.js"]
     assert package["openclaw"]["compat"]["pluginApi"] == ">=2026.8.1"

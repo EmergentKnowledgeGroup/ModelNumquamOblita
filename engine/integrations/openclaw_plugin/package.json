@@ -1,6 +1,6 @@
 {
   "name": "@modelnumquamoblita/openclaw-memory",
-  "version": "0.2.3",
+  "version": "0.2.5",
   "description": "Optional fail-open MNO automatic memory layer for OpenClaw.",
   "private": true,
   "type": "module",

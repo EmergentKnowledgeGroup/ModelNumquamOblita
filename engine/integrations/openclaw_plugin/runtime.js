@@ -26,6 +26,7 @@ const MAX_TEXT = 4096;
 const MAX_CONTEXT_TOKENS = 4096;
 const MAX_HTTP_RESPONSE_BYTES = 262144;
 const CAPABILITIES_TTL_DEFAULT_MS = 30000;
+const BEFORE_PROMPT_DEADLINE_MARGIN_MS = 50;
 const FIXED_REASONS = new Set([
   "disabled",
   "ineligible",
@@ -322,10 +323,20 @@ export class MnoOpenClawMemoryAdapter {
     while (this.tombstones.size > (this.config?.pendingMaxItems || 0)) this.tombstones.delete(this.tombstones.keys().next().value);
   }
 
-  async _capabilityFlags() {
+  _remainingBeforePromptTimeout(deadlineMs) {
+    const remaining = deadlineMs - this.now();
+    if (!Number.isFinite(remaining) || remaining <= 0) throw new Error("deadline");
+    return Math.max(1, Math.floor(remaining));
+  }
+
+  async _capabilityFlags(deadlineMs) {
     if (!this.enabled) return null;
     if (this.capabilities && this.capabilities.expiresAtMs > this.now()) return this.capabilities.flags;
-    const data = await this.transport("capabilities.get", { request_id: requestId() }, this.config.contextTimeoutMs);
+    const data = await this.transport(
+      "capabilities.get",
+      { request_id: requestId() },
+      this._remainingBeforePromptTimeout(deadlineMs),
+    );
     if (!Array.isArray(data.operations)) throw new Error("integration_contract");
     const flags = {};
     for (const row of data.operations) {
@@ -354,7 +365,8 @@ export class MnoOpenClawMemoryAdapter {
       const identity = identityFor(event, ctx);
       const userText = preTurnText(event);
       if (!identity || !userText) return undefined;
-      const flags = await this._capabilityFlags();
+      const deadlineMs = this.now() + Math.max(1, this.config.contextTimeoutMs - BEFORE_PROMPT_DEADLINE_MARGIN_MS);
+      const flags = await this._capabilityFlags(deadlineMs);
       if (!flags?.["context.build"]) return undefined;
       const data = await this.transport("context.build", {
         schema_version: "integration.v1",
@@ -366,7 +378,7 @@ export class MnoOpenClawMemoryAdapter {
           memory_preference: "memory_assist",
           ...this._workSession(identity),
         },
-      }, this.config.contextTimeoutMs);
+      }, this._remainingBeforePromptTimeout(deadlineMs));
       const wrapper = contextWrapper(data, this.config.contextResponseMaxCharacters);
       if (!wrapper) {
         this.capabilities = null;
@@ -376,6 +388,7 @@ export class MnoOpenClawMemoryAdapter {
       if (flags["memory.observe"]) {
         const handles = parseHandles(data);
         if (handles) {
+          this._remainingBeforePromptTimeout(deadlineMs);
           const now = this.now();
           this._purge(now);
           if (this.pending.size < this.config.pendingMaxItems) {

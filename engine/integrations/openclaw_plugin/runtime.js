@@ -385,10 +385,10 @@ export class MnoOpenClawMemoryAdapter {
         this._record("context.build", "contract");
         return undefined;
       }
+      this._remainingBeforePromptTimeout(deadlineMs);
       if (flags["memory.observe"]) {
         const handles = parseHandles(data);
         if (handles) {
-          this._remainingBeforePromptTimeout(deadlineMs);
           const now = this.now();
           this._purge(now);
           if (this.pending.size < this.config.pendingMaxItems) {

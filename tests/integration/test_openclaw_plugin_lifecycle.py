@@ -166,6 +166,50 @@ console.log(JSON.stringify({{ ok: true }}));
     assert json.loads(completed.stdout.strip().splitlines()[-1])["ok"] is True
 
 
+def test_pre_prompt_deadline_prevents_context_injection_when_observe_is_unavailable() -> None:
+    module_uri = RUNTIME_JS.resolve().as_uri()
+    script = f"""
+import assert from "node:assert/strict";
+import {{ createMnoOpenClawMemoryAdapter, parseMnoOpenClawConfig }} from {json.dumps(module_uri)};
+
+let now = 0;
+const calls = [];
+const config = parseMnoOpenClawConfig({{ runtimeUrl: "http://127.0.0.1:7340", contextTimeoutMs: 2500 }});
+const transport = async (operation, _envelope, timeoutMs) => {{
+  calls.push({{ operation, timeoutMs }});
+  if (operation === "capabilities.get") {{
+    now = 1000;
+    return {{ operations: [{{ name: "context.build", available: true, authorized: true }}] }};
+  }}
+  if (operation === "context.build") {{
+    assert.ok(timeoutMs < config.contextTimeoutMs);
+    now = 3000;
+    return {{
+      agent_context_format: "mno.agent_context.v2",
+      agent_context_tokens: 1,
+      agent_context: JSON.stringify({{ schema_version: "mno.agent_context.v2" }}),
+    }};
+  }}
+  throw new Error("unexpected operation");
+}};
+const adapter = createMnoOpenClawMemoryAdapter({{ config, token: "adapter-token", transport, now: () => now }});
+const context = {{ trigger: "user", agentId: "sage", sessionKey: "agent:sage:main", runId: "deadline-no-observe" }};
+const before = await adapter.beforePromptBuild({{ prompt: "deadline test" }}, context);
+assert.equal(before, undefined);
+assert.deepEqual(calls.map((entry) => entry.operation), ["capabilities.get", "context.build"]);
+adapter.close();
+console.log(JSON.stringify({{ ok: true }}));
+"""
+    completed = subprocess.run(
+        [_node(), "--input-type=module", "--eval", script],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert json.loads(completed.stdout.strip().splitlines()[-1])["ok"] is True
+
+
 def test_plugin_manifest_is_package_ready_and_plain_js_is_syntax_checked() -> None:
     package = json.loads((PLUGIN_ROOT / "package.json").read_text(encoding="utf-8"))
     manifest = json.loads((PLUGIN_ROOT / "openclaw.plugin.json").read_text(encoding="utf-8"))

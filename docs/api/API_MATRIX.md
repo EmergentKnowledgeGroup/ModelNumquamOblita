@@ -8,6 +8,15 @@
 
 - MCP parity tools over stdio or HTTP
 
+## Native automatic host layers
+
+- Hermes Agent v0.19.0 `mno-memory` plugin
+- OpenClaw plugin API `2026.8.1+` `mno-openclaw-memory` plugin
+
+Both use bounded `context.build` before eligible host turns and one
+post-success provisional `memory.observe` attempt. Their dedicated credentials
+have no review or canonical-memory authority.
+
 ## Runtime context helper surface
 
 - WSS `work_session_context` in strict project/thread/workstream scoped v2 context packages

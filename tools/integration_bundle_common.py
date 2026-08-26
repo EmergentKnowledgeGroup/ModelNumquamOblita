@@ -72,10 +72,10 @@ INTEGRATION_TARGET_SPECS: dict[str, dict[str, Any]] = {
     },
     "openclaw": {
         "display": "OpenClaw bundle",
-        "summary": "Export runtime launch scripts plus OpenClaw adapter and integration-v1 endpoint hints.",
+        "summary": "Export the native OpenClaw automatic memory-layer plugin, installer helpers, and legacy adapter compatibility hints.",
         "mode": "bundle_export",
-        "family": "adapter",
-        "artifact_mode": "sidecar",
+        "family": "integration_v1",
+        "artifact_mode": "automatic_layer",
     },
     "hermes_agent": {
         "display": "Hermes Agent bundle",
@@ -373,7 +373,50 @@ def build_integration_bundle(
             "chat": f"{runtime_base_url.rstrip('/')}/api/adapters/openclaw/chat",
             "context_package": f"{runtime_base_url.rstrip('/')}/api/adapters/openclaw/context-package",
         }
-        artifacts["openclaw_bundle.json"] = json.dumps(bundle["adapter"], indent=2) + "\n"
+        bundle["native_automatic_layer"] = {
+            "plugin_id": "mno-openclaw-memory",
+            "lifecycle_hooks": ["before_prompt_build", "agent_end"],
+            "installer": "mno-openclaw install",
+            "doctor": "mno-openclaw doctor --json",
+        }
+        artifacts["openclaw_bundle.json"] = json.dumps(
+            {
+                "native_automatic_layer": bundle["native_automatic_layer"],
+                "legacy_adapter": bundle["adapter"],
+                "integration_v1": bundle["integration_v1"],
+            },
+            indent=2,
+        ) + "\n"
+        plugin_root = repo_root / "engine" / "integrations" / "openclaw_plugin"
+        for source_name in ("package.json", "openclaw.plugin.json", "index.js", "runtime.js"):
+            source = plugin_root / source_name
+            if source.is_file():
+                artifacts[f"openclaw_plugin/{source_name}"] = source.read_text(encoding="utf-8")
+        artifacts["openclaw_mno_memory.example.json"] = json.dumps(
+            {
+                "plugin_config": {
+                    "enabled": True,
+                    "runtimeUrl": str(runtime_base_url),
+                    "workSession": {"enabled": True, "explicitResume": False},
+                },
+                "credential_environment": "NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN",
+            },
+            indent=2,
+        ) + "\n"
+        artifacts["install_mno_openclaw.ps1"] = (
+            "$ErrorActionPreference = 'Stop'\n"
+            "& mno-openclaw install @args\n"
+        )
+        artifacts["install_mno_openclaw.sh"] = (
+            "#!/usr/bin/env sh\nset -eu\nmno-openclaw install \"$@\"\n"
+        )
+        artifacts["OPENCLAW_MNO_QUICKSTART.md"] = (
+            "# MNO OpenClaw automatic layer\n\n"
+            "Set `NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN` in both the MNO runtime and the OpenClaw Gateway parent environment, then run "
+            "`mno-openclaw install` and restart the Gateway. The installer grants this plugin OpenClaw's required conversation-access and prompt-injection hook policy. "
+            "Run `mno-openclaw doctor --json`; it proves registration and restricted authorization, "
+            "not a real hook invocation. Confirm one real root human turn produces `context.build` followed by `memory.observe` in MNO's redacted integration logs.\n"
+        )
     elif str(target) == "nanobot":
         bundle["adapter"] = {
             "chat": f"{runtime_base_url.rstrip('/')}/api/adapters/nanobot/chat",

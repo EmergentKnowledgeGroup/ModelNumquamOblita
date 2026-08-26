@@ -517,6 +517,18 @@ class IntegrationAuthManager:
                     "memory.observe",
                 ],
             }
+        openclaw_adapter_token = str(os.getenv("NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN", "") or "").strip()
+        if openclaw_adapter_token:
+            default_tokens[openclaw_adapter_token] = {
+                "principal_id": "integration_openclaw_adapter",
+                "roles": ["operator"],
+                "allowed_operations": [
+                    "health.get",
+                    "capabilities.get",
+                    "context.build",
+                    "memory.observe",
+                ],
+            }
         jwt_secret = str(os.getenv("NO_INTEGRATION_JWT_HS256_SECRET", "") or "").strip()
         return cls(
             token_file=token_file,

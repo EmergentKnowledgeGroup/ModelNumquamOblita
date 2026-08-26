@@ -5,10 +5,12 @@ or MCP sidecar directly to the public internet without your own network
 controls, TLS termination, process isolation, log-retention policy, and secret
 management.
 
-The optional Hermes adapter is loopback-only and uses the dedicated
-`NO_INTEGRATION_HERMES_ADAPTER_TOKEN`, scoped server-side to health,
+The optional Hermes and OpenClaw automatic layers are loopback-only and use
+their own dedicated `NO_INTEGRATION_HERMES_ADAPTER_TOKEN` and
+`NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN`, each scoped server-side to health,
 capabilities, context build, and provisional observation. Do not place token
-values in command-line arguments, generated bundles, or issue reports.
+values in command-line arguments, generated bundles, OpenClaw plugin config,
+or issue reports.
 
 Start with the full security guide:
 

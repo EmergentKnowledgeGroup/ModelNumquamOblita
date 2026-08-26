@@ -45,6 +45,22 @@ v0.2.4 uses `NO_INTEGRATION_HERMES_ADAPTER_TOKEN` as a dedicated local credentia
 
 This optional client is loopback HTTP only and fail-open. It sends a context request before eligible Hermes turns and one background observation attempt after a completed turn; skipped or incomplete turns send no observation. Its `mno.agent_context.v2` context is factual data, not behavioral instruction. MCP remains a separate optional client; explicit MCP observation can duplicate the adapter's provisional observation.
 
+### OpenClaw automatic-layer principal
+
+v0.2.5 uses `NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN` as a dedicated local
+credential shared by the OpenClaw Gateway parent environment and MNO runtime.
+The runtime enforces the exact allow-list `health.get`, `capabilities.get`,
+`context.build`, and `memory.observe`; it is denied canonical, review,
+writeback-apply, publish, verify, and activation operations. The token is
+environment-only: it is not accepted in OpenClaw plugin config, generated
+bundles, or command-line arguments.
+
+The native OpenClaw plugin is loopback-only and fail-open. It requests factual
+context before an eligible root-user model call and makes one post-success
+provisional observation attempt. It hashes host identifiers, and it does not
+turn WSS helper context into evidence. MCP remains optional for explicit
+inspection or actions.
+
 ## Authority And Permission Matrix
 
 | Operation | Viewer | Operator | Admin |

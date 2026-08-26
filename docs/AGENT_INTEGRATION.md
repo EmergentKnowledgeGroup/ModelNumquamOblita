@@ -209,17 +209,40 @@ MNO supplies declarative facts only. It never puts "ask the user," "mention this
 
 ## OpenClaw
 
-If you control the orchestration layer, prefer `integration-v1`.
+v0.2.5 ships the optional `mno-openclaw-memory` native plugin for OpenClaw
+plugin API `2026.8.1+`. It automatically supplies one bounded MNO context
+packet at `before_prompt_build` for eligible root `user` turns and enqueues one
+provisional observation only after a matching successful `agent_end`.
 
-If you already need OpenClaw-style chat envelopes, use:
+The layer is not MCP and the model does not need to remember a routine tool
+call. MNO context is information/provenance, not behavior instructions. The
+plugin is loopback-only, fail-open, and transmits opaque hashes rather than raw
+OpenClaw session/run/workstream identifiers. Failed, incomplete, empty,
+subagent, cron, heartbeat, and unmatched turns are not observed.
+
+Its `NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN` is server-scoped to
+`health.get`, `capabilities.get`, `context.build`, and `memory.observe`. It
+has no review, writeback-apply, publish, verify, activate, or canonical-memory
+authority. Automatic observation cannot bypass HCR curation or human
+review/publish/activate gates.
+
+Use `mno-openclaw install`, `status`, `doctor`, and `uninstall` for its
+lifecycle. The installer asks OpenClaw's CLI for only this plugin's required
+conversation-access and prompt-injection permissions. `doctor --json` proves
+registration and restricted MNO authorization; a real root-user turn must show
+`context.build` followed by `memory.observe` in MNO's redacted logs.
+
+### Legacy compatibility adapter
+
+If you intentionally need OpenClaw-shaped chat envelopes, the following
+manual sidecar routes remain available:
+
 - `POST /api/adapters/openclaw/chat`
 - `POST /api/adapters/openclaw/context-package`
 
-Why:
-- faster compatibility
-- preserves the existing OpenClaw-shaped payload
-
-But the adapter is still a shim, not the main public contract.
+They preserve the prior compatibility contract, but they are not the automatic
+host-lifecycle layer. Use `integration-v1` directly when you want deliberate
+custom orchestration.
 
 See:
 - [OpenClaw Integration](integrations/OPENCLAW.md)

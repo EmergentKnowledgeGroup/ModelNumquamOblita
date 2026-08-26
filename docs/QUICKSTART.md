@@ -213,6 +213,32 @@ PowerShell uses `$env:NO_INTEGRATION_HERMES_ADAPTER_TOKEN = "..."`. Restart Herm
 
 The agent does not need to remember a routine MNO call. The plugin automatically supplies bounded factual context before eligible human turns and enqueues one provisional observation only after a successful completed turn. It fails open if MNO is unavailable and has no canonical/review authority. See [Hermes Agent Integration](integrations/HERMES_AGENT.md).
 
+## OpenClaw automatic memory layer
+
+For OpenClaw plugin API `2026.8.1+`, complete initial HCR curation first, keep
+MNO on loopback, and set the same dedicated secret in the MNO runtime and the
+Gateway parent environment:
+
+```bash
+export NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN="generate-a-long-local-secret"
+mno-runtime --memories /absolute/path/to/atoms.sqlite3 --episodes /absolute/path/to/episode_cards.reviewed.json
+```
+
+Then install and inspect the native plugin:
+
+```bash
+mno-openclaw install
+mno-openclaw doctor --json
+```
+
+PowerShell uses `$env:NO_INTEGRATION_OPENCLAW_ADAPTER_TOKEN = "..."`. Restart
+the Gateway after install. The installer grants only this plugin's required
+conversation-access and prompt-injection permissions. `doctor` proves
+registration and restricted MNO access; confirm activation with one successful
+root-user turn that produces `context.build` then `memory.observe` in MNO's
+redacted logs. Back out with `mno-openclaw uninstall`. See
+[OpenClaw Integration](integrations/OPENCLAW.md).
+
 ## MCP launch
 
 Against an existing runtime over stdio:

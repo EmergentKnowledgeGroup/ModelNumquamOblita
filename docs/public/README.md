@@ -27,10 +27,13 @@ Truth order is simple: human-reviewed canonical truth wins; evidence atoms remai
 
 For Hermes Agent v0.19.0, the optional v0.2.3 plugin makes ordinary memory flow automatic: factual MNO context goes in before an eligible human turn, and only a successful completed turn is offered to provisional memory afterward. The plugin cannot approve its own memory or bypass HCR/human review.
 
+For OpenClaw plugin API `2026.8.1+`, the optional v0.2.5 native layer does the same bounded pre-turn recall and post-success provisional observation through OpenClaw's own lifecycle. It is not an MCP replacement, does not replace the host's personality or transcript system, and has no route to reviewed truth.
+
 Further reading:
 - [v0.2.1 release notes](../RELEASE_NOTES_v0.2.1.md)
 - [v0.2.2 temporal agency notes](../RELEASE_NOTES_v0.2.2.md)
 - [v0.2.3 Hermes adapter and HCR notes](../RELEASE_NOTES_v0.2.3.md)
+- [v0.2.5 OpenClaw automatic-layer notes](../RELEASE_NOTES_v0.2.5.md)
 - [human changelog](../CHANGELOG.md)
 - [Compatibility and support](../COMPATIBILITY_AND_SUPPORT.md)
 - [Agent support tickets](../SUPPORT_TICKETS_FOR_AGENTS.md)

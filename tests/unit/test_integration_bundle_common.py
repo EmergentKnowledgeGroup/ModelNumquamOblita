@@ -72,15 +72,28 @@ def test_exported_launchers_are_relocatable_and_do_not_run_setup(tmp_path: Path)
     assert "MNO_AGENT_MCP_NOT_INSTALLED" in artifacts["launch_agent_mcp.sh"]
 
 
-def test_openclaw_bundle_contains_adapter_and_sidecar_hints(tmp_path: Path) -> None:
-    bundle = build_integration_bundle(target="openclaw", preview=_preview(tmp_path), repo_root=tmp_path)
+def test_openclaw_bundle_contains_native_automatic_layer_and_legacy_adapter_hints(tmp_path: Path) -> None:
+    bundle = build_integration_bundle(target="openclaw", preview=_preview(tmp_path), repo_root=Path(__file__).resolve().parents[2])
     assert bundle["target"] == "openclaw"
     adapter = dict(bundle["adapter"])
     assert adapter["chat"].endswith("/api/adapters/openclaw/chat")
     assert adapter["context_package"].endswith("/api/adapters/openclaw/context-package")
+    assert bundle["native_automatic_layer"]["plugin_id"] == "mno-openclaw-memory"
+    assert bundle["native_automatic_layer"]["lifecycle_hooks"] == ["before_prompt_build", "agent_end"]
     assert "integration_v1" in bundle
-    assert "openclaw_bundle.json" in dict(bundle["artifacts"])
-    assert "agent_memory_context_instructions.md" in dict(bundle["artifacts"])
+    artifacts = dict(bundle["artifacts"])
+    assert "openclaw_bundle.json" in artifacts
+    assert "agent_memory_context_instructions.md" in artifacts
+    assert {
+        "openclaw_plugin/package.json",
+        "openclaw_plugin/openclaw.plugin.json",
+        "openclaw_plugin/index.js",
+        "openclaw_plugin/runtime.js",
+        "openclaw_mno_memory.example.json",
+        "install_mno_openclaw.ps1",
+        "install_mno_openclaw.sh",
+        "OPENCLAW_MNO_QUICKSTART.md",
+    }.issubset(artifacts)
 
 
 def test_ordinary_hermes_bundle_has_adapter_artifacts_but_hcr_generic_export_does_not(tmp_path: Path) -> None:

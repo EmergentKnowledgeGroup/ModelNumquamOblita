@@ -27,7 +27,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - uses: actions/setup-node@v4
-        if: matrix.os == 'ubuntu-latest'
         with:
           node-version: "22"
           cache: npm

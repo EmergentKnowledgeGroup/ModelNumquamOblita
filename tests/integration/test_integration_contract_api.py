@@ -248,7 +248,8 @@ def test_host_learning_draft_uses_existing_review_queue_without_learning_its_own
             reopened.close()
 
 
-def test_human_applied_learning_keeps_derived_label_and_real_source(tmp_path):
+@pytest.mark.parametrize("plain_http_body", [False, True])
+def test_human_applied_learning_keeps_derived_label_and_real_source(tmp_path, plain_http_body):
     store = SqliteAtomStore(tmp_path / "applied-learning.sqlite3")
     atom = store.add_candidate(_candidate("launch", "We are not launching on Friday.", "launch_source"))
     runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
@@ -264,6 +265,17 @@ def test_human_applied_learning_keeps_derived_label_and_real_source(tmp_path):
             "session_id": "learning_session", "run_id": "learning_turn", "idempotency_key": "apply_learning_001",
             "text": "Confirm the launch date before announcing it.", "evidence_ids": [atom.atom_id]}})
         proposal_id = draft["result"]["structuredContent"]["data"]["proposal_id"]
+        if plain_http_body:
+            status, proposed = _http_json(method="POST", url=f"{base}/api/integration/v1/writeback/propose",
+                headers={"Authorization": "Bearer local-integration-operator-token", "Idempotency-Key": "plain_learning_001"},
+                payload={"schema_version": "integration.v1", "request_id": "req_PLAINLEARNING001",
+                    "session_id": "learning_session", "run_id": "learning_turn", "data": {
+                        "mutation": {"intent": "create", "target_kind": "learning_draft", "body": "Confirm the launch date."},
+                        "evidence": [{"provenance_handle": atom.atom_id, "source_kind": "memory_excerpt",
+                            "source_id": "launch_source", "excerpt": "We are not launching on Friday.", "confidence": 0.88,
+                            "citation": {"type": "message", "ref": "launch_source#launch_msg"}}]}})
+            assert status == 200
+            proposal_id = proposed["data"]["proposal_id"]
         status, result = _http_json(method="POST", url=f"{base}/api/integration/v1/writeback/resolve",
             headers={"Authorization": "Bearer local-human-review-token"}, payload={"schema_version": "integration.v1",
                 "request_id": "req_LEARNINGAPPLY001", "session_id": "learning_session", "run_id": "learning_turn",

@@ -9146,7 +9146,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                         source_refs = [source_ref]
                         candidate_topics = []
                         if target_kind == "learning_draft":
-                            kind = str(dict(mutation.get("body") or {}).get("draft_kind") or "lesson")
+                            kind = str(body_value.get("draft_kind") or "lesson") if isinstance(body_value, dict) else "lesson"
                             candidate_text = f"Host-authored {kind} (derived): {candidate_text}"
                             candidate_topics = ["learning_draft", "derived", kind]
                             source_refs = [SourceRef(source_id=ref.split("#", 1)[0], message_id=ref.split("#", 1)[1])

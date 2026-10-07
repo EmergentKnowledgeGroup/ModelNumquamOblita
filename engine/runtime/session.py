@@ -3652,7 +3652,11 @@ class RuntimeSession:
             for row in ltm_evidence:
                 item = items_by_id.get(row["evidence_id"])
                 if item is not None:
-                    row["related_text"] = {"kind": "canonical_memory", "text": item.canonical_text}
+                    row["related_text"] = {
+                        "kind": "canonical_memory",
+                        "text": self._truncate_text_preserving_spacing(item.canonical_text, max_chars=320),
+                        "truncated": len(item.canonical_text) > 320,
+                    }
         evidence_sections_present = self._evidence_sections_present(ltm_evidence)
         evidence_time_window = self._evidence_time_window(pack)
         episode_evidence_present = bool(evidence_sections_present.get("episode"))
@@ -6595,13 +6599,15 @@ class RuntimeSession:
                 evidence_text = " ".join(evidence_segments).strip()
                 left_score = _option_support_score(left_option, evidence_text)
                 right_score = _option_support_score(right_option, evidence_text)
-                if (left_score > 0.0 or right_score > 0.0) and abs(left_score - right_score) >= 0.05:
-                    chosen = left_option if left_score > right_score else right_option
+                chosen = left_option if left_score > right_score else right_option
+                # Overlap ranks wording. An unsupported original winner falls
+                # through to the existing bounded recall, never its losing option.
+                if (
+                    (left_score > 0.0 or right_score > 0.0)
+                    and abs(left_score - right_score) >= 0.05
+                    and check_answer_claims([chosen], pack)["status"] == "SUPPORTED"
+                ):
                     rejected = right_option if chosen == left_option else left_option
-                    # Overlap ranks related wording; it cannot prove an alternative.
-                    # Preserve the original winner, never promote its losing option.
-                    if check_answer_claims([chosen], pack)["status"] != "SUPPORTED":
-                        return lead or "I do not have enough supported information to choose between those answers.", citations
                     chosen_compact = self._compact_text(chosen, max_chars=96)
                     rejected_compact = self._compact_text(rejected, max_chars=96)
                     parts = [f"I can support \"{chosen_compact}\", not \"{rejected_compact}\"."]

@@ -4414,6 +4414,14 @@ def _quicknote_usage_guide_payload() -> dict[str, Any]:
             "Batch quicknotes with memory.quicknote.propose_batch when possible.",
             "Use explore.whats_new before deep exploration to avoid redundant calls.",
         ],
+        "learning_drafts": {
+            "tool": "integration.learning.propose",
+            "authorship": "host_agent",
+            "authority": "pending_human_review",
+            "when": "After completed work yields a useful reusable lesson or revised summary; skip routine turns.",
+            "sources": "Existing MNO evidence IDs; the shortcut resolves their excerpts and citations.",
+            "processing": "Use the host's normal reasoning. No additional model call, inference service or MNO background learning task.",
+        },
     }
 
 
@@ -9147,6 +9155,11 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                             "run_id": run_id,
                             "principal_id": str(principal.get("principal_id") or ""),
                             "intent": intent,
+                            **({"learning_draft": json.dumps({
+                                "authored_by": "host_agent",
+                                "kind": mutation["body"].get("draft_kind", "lesson") if isinstance(mutation.get("body"), dict) else "lesson",
+                                "sources": evidence,
+                            }, separators=(",", ":"))} if target_kind == "learning_draft" else {}),
                         },
                         actor=str(principal.get("principal_id") or ""),
                         idempotency_key=idem_key,

@@ -66,6 +66,8 @@ def build_responder_messages(package: Mapping[str, Any]) -> list[dict[str, str]]
             related = item.get("related_text")
             if isinstance(related, Mapping) and related.get("text"):
                 evidence_lines.append(f"   Related canonical memory text (answer unverified): {related['text']}")
+                if related.get("truncated"):
+                    evidence_lines.append("   This is an incomplete excerpt; the missing context has not been supplied.")
     else:
         evidence_lines.append("Memory evidence: (none)")
 

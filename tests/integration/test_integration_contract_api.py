@@ -152,6 +152,69 @@ def test_context_answer_claim_verdict_reaches_http_mcp_and_agent_packet():
         stop_runtime_server(http_server, thread, runtime=runtime)
 
 
+@pytest.mark.parametrize("durable", [False, True])
+def test_host_learning_draft_uses_existing_review_queue_without_learning_its_own_output(tmp_path, durable):
+    db_path = tmp_path / "learning.sqlite3"
+    store = SqliteAtomStore(db_path) if durable else AtomStore()
+    atom = store.add_candidate(_candidate("launch", "We are not launching on Friday.", "launch_source"))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
+    queue = MutationReviewQueue(store)
+    http_server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = http_server.server_address
+    mcp = MCPServer(config=ServerConfig(runtime_base_url=f"http://{host}:{port}",
+        auth=AuthConfig(default_role="operator"), mutations_enabled=True),
+        api_client=RuntimeApiClient(base_url=f"http://{host}:{port}"))
+    args = {"session_id": "learning_session", "run_id": "learning_turn", "idempotency_key": "learning_launch_001",
+            "kind": "lesson", "text": "Confirm the actual launch date before announcing a day.", "evidence_ids": [atom.atom_id]}
+    try:
+        _mcp_call(mcp, 1, "initialize")
+        first = _mcp_call(mcp, 2, "tools/call", {"name": "integration.learning.propose", "arguments": args})
+        assert "error" not in first
+        result = first["result"]["structuredContent"]
+        assert result["data"]["status"] == "pending_review"
+        assert result["data"]["learning_draft"]["authored_by"] == "host_agent"
+        assert result["data"]["learning_draft"]["kind"] == "lesson"
+        assert result["data"]["learning_draft"]["source_refs"] == ["launch_source#launch_msg"]
+        assert len(queue.list_pending()) == 1
+        stored_draft = json.loads(queue.list_pending()[0].metadata["learning_draft"])
+        assert stored_draft["authored_by"] == "host_agent"
+        assert stored_draft["sources"][0]["citation"]["ref"] == "launch_source#launch_msg"
+        assert len(store.list_atoms()) == 1
+        second = _mcp_call(mcp, 3, "tools/call", {"name": "integration.learning.propose", "arguments": args})
+        assert second["result"]["structuredContent"]["data"]["proposal_id"] == result["data"]["proposal_id"]
+        assert len(queue.list_pending()) == 1
+        many = _candidate("many", "The launch checklist must include confirmed dates.", "many_source")
+        many.source_refs = [SourceRef(source_id="many_source", message_id=f"m{i}")
+                            for i in range(runtime_server_module.INTEGRATION_MAX_EVIDENCE)]
+        many_atom = store.add_candidate(many)
+        summary_result = _mcp_call(mcp, 6, "tools/call", {"name": "integration.learning.propose", "arguments": {
+            **args, "kind": "summary", "idempotency_key": "learning_summary_001", "evidence_ids": [atom.atom_id, many_atom.atom_id]}})
+        assert summary_result["result"]["structuredContent"]["ok"] is True
+        assert len(queue.list_pending()) == 2
+        unknown = _mcp_call(mcp, 4, "tools/call", {"name": "integration.learning.propose", "arguments": {
+            **args, "idempotency_key": "learning_unknown_001", "evidence_ids": ["missing_source"]}})
+        assert "error" in unknown
+        assert len(queue.list_pending()) == 2
+        mcp.config.mutations_enabled = False
+        disabled = _mcp_call(mcp, 5, "tools/call", {"name": "integration.learning.propose", "arguments": args})
+        assert "error" in disabled
+        assert len(queue.list_pending()) == 2
+    finally:
+        stop_runtime_server(http_server, thread, runtime=runtime)
+        if durable:
+            store.close()
+    if durable:
+        reopened = SqliteAtomStore(db_path)
+        try:
+            restored = MutationReviewQueue(reopened).list_pending()
+            assert len(restored) == 2
+            assert all(json.loads(proposal.metadata["learning_draft"])["authored_by"] == "host_agent" for proposal in restored)
+            assert json.loads(restored[0].metadata["learning_draft"])["sources"]
+            assert len(reopened.list_atoms()) == 2
+        finally:
+            reopened.close()
+
+
 def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
     store = AtomStore()
     base_atom = store.add_candidate(_candidate("cand_1", "User prefers tea before bed.", "conv_tea"))

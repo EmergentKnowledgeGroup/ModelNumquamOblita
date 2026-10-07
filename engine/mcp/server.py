@@ -781,6 +781,24 @@ class MCPServer:
                 handler=self._tool_integration_memory_proposals_bridge,
             ),
             ToolSpec(
+                name="integration.learning.propose",
+                description="Propose a source-linked lesson or revised summary from completed work. Host-authored draft only; human review remains required.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "request_id": {"type": "string"}, "session_id": {"type": "string"},
+                        "run_id": {"type": "string"}, "principal": {"type": "object"},
+                        "idempotency_key": {"type": "string"}, "text": {"type": "string"},
+                        "kind": {"type": "string", "enum": ["lesson", "summary"]},
+                        "evidence_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                    },
+                    "required": ["session_id", "run_id", "idempotency_key", "text", "evidence_ids"],
+                    "additionalProperties": False,
+                },
+                permission="operator",
+                handler=self._tool_integration_learning_propose,
+            ),
+            ToolSpec(
                 name="integration.writeback.propose",
                 description="Create integration mutation proposal via runtime integration API.",
                 input_schema={
@@ -2645,6 +2663,40 @@ class MCPServer:
             review_apply=True,
         )
 
+    def _tool_integration_learning_propose(self, args: dict[str, Any]) -> dict[str, Any]:
+        self._require_mutations_enabled()
+        text = str(args.get("text") or "").strip()
+        kind = str(args.get("kind") or "lesson").strip()
+        if not text or kind not in {"lesson", "summary"} or not str(args.get("idempotency_key") or "").strip():
+            raise MCPRequestError(-32602, "text, kind=lesson|summary and idempotency_key are required")
+        source_result = self._tool_integration_context_why({**args, "expand_citations": False})
+        if not source_result.get("ok"):
+            return source_result
+        rows = {str(row.get("evidence_id") or ""): row
+                for row in dict(source_result.get("data") or {}).get("evidence", [])}
+        evidence = []
+        source_refs = []
+        for evidence_id in dict.fromkeys(str(value).strip() for value in args["evidence_ids"]):
+            row = rows.get(evidence_id, {})
+            citations = [str(value) for value in row.get("citations", []) if "#" in str(value)]
+            if not row.get("excerpt") or not citations:
+                raise MCPRequestError(-32602, "Every learning draft source needs an existing excerpt and message citation")
+            # One evidence entry per source record preserves the existing API bound.
+            # The record ID remains the expansion path for its additional citations.
+            citation = citations[0]
+            evidence.append({"provenance_handle": evidence_id, "source_kind": "memory_excerpt",
+                "source_id": citation.split("#", 1)[0], "excerpt": row["excerpt"],
+                "citation": {"type": "message", "ref": citation}, "confidence": row.get("confidence", 0.0)})
+            if citation not in source_refs:
+                source_refs.append(citation)
+        result = self._tool_integration_writeback_propose({**args,
+            "mutation": {"intent": "create", "target_kind": "learning_draft",
+                         "body": {"canonical_text": text, "authored_by": "host_agent", "draft_kind": kind},
+                         "tags": ["learning_draft", kind]}, "evidence": evidence})
+        if result.get("ok"):
+            result["data"]["learning_draft"] = {"kind": kind, "authored_by": "host_agent", "source_refs": source_refs}
+        return result
+
     def _tool_integration_writeback_propose(self, args: dict[str, Any]) -> dict[str, Any]:
         idempotency_key = str(args.get("idempotency_key") or "").strip()
         if not idempotency_key:
@@ -3112,22 +3164,32 @@ class MCPServer:
         connected: list[Mapping[str, Any]],
         next_hops: list[Mapping[str, Any]],
     ) -> str:
-        candidates: list[tuple[str, str]] = []
+        return self._anchor_summary_with_support(label=label, snippets=snippets, connected=connected, next_hops=next_hops)[0]
+
+    def _anchor_summary_with_support(
+        self, *, label: str, snippets: list[Mapping[str, Any]],
+        connected: list[Mapping[str, Any]], next_hops: list[Mapping[str, Any]],
+    ) -> tuple[str, dict[str, Any] | None]:
+        candidates: list[tuple[str, str, Mapping[str, Any]]] = []
         for row in snippets:
             sentence = self._anchor_evidence_sentence(row.get("snippet"), max_chars=220)
             if sentence:
-                candidates.append((sentence, "snippet"))
+                candidates.append((sentence, "snippet", row))
         for row in connected:
             sentence = self._anchor_evidence_sentence(row.get("summary"), max_chars=220)
             if sentence:
-                candidates.append((sentence, "connected"))
+                candidates.append((sentence, "connected", row))
 
         lead = ""
+        support = None
         if candidates:
-            lead = max(
+            selected = max(
                 candidates,
                 key=lambda item: self._anchor_summary_candidate_score(item[0], label=label, source_kind=item[1]),
-            )[0]
+            )
+            lead = selected[0]
+            support = {"source_kind": selected[1], "source_ref": str(selected[2].get("source_ref") or ""),
+                       "confidence": float(selected[2].get("confidence") or 0.0)}
         if not lead and candidates:
             lead = candidates[0][0]
         if not lead:
@@ -3151,7 +3213,7 @@ class MCPServer:
                 lead = f"{lead} Linked to {labels[0]} and {labels[1]}."
             else:
                 lead = f"{lead} Linked to {labels[0]}, {labels[1]}, and {labels[2]}."
-        return self._clip_text(f"{label}: {lead}".strip(), max_chars=320)
+        return self._clip_text(f"{label}: {lead}".strip(), max_chars=320), support
 
     def _build_anchor_brief_payload(self, *, anchor_id: str, anchor_type: str, limit: int) -> dict[str, Any]:
         expanded = self._tool_explore_expand_anchor(
@@ -3185,16 +3247,20 @@ class MCPServer:
                 citation_refs.append(source_ref)
         mean_confidence = sum(evidence_confidence) / len(evidence_confidence) if evidence_confidence else 0.0
         lead_label = self._clip_text(anchor.get("label") or anchor_id, max_chars=120)
-        summary = self._anchor_summary_text(
+        summary, summary_support = self._anchor_summary_with_support(
             label=lead_label,
             snippets=snippets,
             connected=connected,
             next_hops=next_hops,
         )
+        if summary_support and summary_support["source_ref"]:
+            citation_refs = list(dict.fromkeys([summary_support["source_ref"], *citation_refs]))
         return {
             "status": str(expanded.get("status") or peek.get("status") or "insufficient_support").strip().lower(),
             "anchor": anchor,
             "summary": summary,
+            "summary_kind": "extractive",
+            "summary_support": summary_support,
             "confidence": round(float(mean_confidence), 4),
             "top_snippets": snippets[:limit],
             "next_hops": next_hops[:limit],

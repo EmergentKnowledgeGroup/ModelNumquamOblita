@@ -11,10 +11,10 @@ from engine.runtime import RuntimeSession
 from engine.runtime.server import _integration_context_diet_v2
 
 
-def _runtime():
+def _runtime(text="We are not launching on Friday."):
     store = AtomStore()
     store.add_candidate(CandidateAtom(candidate_id="launch", atom_type=AtomType.EPISODE,
-        canonical_text="We are not launching on Friday.",
+        canonical_text=text,
         source_refs=[SourceRef(source_id="launch_source", message_id="m1")],
         confidence=0.9, salience=0.9))
     return RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
@@ -63,6 +63,21 @@ def test_exact_claim_pass_keeps_the_claims_own_citation():
         assert package["service_verdict"]["decision"] == "PASS"
         assert package["service_verdict"]["answer_status"] == "SUPPORTED"
         assert package["service_verdict"]["citations"] == ["launch_source#m1"]
+    finally:
+        runtime.close()
+
+
+def test_related_excerpt_is_bounded_and_labels_omitted_context():
+    source = "We are not launching on Friday. " + "More source context. " * 320
+    runtime = _runtime(source)
+    try:
+        package = runtime.build_context_package("Recall launching on Friday.", package_version="v2",
+            memory_preference="memory_assist", answer_claims=["We are launching on Friday."])
+        related = package["ltm_evidence"][0]["related_text"]
+        assert len(related["text"]) <= 320  # Existing v2 evidence excerpt budget.
+        assert related["text"].startswith("We are not launching on Friday.")
+        assert related["truncated"] is True
+        assert runtime.retriever.store.list_atoms()[0].canonical_text == source.strip()
     finally:
         runtime.close()
 

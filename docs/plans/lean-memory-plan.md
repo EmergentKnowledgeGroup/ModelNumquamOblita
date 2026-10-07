@@ -1,6 +1,6 @@
 # Lean memory improvements
 
-Status: implementation in progress. Baseline: public v0.2.4 at `c64fbd2`.
+Status: packet slice independently reviewed; lean learning and summary slices implemented and undergoing regression proof. Publication remains pending. Baseline: public v0.2.4 at `c64fbd2`.
 
 The requested outcome is better memory packets, evidence-linked draft learning, useful summaries, and simpler integration, without a new model, runtime dependency, background service, or pipeline rewrite. Human review and Publish / Verify / Activate remain authoritative.
 
@@ -12,17 +12,25 @@ Smallest fix: preserve the verdict and its scope through the existing context bu
 
 Related text remains available with its source references, authority and conflict labels. A canonical memory excerpt must be identified as canonical wording. Original-message expansion uses the existing citation/why tools; joined or shortened context is never newly advertised as a verified original quotation. An unverified answer permits a fixed factual abstention and a clarification question, not an unchecked generated answer.
 
+Related excerpts reuse the existing 320-character evidence limit and explicitly identify omitted context. Full stored memory is preserved and can be inspected through existing detail/expansion tools; adding an unbounded duplicate to every uncertain packet would undermine the lean integration requirement.
+
 Acceptance: the negative Friday source cannot certify the affirmative Friday claim or Monday; an exact eligible source statement can pass; conflicts and existing abstentions cannot become PASS; old callers retain their behavior; HTTP/MCP and the budgeted host packet carry the same verdict/scope; the known local alternative-selection error falls back to source-faithful recall.
 
 ## Learning, summaries and usability
 
 Use existing signed observations and draft/review surfaces. Existing capture/reinforcement is not renamed as a new semantic-learning capability. Additional host-authored lessons or revised summaries must remain explicit source-linked drafts, with authorship distinguished from independent evidence. The existing host performs any interpretation; MNO gains no inference runtime.
 
+The new MCP shortcut `integration.learning.propose` resolves existing source IDs through `integration.context.why` and queues a lesson or summary through `integration.writeback.propose`. It does not resolve or apply the proposal. Authorship and source excerpts/citations persist in existing proposal metadata; replay creates no duplicate, missing sources create no draft, and the existing mutation-disable control remains effective. A source record gets one primary citation in the proposal, with its record ID retained for expansion. Native host capture remains separate; an MCP tool alone does not create automatic lifecycle hooks or an extra model call.
+
 First improve the bounded evidence brief so the chosen summary retains the references of its actual supporting row. Reuse setup, status and human handoff flows. A new daemon, general reflection engine or duplicate learning database is outside this design.
+
+`explore.anchor_brief` now returns the selected extractive row's `summary_support` and puts that row's citation first. The legacy aggregate confidence field is retained; selected-row confidence is a separate support field. No generation, retriever replacement, or new index is introduced.
 
 ## Proof and publication
 
 - Existing packet/runtime/integration baseline: 140 tests passed in an isolated Z-drive environment.
+- Packet acceptance and nearby regression package: 224 passed; independent packet QA: 165 focused tests passed and no observed blocking defect. Exact-wording checks leave unverified paraphrases unresolved by design.
+- Warm unchanged-caller packet microbenchmark: median 297.04 microseconds before and 297.12 after; normal packet grew about 110 UTF-8 bytes. This single small fixture is not a production latency claim. Runtime dependency list is unchanged.
 - Write acceptance tests before each implementation and preserve nearby regression coverage.
 - Audit dependencies, source scope, authority and changed files; measure changed-path overhead against the protected baseline.
 - Inventory all maintained public docs, READMEs, diagrams/graphs, exports, packaging and release metadata. Record historical/unaffected surfaces explicitly instead of rewriting history.

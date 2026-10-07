@@ -28,12 +28,13 @@ def check_answer_claims(
         return {"status": "NOT_CHECKED", "checks": []}
     checks: list[dict[str, Any]] = []
     for claim in claims:
+        claim_key = _text_key(claim)
         matching = None
         if evidence_eligible:
             matching = next((
                 item for item in pack.core + pack.context
                 if item.conflict_state == "active"
-                and _text_key(item.canonical_text) == _text_key(claim)
+                and _text_key(item.canonical_text) == claim_key
                 and any(ref.source_id and ref.message_id for ref in item.source_refs)
             ), None)
         checks.append({

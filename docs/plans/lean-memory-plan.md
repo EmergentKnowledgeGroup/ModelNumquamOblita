@@ -1,6 +1,6 @@
 # Lean memory improvements
 
-Status: packet slice independently reviewed; lean learning and summary slices implemented and undergoing regression proof. Publication remains pending. Baseline: public v0.2.4 at `c64fbd2`.
+Status: packet, learning and summary code independently reviewed; full regression and publication proof are recorded in the release validation. Baseline: public v0.2.4 at `c64fbd2`.
 
 The requested outcome is better memory packets, evidence-linked draft learning, useful summaries, and simpler integration, without a new model, runtime dependency, background service, or pipeline rewrite. Human review and Publish / Verify / Activate remain authoritative.
 
@@ -24,7 +24,7 @@ The new MCP shortcut `integration.learning.propose` resolves existing source IDs
 
 First improve the bounded evidence brief so the chosen summary retains the references of its actual supporting row. Reuse setup, status and human handoff flows. A new daemon, general reflection engine or duplicate learning database is outside this design.
 
-`explore.anchor_brief` now returns the selected extractive row's `summary_support` and puts that row's citation first. The legacy aggregate confidence field is retained; selected-row confidence is a separate support field. No generation, retriever replacement, or new index is introduced.
+`explore.anchor_brief` and runtime wake/resume briefs now return the selected extractive row's `summary_support` and puts that row's citation first. The legacy aggregate confidence field is retained; selected-row confidence is a separate support field. No generation, retriever replacement, or new index is introduced.
 
 ## Proof and publication
 
@@ -37,3 +37,5 @@ First improve the bounded evidence brief so the chosen summary retains the refer
 - Prove exact wheel/sdist installation and upgrade; require relevant CI and independent protected-invariant review before publishing.
 
 Existing dirty development work and OpenClaw PR #21 remain separately owned and preserved. Work is staged in `codex/lean-memory-context`; it does not publish the dirty checkout wholesale. Natural-language inference models are a later evaluation, after this goal lands.
+
+The runtime wake/resume route had the same inherited selected-source omission as the MCP brief. Real HTTP fixtures failed on both routes before the fix, then passed with the selected citation and confidence exposed separately from the unchanged aggregate. The correction reuses each existing builder and changes no selection score or graph edge.

@@ -38,3 +38,9 @@ Open a minimal private report with:
 Temporal records, clock receipts, delivery telemetry, resolver metadata, and state events are provisional-store data. Protect them like other local memory data and do not include their text in issue reports, screenshots, or release artifacts. MNO sanitizes original expressions and metadata before persistence; reminder text remains inert quoted data and never becomes an instruction to an LLM.
 
 Temporal reads, context construction, due polls, and the heartbeat seam are read-only. A delivery observation is telemetry only: it cannot change support, maturity, authority, lifecycle, decay anchors, or canonical truth. Schedule and resolution writes require authenticated scope, durable SQLite, an idempotency key, and (for resolution) the current revision. No temporal feature creates a daemon, background wake-up, notification, or unsolicited network action.
+
+## Answer verification and learning drafts
+
+Packet verification reports source support within its declared scope; it does not certify arbitrary generated answers or the universal truth of a source. Preserve `ABSTAIN` and the distinction between canonical memory excerpts and original-message quotations.
+
+`integration.learning.propose` is an operator/admin MCP shortcut governed by the existing mutation-disable control. It queues host-authored lesson/summary drafts with source excerpts and citations, never grants review authority or publishes memory. Protect those persisted drafts as private runtime data. The Hermes adapter's dedicated credential remains limited to its four existing operations and cannot submit learning drafts. See [the full guide](docs/SECURITY_AND_PRIVACY.md#lean-packets-and-learning-drafts).

@@ -1,6 +1,6 @@
 {
   "name": "modelnumquamoblita-desktop-shell",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "private": true,
   "author": "ProfessahX",
   "description": "Electron shell for the standalone ModelNumquamOblita runtime UI",

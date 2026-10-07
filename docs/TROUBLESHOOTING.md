@@ -91,6 +91,18 @@ Good first probe:
 curl "http://127.0.0.1:7340/api/integration/v1/capabilities?schema_version=integration.v1&request_id=troubleshoot_caps"
 ```
 
+## A found source does not verify the answer
+
+Inspect `service_verdict` or the parsed `agent_context.verification`. `scope: "retrieved_evidence"` covers the retrieved pack only. Optional v2 `answer_claims` checks eligible canonical wording, after whitespace and terminal-period normalization, and intentionally leaves paraphrases/inferences unverified. `UNVERIFIED` cannot justify a memory assertion; an otherwise passing verdict becomes `ABSTAIN`.
+
+Related canonical excerpts are bounded to 320 characters and carry `truncated`; use `context.why` and citation expansion for full source inspection. Do not relabel that excerpt as an original quotation or disable a gate to make an unsupported answer pass. See [packet API](API.md#answer-claims-and-verification).
+
+## A learning draft cannot be proposed or is still pending
+
+`integration.learning.propose` is MCP-only in the normal runtime profile, not the run-bound HCR profile or a new HTTP endpoint. Check operator/admin role, the existing `--mutations-enabled` setting, and the effective runtime why/propose capability state. The Hermes adapter's restricted token cannot submit it. Every supplied evidence ID must resolve to an existing excerpt and message citation; missing support creates no draft.
+
+`pending_review` is success for this shortcut. A repeated idempotency key with the same proposal reuses the existing draft. Human resolve/apply remains separate and canonical memory still requires the normal review/publish/verify/activate gates. See [MCP contract](MCP_INTEGRATION.md#source-linked-learning-drafts).
+
 ## Hermes adapter is disabled or degraded
 
 The optional Hermes adapter is pinned to Hermes Agent v0.19.0 and uses `NO_INTEGRATION_HERMES_ADAPTER_TOKEN`, shared locally by Hermes and MNO. Installation also writes the scoped token to the private MNO-owned `~/.hermes/mno/adapter-token` file so a gateway launched by a supervisor does not depend on inheriting the install shell's environment. `doctor --json` reports `credential_source` as `environment` or `credential_file`; it never reports the token. The runtime limits that principal to `health.get`, `capabilities.get`, `context.build`, and `memory.observe`; it cannot hold canonical or review authority. The token value is not a supported command-line or adapter-JSON input.

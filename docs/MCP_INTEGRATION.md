@@ -116,6 +116,47 @@ Call `integration.capabilities.get` after initialize. The returned runtime opera
 
 High-risk proposal listing is metadata-only with an operator token. Content-bearing listing, dismissal, and source-backed bridge require the separate `review_apply` capability. Bridge stops at a pending review proposal; it does not apply or publish memory.
 
+## Source-linked learning drafts
+
+`integration.learning.propose` is an MCP-only shortcut over existing `integration.context.why` and `integration.writeback.propose`; it is separate from the parity-tool list above and adds no HTTP route. Use it after completed work produces a useful lesson or revised summary. Draft with the existing host's normal reasoning; MNO initiates no additional model call, reflection worker, or automatic lifecycle hook.
+
+| Argument | Contract |
+| --- | --- |
+| `session_id`, `run_id` | Required existing integration scope |
+| `idempotency_key` | Required replay identity for the existing proposal queue |
+| `text` | Required non-empty host-authored draft |
+| `evidence_ids` | Required non-empty array of existing source record IDs |
+| `kind` | Optional `lesson` (default) or `summary` |
+| `request_id`, `principal` | Optional existing integration envelope fields; credentials remain authoritative |
+
+Example tool call:
+
+```json
+{
+  "name": "integration.learning.propose",
+  "arguments": {
+    "session_id": "session_local_1",
+    "run_id": "run_local_1",
+    "idempotency_key": "launch-lesson-001",
+    "kind": "lesson",
+    "text": "Confirm the actual launch date before announcing a day.",
+    "evidence_ids": ["existing-evidence-id"]
+  }
+}
+```
+
+Replace the example ID with evidence returned by MNO. Every source must resolve to an existing excerpt and message citation. The shortcut retains one primary citation per source record, with the record ID available for further expansion. Missing support creates no draft. Idempotent replay returns the original proposal rather than adding another.
+
+The tool requires operator/admin role, MCP mutations enabled (the existing `--mutations-enabled` launcher setting), and an authorized available runtime proposal path. It returns the existing writeback result with `status: "pending_review"` and `learning_draft` metadata (`kind`, `authored_by: "host_agent"`, `source_refs`). Authorship and evidence excerpts/citations also persist in the existing proposal metadata. Host text is a derived draft, not independent evidence or a reinforcement of its sources.
+
+The shortcut never resolves/applies its proposal. A human holding separate `review_apply` authority can use the existing resolve path; apply creates only an evidence atom, with the normal build/review/publish/verify/activate gates still required for canonical memory. The run-bound HCR profile does not expose this runtime tool. Hermes automatic capture stays separate and its dedicated adapter token cannot propose learning drafts. MNO v0.3.0 adds no native OpenClaw hook.
+
+## Answer claims and brief support
+
+`integration.context.build` accepts optional non-empty `answer_claims`. Read `service_verdict` and the compact `agent_context.verification`: retrieved-pack support (`scope: "retrieved_evidence"`) is different from checking explicit statements (`scope: "answer_claims"`). Unverified statements abstain, with bounded labeled canonical `related_text` for inspection. Compact verification survives the context diet; no inference model or new dependency is added. Full details: [packet API](API.md#answer-claims-and-verification).
+
+`explore.anchor_brief` is extractive and returns `summary_support` for the actual selected source row, with its reference first in `citation_refs`. Runtime anchor briefs and wake-up-pack anchor briefs use the same support mapping. The legacy aggregate `confidence` remains; use `summary_support.confidence` for the selected row. `summary_support` is null when no source text was selected; do not treat a fallback label as evidence. This is source-bound exploration, not generated or newly reviewed truth.
+
 ## Work-session scratchpad
 
 WSS is built-in runtime helper state for strict-scope v2 context packages. It may appear as `work_session_context` with trust tier `scratchpad_ephemeral` when a runtime context-package path has stable project/thread/workstream scope.

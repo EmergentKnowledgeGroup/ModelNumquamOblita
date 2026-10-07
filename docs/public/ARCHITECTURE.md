@@ -102,6 +102,20 @@ The design goal is not to maximize the number of signals. The goal is to recover
 
 Authority families are ordered: `human_reviewed_canonical` → `evidence_atom` → `provisional`. Within the provisional family, consolidated artifacts outrank direct observations for retrieval, while `observed → reinforced → consolidated` remains the separate maturity axis. No model-autonomous transition crosses into evidence or canonical authority. STM and WSS sit outside this order as scoped helper context, not evidence.
 
+## Lean packet, learning, and summary seams
+
+MNO v0.3.0 inserts three bounded changes into existing surfaces:
+
+| Seam | Behavior | Boundary |
+| --- | --- | --- |
+| V2 context packet → host | Compact verification retains `decision`, `scope`, and `answer_status` through the context diet; optional `answer_claims` matches eligible canonical wording | Retrieved support is not answer certification; unverified claims abstain; labeled related canonical text remains bounded to 320 characters |
+| Completed host work → existing writeback queue | MCP `integration.learning.propose` resolves source IDs with `context.why` then queues a host-authored `lesson`/`summary` | Operator/admin and mutations enabled; pending human review only; derived text is not fresh independent evidence |
+| Existing anchor/wake-up brief → evidence | Extractive `summary_support` names the actual selected row and puts its reference first | Selected-row support confidence stays separate from legacy aggregate confidence; no generated or newly reviewed truth |
+
+No new model, runtime dependency, inference service, database, migration, daemon, or ranking lane is introduced. The host may draft during its normal work; MNO initiates no extra model call. Existing Hermes automatic capture remains separate and its credential cannot propose learning drafts; the release includes no native OpenClaw hook. The run-bound HCR profile and Review → Publish → Verify → Activate gates are unchanged.
+
+See [packet API](../API.md#answer-claims-and-verification), [MCP draft contract](../MCP_INTEGRATION.md#source-linked-learning-drafts), and [v0.3.0 release notes](../RELEASE_NOTES_v0.3.0.md).
+
 ## Temporal agency boundary
 
 The runtime can include a small per-turn envelope of server-clock facts: UTC/local time, IANA timezone provenance, safely known prior-turn timing, and bounded source-backed provisional future notes. This envelope is declarative data, not a behavioral prompt. MNO does not become a scheduler, calendar, daemon, notification system, model wake-up service, or action executor.

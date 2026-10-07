@@ -64,3 +64,11 @@ If memory is missing, weak, or ambiguous, ask for clarification or answer withou
 ```
 
 If OpenClaw supplies strict `work_session_scope` metadata to a context-package route, WSS can help resume the same work lane. It must remain work-continuity context only.
+
+## Lean release boundary
+
+This guide describes the existing HTTP compatibility shim and explicit sidecar loop. MNO v0.3.0 includes no native OpenClaw lifecycle adapter; the separately proposed native-hook work is not part of this release. MCP configuration alone does not create automatic capture.
+
+V2 HTTP/MCP context calls accept optional `answer_claims` to check eligible canonical wording. Read the verdict's scope: retrieved evidence is not certification of OpenClaw's proposed answer. Compact `agent_context.verification` survives its context budget; unsupported statements abstain with labeled bounded related text for inspection. See [packet API](../API.md#answer-claims-and-verification).
+
+An explicit MCP host may use `integration.learning.propose` for a useful source-linked host-authored lesson or summary after completed work. It needs operator/admin authority and mutations enabled and stops at pending human review. HTTP clients can reuse existing why/propose operations. No new model, dependency, automatic hook, or canonical promotion is added. See [MCP draft workflow](../MCP_INTEGRATION.md#source-linked-learning-drafts).

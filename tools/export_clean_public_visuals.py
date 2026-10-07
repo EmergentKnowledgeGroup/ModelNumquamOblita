@@ -333,10 +333,10 @@ def runtime_integration() -> Diagram:
         Node("entry", "Desktop / integration-v1 / MCP\nHermes automatic turn adapter", 95, 210, 260, 100, "input"),
         Node("router", "Router + query shaping", 510, 150, 420, 90, "runtime"),
         Node("memory", "Memory candidate pool\nreviewed canonical + evidence atoms + provisional + ANN; STM/WSS are not evidence", 510, 300, 420, 130, "review"),
-        Node("evidence", "Context package + verifier\nbounded evidence; WSS scratchpad_ephemeral by strict active scope", 510, 500, 420, 120, "runtime"),
+        Node("evidence", "Context package + verifier\nclaim verdict; unknown claims abstain; scoped WSS stays helper context", 510, 500, 420, 120, "runtime"),
         Node("answer", "Answer / abstain / clarify\nwith evidence metadata", 1085, 180, 340, 110, "helper"),
         Node("why", "context.why\nexplain evidence IDs and citations", 1085, 360, 340, 100, "integration"),
-        Node("writeback", "Remember-this writeback\nreview_apply: create/edit → evidence; delete → tombstone; neither makes canonical truth", 1085, 540, 340, 110, "govern"),
+        Node("writeback", "Source-linked learning drafts\nhost lessons / summaries; human review before apply or publish", 1085, 540, 340, 110, "govern"),
     ]
     edges = [
         Edge("entry", "router", "#d6b656"),
@@ -366,8 +366,8 @@ def current_pipeline() -> Diagram:
         Node("drafts", "Draft episode cards\nagent curation stays draft-only", 510, 180, 280, 110, "helper"),
         Node("reviewed", "Human-reviewed cards\ncurrent/superseded lineage", 510, 390, 280, 120, "review"),
         Node("retrieval", "Runtime retrieval\nreviewed canonical > evidence atoms > provisional; helper context is separate", 930, 210, 280, 120, "runtime"),
-        Node("verifier", "Context package + verifier\nstrict active-scope WSS; answer, abstain, or clarify", 930, 450, 280, 120, "runtime"),
-        Node("api", "integration-v1 / MCP / desktop\ncontext.build → memory.observe; explicit writeback proposals", 1350, 300, 280, 150, "integration"),
+        Node("verifier", "Context package + verifier\nclaim support status; abstain when unverified; strict active-scope WSS", 930, 450, 280, 120, "runtime"),
+        Node("api", "integration-v1 / MCP / desktop\nexisting capture; source-linked host learning drafts; human review", 1350, 300, 280, 150, "integration"),
     ]
     edges = [
         Edge("source", "atoms", "#d6b656", source_side="bottom", target_side="top"),
@@ -392,10 +392,10 @@ def memory_decision() -> Diagram:
         Node("route", "Route + query shape", 350, 180, 250, 90, "runtime"),
         Node("retrieve", "Retrieve candidates\nreviewed canonical, evidence atoms, provisional; raw context if asked; STM/WSS only help continuity", 680, 150, 330, 130, "review"),
         Node("fusion", "Fusion + guarded shortlist\nrank, dedupe, support checks", 1090, 160, 320, 110, "runtime"),
-        Node("pack", "Context package\nbounded evidence; WSS scratchpad_ephemeral by strict active scope", 1090, 380, 320, 100, "runtime"),
-        Node("verify", "Verifier\nPASS / ABSTAIN / CLARIFY", 680, 390, 330, 100, "runtime"),
+        Node("pack", "Context package\nclaim verdict + bounded related text; scoped WSS stays helper context", 1090, 380, 320, 100, "runtime"),
+        Node("verify", "Verifier\nsubmitted claims: supported or unverified; unverified means abstain", 680, 390, 330, 100, "runtime"),
         Node("output", "Final output\nanswer text + evidence metadata", 350, 390, 250, 100, "helper"),
-        Node("proposal", "Explicit 'remember this'\nreview_apply: create/edit → evidence; delete → tombstone; not canonical truth", 680, 610, 330, 100, "govern"),
+        Node("proposal", "Learning / writeback drafts\nkeep sources; human review before apply; no automatic canonical truth", 680, 610, 330, 100, "govern"),
     ]
     edges = [
         Edge("turn", "route", "#d6b656"),

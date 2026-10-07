@@ -97,3 +97,11 @@ It should still explain:
 Label the HTTP operations exactly as `memory.source.register`, `memory.observe`, `memory.maintain`, `writeback.propose`, and `writeback.resolve`. `context.build` returns signed source-registration and retrieval-receipt handles when available; it stays read-only. The currently implemented MCP parity names are `integration.context.build`, `integration.context.why`, `integration.memory.source.register`, `integration.memory.observe`, `integration.memory.maintain`, `integration.writeback.propose`, and `integration.writeback.resolve` (plus capability/health tools). Do not depict unimplemented high-risk proposal-list/dismiss/bridge tools as shipped.
 
 Use this authority ordering in both views: human-reviewed canonical truth, evidence atom, consolidated provisional, observed provisional. `review_apply` is a human-only capability: applying create/edit materializes a `human_reviewed=false` evidence atom, while applying delete tombstones its target; neither action publishes canonical truth. WSS and STM are helper state, never evidence.
+
+## v0.3 lean context and learning inserts
+
+The current runtime seam accepts optional `answer_claims`. Whole eligible canonical text matches may be supported; other interpretations are `UNVERIFIED` and require abstention from a previously passing packet. Without submitted claims the scope remains retrieved evidence, not a checked answer. Related canonical excerpts use the existing 320-character limit and label truncation; they are not original-source quotations.
+
+The MCP-only `integration.learning.propose` shortcut uses the existing host agent and source IDs to draft a lesson or summary in the existing pending human-review queue. It adds no model, daemon, schema, or automatic promotion. Existing import, observation, human review, publish, verify, and activation paths retain their roles.
+
+MCP anchor briefs and runtime wake/resume briefs retain the selected row's source and confidence in `summary_support`; `summary_kind=extractive` distinguishes these bounded source selections from generated synthesis. The existing aggregate confidence and graph ranking remain unchanged. Pending learning drafts do not become recall-graph facts.

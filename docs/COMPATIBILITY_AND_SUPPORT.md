@@ -1,6 +1,6 @@
 # Compatibility and Support
 
-This is the public support contract for MNO v0.2.4.
+This is the maintained public support contract. MNO v0.3.0 inherits the v0.2.4 host/artifact baseline. Publication status and verified release artifacts are recorded in [GitHub Releases](https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases).
 
 ## Supported surfaces
 
@@ -57,3 +57,11 @@ Fresh installs and v0.2.1 upgrades expose compact server-clock facts by default.
 The adapter is designed to fail open and to observe only successful completed eligible turns. It supplies factual `mno.agent_context.v2` context before a turn and keeps automatic observations provisional. HCR curation and the ordinary human review/publish/activate gates remain unchanged.
 
 Native Windows with Python 3.12 has a real installed-Hermes proof for CLI and a Discord/gateway-shaped human turn, including interrupted-turn suppression. macOS and Linux installed-Hermes lifecycles remain unclaimed until the same proof runs there. MNO itself requires Python 3.12+; the copied stdlib-only plugin also has a standalone Python 3.11 import proof. Hermes v0.19.0's `messages.api_content` persistence/replay of augmented API-bound user content is a disclosed host behavior, not an MNO persistence guarantee.
+
+## Lean-memory compatibility
+
+Existing context callers can omit `answer_claims`. V2 HTTP and MCP context calls accept the optional string array and return additive verdict fields; compact `mno.agent_context.v2.verification` survives its context budget. Consumers must distinguish `retrieved_evidence` from `answer_claims` and honor `ABSTAIN`. This is deterministic canonical wording support, not a new semantic classifier.
+
+MCP `integration.learning.propose` is an operator/admin convenience tool with mutations enabled; it composes existing why/propose operations and stays pending human review. HTTP has no new learning endpoint. Existing Hermes automatic observation remains unchanged, and its restricted credential cannot submit learning drafts. OpenClaw/Nanobot compatibility envelopes remain available, but v0.3.0 includes no native OpenClaw lifecycle adapter. MCP configuration alone is not automatic capture.
+
+MCP/runtime extractive briefs add selected-row `summary_support`, with the selected reference first; legacy aggregate confidence is preserved. No new model or runtime dependency, migration, installer, or expanded OS support is implied. See [v0.3.0 release notes](RELEASE_NOTES_v0.3.0.md).

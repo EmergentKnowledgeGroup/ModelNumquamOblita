@@ -166,6 +166,14 @@ The arrow means authority, not a silent promotion path. Autonomous observation m
 
 Raw import and live observation are different lanes. Import starts from source material and materializes evidence atoms. `memory.observe` records a completed live turn only when its independent source evidence is bound by signed source registrations and, for assistant candidates, a signed retrieval receipt. Repeated retrieval, replay, quotation, or generated summaries are not independent evidence.
 
+## Lean runtime additions
+
+MNO v0.3.0 leaves the import/build/review/publish/verify/activate pipeline and retrieval/ranking stack intact. The existing v2 packet now preserves verification through the host context budget and optionally checks explicit `answer_claims` against eligible canonical wording. An unverified answer abstains while labeled bounded related evidence remains inspectable.
+
+After completed work, an authorized host can use MCP `integration.learning.propose` to resolve existing source IDs and queue a `lesson` or `summary` through existing writeback. It records host authorship and source metadata, stops at pending human review, and does not count derived text as new independent support. Existing automatic provisional observation stays separate; no background learning loop or extra model call is added.
+
+MCP/runtime anchor briefs and wake-up-pack briefs are extractive and identify the actual selected source row in `summary_support`. This read-time evidence brief is distinct from a host-authored revised-summary proposal and from a WSS helper summary. No summary crosses a review or authority boundary silently. See [packet API](API.md#answer-claims-and-verification) and [MCP workflow](MCP_INTEGRATION.md#source-linked-learning-drafts).
+
 ## Contract rule
 
 Draft, proposal, and runtime-helper artifacts do not become reviewed truth unless they pass the explicit human-controlled path.

@@ -98,10 +98,10 @@
         <mxCell id="n15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Lineage-aware read path&amp;#10;current reviewed truth beats older superseded reviewed cards" vertex="1">
           <mxGeometry height="80" width="250" x="750" y="315" as="geometry" />
         </mxCell>
-        <mxCell id="n16" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Answer / abstain / clarify&amp;#10;context package + verifier path stays in charge" vertex="1">
+        <mxCell id="n16" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Answer / abstain / clarify&#10;packet declares what was checked; unknown claims abstain" vertex="1">
           <mxGeometry height="80" width="250" x="750" y="435" as="geometry" />
         </mxCell>
-        <mxCell id="n17" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Proposal-only writeback&amp;#10;new memory proposals still go through governed review" vertex="1">
+        <mxCell id="n17" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Source-linked learning drafts&#10;host lessons and summaries enter existing human review queue" vertex="1">
           <mxGeometry height="70" width="250" x="750" y="555" as="geometry" />
         </mxCell>
         <mxCell id="n18" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" value="Desktop shell&amp;#10;operator UI and guided workspace" vertex="1">
@@ -247,7 +247,7 @@
         <mxCell id="rc" value="Provisional memory&amp;#10;observed / reinforced / consolidated; lower authority than evidence atoms" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" vertex="1" parent="1">
           <mxGeometry x="375" y="85" width="230" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="rd" value="Proposal-only store&amp;#10;high-risk captures that must not auto-enter retrievable truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" vertex="1" parent="1">
+        <mxCell id="rd" value="Proposal-only store&#10;source-linked host learning drafts; no automatic truth promotion" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" vertex="1" parent="1">
           <mxGeometry x="375" y="195" width="230" height="85" as="geometry" />
         </mxCell>
         <mxCell id="re" value="Continuity surfaces&amp;#10;pins, action log, wake-up pack, resume pack" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f7fff3;strokeColor=#6a9b58;" vertex="1" parent="1">
@@ -336,13 +336,13 @@
         <mxCell id="d7" value="Fusion + guarded shortlist&amp;#10;shared-rule ranking, support, and tie-breaks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
           <mxGeometry x="365" y="495" width="250" height="75" as="geometry" />
         </mxCell>
-        <mxCell id="d8" value="Context package assembly&amp;#10;bounded evidence + WSS only when strict active scope is present" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+        <mxCell id="d8" value="Context package assembly&#10;scoped evidence + claim verdict; WSS remains helper context" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="815" y="110" width="280" height="80" as="geometry" />
         </mxCell>
         <mxCell id="d9" value="Raw-context quote / provenance expansion&amp;#10;only for explicit wording or source-context requests" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="815" y="225" width="280" height="80" as="geometry" />
         </mxCell>
-        <mxCell id="d10" value="Verifier and answer path&amp;#10;PASS / ABSTAIN / CLARIFY / NO_MEMORY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+        <mxCell id="d10" value="Verifier and answer path&#10;unverified submitted claims ABSTAIN; related text is labeled" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
           <mxGeometry x="815" y="340" width="280" height="80" as="geometry" />
         </mxCell>
         <mxCell id="d11" value="Final output surface&amp;#10;answer text + memory cards + citations + why data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
@@ -351,7 +351,7 @@
         <mxCell id="d12" value="Post-turn memory.observe&amp;#10;signed source registration + retrieval receipt; low-risk provisional capture" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" vertex="1" parent="1">
           <mxGeometry x="1255" y="120" width="240" height="75" as="geometry" />
         </mxCell>
-        <mxCell id="d13" value="User ‘remember this’&amp;#10;writeback.propose; never raw import or silent publication" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" vertex="1" parent="1">
+        <mxCell id="d13" value="Source-linked learning / writeback&#10;host drafts lessons or summaries; human review before apply" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" vertex="1" parent="1">
           <mxGeometry x="1255" y="230" width="240" height="75" as="geometry" />
         </mxCell>
         <mxCell id="d14" value="Human review_apply resolve&amp;#10;apply creates human_reviewed=false evidence atom; publish still makes canonical truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#8b63b6;" vertex="1" parent="1">

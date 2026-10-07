@@ -81,6 +81,10 @@ WSS rows are non-authoritative. They may be useful context, but they never outra
 
 If an answer needs a memory claim, it still needs evidence outside WSS.
 
+## Keep summary types separate
+
+WSS's deterministic work-continuity summary remains `scratchpad_ephemeral`. The lean runtime's extractive anchor/wake-up brief is instead linked to its selected evidence row through `summary_support`. A host-authored revised summary submitted with `integration.learning.propose` is a pending review draft. Neither the new brief nor the proposal changes WSS authority or makes scratchpad text source evidence. See [MCP draft and brief contract](MCP_INTEGRATION.md#source-linked-learning-drafts).
+
 ## Configuration
 
 The live defaults are documented in [Configuration](CONFIGURATION.md#work-session-scratchpad). Operational config can disable WSS, and callers can explicitly suppress WSS for a package, but the product behavior is live-on for strict active-scope context packages.

@@ -24,7 +24,7 @@ The new MCP shortcut `integration.learning.propose` resolves existing source IDs
 
 First improve the bounded evidence brief so the chosen summary retains the references of its actual supporting row. Reuse setup, status and human handoff flows. A new daemon, general reflection engine or duplicate learning database is outside this design.
 
-`explore.anchor_brief` and runtime wake/resume briefs now return the selected extractive row's `summary_support` and puts that row's citation first. The legacy aggregate confidence field is retained; selected-row confidence is a separate support field. No generation, retriever replacement, or new index is introduced.
+`explore.anchor_brief` and runtime wake/resume briefs now return the selected source-selection row's `summary_support` and puts that row's citation first. The legacy aggregate confidence field is retained; selected-row confidence is a separate support field. No generation, retriever replacement, or new index is introduced.
 
 ## Proof and publication
 

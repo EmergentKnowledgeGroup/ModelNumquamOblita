@@ -14,6 +14,8 @@ def test_brief_keeps_the_source_of_its_selected_text(monkeypatch):
     assert result["citation_refs"][0] == "launch_source#m1"
     assert result["summary_support"]["source_ref"] == "launch_source#m1"
     assert result["summary_support"]["confidence"] == 0.9
+    assert result["summary_kind"] == "source_selection"
+    assert result["summary_support"]["scope"] == "selected_source"
     assert result["confidence"] == 0.1  # Preserve the legacy aggregate field.
 
 

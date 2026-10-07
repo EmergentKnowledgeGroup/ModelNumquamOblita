@@ -43,3 +43,8 @@ def test_an_independent_matching_item_can_support_without_combining_sources():
 
 def test_empty_claims_are_not_checked():
     assert check_answer_claims(None, _pack()) == {"status": "NOT_CHECKED", "checks": []}
+
+
+def test_short_term_helper_text_cannot_certify_an_answer():
+    pack = _pack(memory_layer="short_term", trust_tier="ephemeral")
+    assert check_answer_claims([pack.core[0].canonical_text], pack)["status"] == "UNVERIFIED"

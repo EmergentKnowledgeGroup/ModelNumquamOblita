@@ -6600,7 +6600,7 @@ def _anchor_summary_with_support(
             key=lambda item: _anchor_brief_candidate_score(item[0], label=label, source_kind=item[1]),
         )
         lead = selected[0]
-        support = {"source_kind": selected[1], "source_ref": str(selected[2].get("source_ref") or ""),
+        support = {"scope": "selected_source", "source_kind": selected[1], "source_ref": str(selected[2].get("source_ref") or ""),
                    "confidence": float(selected[2].get("confidence") or 0.0)}
     if not lead and candidates:
         lead = candidates[0][0]
@@ -6682,7 +6682,7 @@ def _build_runtime_anchor_brief_payload(
         "anchor_type": anchor_type,
         "label": _compact_text(label or anchor_id, max_chars=120),
         "brief": summary,
-        "summary_kind": "extractive",
+        "summary_kind": "source_selection",
         "summary_support": summary_support,
         "confidence": round(float(mean_confidence), 4),
         "citation_refs": citation_refs[:limit],
@@ -9143,13 +9143,25 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                             span_start=0,
                             span_end=max(1, min(len(candidate_text), 512)),
                         )
+                        source_refs = [source_ref]
+                        candidate_topics = []
+                        if target_kind == "learning_draft":
+                            kind = str(dict(mutation.get("body") or {}).get("draft_kind") or "lesson")
+                            candidate_text = f"Host-authored {kind} (derived): {candidate_text}"
+                            candidate_topics = ["learning_draft", "derived", kind]
+                            source_refs = [SourceRef(source_id=ref.split("#", 1)[0], message_id=ref.split("#", 1)[1])
+                                           for ref in dict.fromkeys(str(dict(row.get("citation") or {}).get("ref") or "")
+                                                                    for row in evidence) if "#" in ref]
+                            if not source_refs:
+                                raise IntegrationContractError(code="INVALID_INPUT", message="Learning drafts require message citations",
+                                    retryable=False, operator_action="provide_real_source_message_citations")
                         candidate = CandidateAtom(
                             candidate_id=f"cand_{uuid4().hex[:16]}",
                             atom_type=AtomType.EPISODE,
                             canonical_text=candidate_text,
-                            source_refs=[source_ref],
+                            source_refs=source_refs,
                             entities=[],
-                            topics=[],
+                            topics=candidate_topics,
                             confidence=max(0.0, min(1.0, float(dict(evidence[0]).get("confidence") or 0.5))),
                             salience=0.5,
                         )

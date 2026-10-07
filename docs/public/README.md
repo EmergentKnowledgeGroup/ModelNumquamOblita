@@ -33,7 +33,7 @@ Finding a relevant memory and verifying an answer are different jobs. The packet
 
 When an existing agent finishes useful work, it can propose a source-linked lesson or revised summary through MCP. MNO resolves the sources and queues a host-authored draft for human review. Existing automatic provisional capture stays separate; exposing an MCP tool does not create an automatic host hook. The release adds no native OpenClaw hook or extra model call.
 
-Extractive memory briefs now identify the source of the text actually selected, including runtime and wake-up-pack briefs. These additions reuse existing storage, retrieval, and human Review → Publish → Verify → Activate, with no new model or runtime dependency. For publication status, see [GitHub Releases](https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases) and [v0.3.0 release notes](../RELEASE_NOTES_v0.3.0.md).
+Source-selection memory briefs now identify the source of the text actually selected, including runtime and wake-up-pack briefs. These additions reuse existing storage, retrieval, and human Review → Publish → Verify → Activate, with no new model or runtime dependency. For publication status, see [GitHub Releases](https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases) and [v0.3.0 release notes](../RELEASE_NOTES_v0.3.0.md).
 
 Further reading:
 - [v0.2.1 release notes](../RELEASE_NOTES_v0.2.1.md)

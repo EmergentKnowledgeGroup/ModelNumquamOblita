@@ -83,7 +83,7 @@ If an answer needs a memory claim, it still needs evidence outside WSS.
 
 ## Keep summary types separate
 
-WSS's deterministic work-continuity summary remains `scratchpad_ephemeral`. The lean runtime's extractive anchor/wake-up brief is instead linked to its selected evidence row through `summary_support`. A host-authored revised summary submitted with `integration.learning.propose` is a pending review draft. Neither the new brief nor the proposal changes WSS authority or makes scratchpad text source evidence. See [MCP draft and brief contract](MCP_INTEGRATION.md#source-linked-learning-drafts).
+WSS's deterministic work-continuity summary remains `scratchpad_ephemeral`. The lean runtime's source-selection anchor/wake-up brief is instead linked to its selected evidence row through `summary_support`. A host-authored revised summary submitted with `integration.learning.propose` is a pending review draft. Neither the new brief nor the proposal changes WSS authority or makes scratchpad text source evidence. See [MCP draft and brief contract](MCP_INTEGRATION.md#source-linked-learning-drafts).
 
 ## Configuration
 

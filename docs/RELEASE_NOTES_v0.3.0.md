@@ -11,7 +11,7 @@ The context packet now keeps its verification verdict through the host's context
 
 MCP `integration.learning.propose` resolves existing source IDs and reuses the existing writeback queue for a host-authored `lesson` or revised `summary`. It requires operator/admin authority, mutations enabled, and the existing runtime proposal path. Supply `text`, `evidence_ids`, `idempotency_key`, `session_id`, and `run_id`; optional `kind` defaults to `lesson`. The draft remains pending human review, with authorship and source excerpts/citations persisted in existing proposal metadata. Missing source support creates no draft, and idempotent replay returns the existing proposal. There is no new HTTP endpoint.
 
-MCP/runtime anchor briefs and wake-up-pack briefs bind `summary_support` to the actual selected extractive row and put its source reference first. The legacy aggregate `confidence` is preserved; selected-row support confidence is a separate field. The local response composer also avoids certifying an incompatible alternative through token overlap and falls back to source-faithful recall.
+MCP/runtime anchor briefs and wake-up-pack briefs bind `summary_support` to the actual selected source-selection row and put its source reference first. The legacy aggregate `confidence` is preserved; selected-row support confidence is a separate field. The local response composer also avoids certifying an incompatible alternative through token overlap and falls back to source-faithful recall.
 
 ## Lean and compatible
 
@@ -29,3 +29,7 @@ The targeted packet, learning, summary, and nearby regression checks passed, and
 Use the existing setup/runtime commands. The support matrix inherits the v0.2.4 baseline and does not expand OS or desktop-installer claims. No data migration is introduced; the previous v0.2.4 package remains the release rollback baseline, with existing private runtime data handling unchanged.
 
 See [packet API](API.md#answer-claims-and-verification), [MCP draft workflow](MCP_INTEGRATION.md#source-linked-learning-drafts), [agent integration](AGENT_INTEGRATION.md), [compatibility](COMPATIBILITY_AND_SUPPORT.md), [distribution](../DISTRIBUTION.md), and [security/privacy](SECURITY_AND_PRIVACY.md#lean-packets-and-learning-drafts).
+
+Source-selection support has `scope: "selected_source"`: it identifies the selected memory row, not a verified original quotation or proof of every formatted/navigation phrase. Existing deterministic display formatting and next-hop labels remain. STM/WSS ephemeral helper text cannot certify an answer; eligible sourced records retain their existing authority tier, including provisional status where the existing gates permit it. This check never upgrades authority.
+
+Learning candidates retain a visible `Host-authored lesson (derived):` or `Host-authored summary (derived):` label, derived topics, and the real source/message references. Those fields survive ordinary human apply; the original proposal also retains the source/authorship metadata. Apply still produces an evidence atom rather than published canonical truth.

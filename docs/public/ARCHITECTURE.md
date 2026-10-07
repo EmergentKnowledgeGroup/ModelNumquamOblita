@@ -110,7 +110,7 @@ MNO v0.3.0 inserts three bounded changes into existing surfaces:
 | --- | --- | --- |
 | V2 context packet → host | Compact verification retains `decision`, `scope`, and `answer_status` through the context diet; optional `answer_claims` matches eligible canonical wording | Retrieved support is not answer certification; unverified claims abstain; labeled related canonical text remains bounded to 320 characters |
 | Completed host work → existing writeback queue | MCP `integration.learning.propose` resolves source IDs with `context.why` then queues a host-authored `lesson`/`summary` | Operator/admin and mutations enabled; pending human review only; derived text is not fresh independent evidence |
-| Existing anchor/wake-up brief → evidence | Extractive `summary_support` names the actual selected row and puts its reference first | Selected-row support confidence stays separate from legacy aggregate confidence; no generated or newly reviewed truth |
+| Existing anchor/wake-up brief → evidence | Source-selection `summary_support` names the actual selected row and puts its reference first | Selected-row support confidence stays separate from legacy aggregate confidence; no generated or newly reviewed truth |
 
 No new model, runtime dependency, inference service, database, migration, daemon, or ranking lane is introduced. The host may draft during its normal work; MNO initiates no extra model call. Existing Hermes automatic capture remains separate and its credential cannot propose learning drafts; the release includes no native OpenClaw hook. The run-bound HCR profile and Review → Publish → Verify → Activate gates are unchanged.
 

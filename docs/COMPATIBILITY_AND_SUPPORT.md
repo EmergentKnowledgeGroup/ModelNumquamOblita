@@ -64,4 +64,4 @@ Existing context callers can omit `answer_claims`. V2 HTTP and MCP context calls
 
 MCP `integration.learning.propose` is an operator/admin convenience tool with mutations enabled; it composes existing why/propose operations and stays pending human review. HTTP has no new learning endpoint. Existing Hermes automatic observation remains unchanged, and its restricted credential cannot submit learning drafts. OpenClaw/Nanobot compatibility envelopes remain available, but v0.3.0 includes no native OpenClaw lifecycle adapter. MCP configuration alone is not automatic capture.
 
-MCP/runtime extractive briefs add selected-row `summary_support`, with the selected reference first; legacy aggregate confidence is preserved. No new model or runtime dependency, migration, installer, or expanded OS support is implied. See [v0.3.0 release notes](RELEASE_NOTES_v0.3.0.md).
+MCP/runtime source-selection briefs add selected-row `summary_support`, with the selected reference first; legacy aggregate confidence is preserved. No new model or runtime dependency, migration, installer, or expanded OS support is implied. See [v0.3.0 release notes](RELEASE_NOTES_v0.3.0.md).

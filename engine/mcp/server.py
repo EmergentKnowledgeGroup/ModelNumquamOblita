@@ -3188,7 +3188,7 @@ class MCPServer:
                 key=lambda item: self._anchor_summary_candidate_score(item[0], label=label, source_kind=item[1]),
             )
             lead = selected[0]
-            support = {"source_kind": selected[1], "source_ref": str(selected[2].get("source_ref") or ""),
+            support = {"scope": "selected_source", "source_kind": selected[1], "source_ref": str(selected[2].get("source_ref") or ""),
                        "confidence": float(selected[2].get("confidence") or 0.0)}
         if not lead and candidates:
             lead = candidates[0][0]
@@ -3259,7 +3259,7 @@ class MCPServer:
             "status": str(expanded.get("status") or peek.get("status") or "insufficient_support").strip().lower(),
             "anchor": anchor,
             "summary": summary,
-            "summary_kind": "extractive",
+            "summary_kind": "source_selection",
             "summary_support": summary_support,
             "confidence": round(float(mean_confidence), 4),
             "top_snippets": snippets[:limit],

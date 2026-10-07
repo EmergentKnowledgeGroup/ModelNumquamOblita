@@ -75,7 +75,7 @@ The context packet now keeps its verification verdict through the host's context
 
 An existing host can turn useful completed work into a source-linked lesson or revised-summary draft with MCP `integration.learning.propose`. The shortcut resolves existing evidence and queues the draft for human review. MNO starts no extra model call or background learning task; automatic provisional capture remains a separate host integration.
 
-Extractive anchor briefs now identify the source row behind the selected summary. These additions reuse the existing retrieval and review surfaces, with no new model or runtime dependency and unchanged Review → Publish → Verify → Activate gates. See [v0.3.0 release notes](docs/RELEASE_NOTES_v0.3.0.md), [packet API](docs/API.md#answer-claims-and-verification), and [MCP draft workflow](docs/MCP_INTEGRATION.md#source-linked-learning-drafts).
+Source-selection anchor briefs now identify the source row behind the selected summary. These additions reuse the existing retrieval and review surfaces, with no new model or runtime dependency and unchanged Review → Publish → Verify → Activate gates. See [v0.3.0 release notes](docs/RELEASE_NOTES_v0.3.0.md), [packet API](docs/API.md#answer-claims-and-verification), and [MCP draft workflow](docs/MCP_INTEGRATION.md#source-linked-learning-drafts).
 
 ## 🔎 Retrieval Stack
 

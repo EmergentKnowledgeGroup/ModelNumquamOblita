@@ -34,6 +34,7 @@ def check_answer_claims(
             matching = next((
                 item for item in pack.core + pack.context
                 if item.conflict_state == "active"
+                and item.memory_layer != "short_term" and item.trust_tier != "ephemeral"
                 and _text_key(item.canonical_text) == claim_key
                 and any(ref.source_id and ref.message_id for ref in item.source_refs)
             ), None)

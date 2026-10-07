@@ -213,9 +213,9 @@ Related text is at most 320 characters and identifies omitted context with `trun
 
 MCP `integration.learning.propose` is a convenience composition of existing `context.why` and `writeback.propose`, not a new HTTP endpoint. It resolves existing `evidence_ids` and queues a host-authored `lesson` or `summary` for human review, preserving authorship and source metadata. HTTP clients may use the existing why/propose flow. See [MCP arguments and example](MCP_INTEGRATION.md#source-linked-learning-drafts).
 
-### Extractive anchor briefs
+### Source-selection anchor briefs
 
-MCP `explore.anchor_brief`, runtime anchor briefs, and wake-up-pack anchor briefs identify the actual selected source row in `summary_support`, label the summary `summary_kind: "extractive"`, and put its reference first. Selected-row support confidence is distinct from the preserved legacy aggregate `confidence`. `summary_support` is null when no source text was selected; a fallback label alone is not evidence. No generation, new model, or retrieval/ranking replacement is introduced.
+MCP `explore.anchor_brief`, runtime anchor briefs, and wake-up-pack anchor briefs identify the actual selected source row in `summary_support`, label the summary `summary_kind: "source_selection"`, and put its reference first. Selected-row support confidence is distinct from the preserved legacy aggregate `confidence`. `summary_support` is null when no source text was selected; a fallback label alone is not evidence. No generation, new model, or retrieval/ranking replacement is introduced.
 
 ### Work-Session Scratchpad In Context Packages
 
@@ -522,3 +522,7 @@ These are valid local/operator APIs, but not the primary public orchestration co
 - [MCP Integration](MCP_INTEGRATION.md)
 - [API Matrix](api/API_MATRIX.md)
 - [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md)
+
+Source-selection support has `scope: "selected_source"`: it identifies the selected memory row, not a verified original quotation or proof of every formatted/navigation phrase. Existing deterministic display formatting and next-hop labels remain. STM/WSS ephemeral helper text cannot certify an answer; eligible sourced records retain their existing authority tier, including provisional status where the existing gates permit it. This check never upgrades authority.
+
+Learning candidates retain a visible `Host-authored lesson (derived):` or `Host-authored summary (derived):` label, derived topics, and the real source/message references. Those fields survive ordinary human apply; the original proposal also retains the source/authorship metadata. Apply still produces an evidence atom rather than published canonical truth.

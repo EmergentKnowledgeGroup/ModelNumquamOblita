@@ -145,7 +145,7 @@ Example tool call:
 }
 ```
 
-Replace the example ID with evidence returned by MNO. Every source must resolve to an existing excerpt and message citation. The shortcut retains one primary citation per source record, with the record ID available for further expansion. Missing support creates no draft. Idempotent replay returns the original proposal rather than adding another.
+Replace the example ID with evidence returned by MNO. Every source must resolve to an existing excerpt and message citation. The shortcut retains one primary citation per source record, with the record ID available for further expansion. Missing support creates no draft. Replays of the same resolved evidence reuse the original proposal. Sources are resolved on every attempt; cache-only IDs may need a fresh context build after a runtime restart.
 
 The tool requires operator/admin role, MCP mutations enabled (the existing `--mutations-enabled` launcher setting), and an authorized available runtime proposal path. It returns the existing writeback result with `status: "pending_review"` and `learning_draft` metadata (`kind`, `authored_by: "host_agent"`, `source_refs`). Authorship and evidence excerpts/citations also persist in the existing proposal metadata. Host text is a derived draft, not independent evidence or a reinforcement of its sources.
 
@@ -155,7 +155,7 @@ The shortcut never resolves/applies its proposal. A human holding separate `revi
 
 `integration.context.build` accepts optional non-empty `answer_claims`. Read `service_verdict` and the compact `agent_context.verification`: retrieved-pack support (`scope: "retrieved_evidence"`) is different from checking explicit statements (`scope: "answer_claims"`). Unverified statements abstain, with bounded labeled canonical `related_text` for inspection. Compact verification survives the context diet; no inference model or new dependency is added. Full details: [packet API](API.md#answer-claims-and-verification).
 
-`explore.anchor_brief` is extractive and returns `summary_support` for the actual selected source row, with its reference first in `citation_refs`. Runtime anchor briefs and wake-up-pack anchor briefs use the same support mapping. The legacy aggregate `confidence` remains; use `summary_support.confidence` for the selected row. `summary_support` is null when no source text was selected; do not treat a fallback label as evidence. This is source-bound exploration, not generated or newly reviewed truth.
+`explore.anchor_brief` is source-selection and returns `summary_support` for the actual selected source row, with its reference first in `citation_refs`. Runtime anchor briefs and wake-up-pack anchor briefs use the same support mapping. The legacy aggregate `confidence` remains; use `summary_support.confidence` for the selected row. `summary_support` is null when no source text was selected; do not treat a fallback label as evidence. This is source-bound exploration, not generated or newly reviewed truth.
 
 ## Work-session scratchpad
 
@@ -211,3 +211,7 @@ Do not treat MCP as the only official contract if you are building a new orchest
 - [Configuration](CONFIGURATION.md)
 - [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md)
 - [Headless Curation Room](HEADLESS_CURATION_ROOM.md)
+
+Source-selection support has `scope: "selected_source"`: it identifies the selected memory row, not a verified original quotation or proof of every formatted/navigation phrase. Existing deterministic display formatting and next-hop labels remain. STM/WSS ephemeral helper text cannot certify an answer; eligible sourced records retain their existing authority tier, including provisional status where the existing gates permit it. This check never upgrades authority.
+
+Learning candidates retain a visible `Host-authored lesson (derived):` or `Host-authored summary (derived):` label, derived topics, and the real source/message references. Those fields survive ordinary human apply; the original proposal also retains the source/authorship metadata. Apply still produces an evidence atom rather than published canonical truth.

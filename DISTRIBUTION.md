@@ -71,6 +71,6 @@ The supported product pair is MNO Python 3.12+ with Hermes Agent v0.19.0. The co
 
 ## Lean memory distribution notes
 
-MNO v0.3.0 adds packet verification, a source-linked MCP draft shortcut, and extractive summary support using the existing Python runtime. It adds no model, inference service, runtime dependency, schema migration, or background worker. The supported artifact/host scope remains the v0.2.4 baseline; consult [GitHub Releases](https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases) for publication status and verified artifacts.
+MNO v0.3.0 adds packet verification, a source-linked MCP draft shortcut, and source-selection summary support using the existing Python runtime. It adds no model, inference service, runtime dependency, schema migration, or background worker. The supported artifact/host scope remains the v0.2.4 baseline; consult [GitHub Releases](https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases) for publication status and verified artifacts.
 
 Release checks must exercise optional `answer_claims` and compact verification, `integration.learning.propose` remaining pending human review with mutation policy enforced, and selected-summary source references. Keep learning drafts and their persisted evidence excerpts/citations private like other review-queue content; do not package them. The release includes the existing Hermes automatic adapter, with no native OpenClaw hook. See [v0.3.0 release notes](docs/RELEASE_NOTES_v0.3.0.md).

@@ -131,7 +131,8 @@ def test_runtime_brief_keeps_the_source_of_its_selected_text(route):
         assert status == 200
         brief = next(row for row in result["anchor_briefs"] if "not scheduled on Friday" in row["brief"])
         assert brief["citation_refs"][0] == "actual#actual_msg"
-        assert brief["summary_kind"] == "extractive"
+        assert brief["summary_kind"] == "source_selection"
+        assert brief["summary_support"]["scope"] == "selected_source"
         assert brief["summary_support"]["source_ref"] == "actual#actual_msg"
         assert brief["summary_support"]["confidence"] == 0.4
         assert brief["confidence"] == 0.97  # Preserve the existing aggregate field.
@@ -208,6 +209,10 @@ def test_host_learning_draft_uses_existing_review_queue_without_learning_its_own
         assert stored_draft["authored_by"] == "host_agent"
         assert stored_draft["sources"][0]["citation"]["ref"] == "launch_source#launch_msg"
         assert len(store.list_atoms()) == 1
+        draft_candidate = queue.list_pending()[0].replacement_candidate
+        assert draft_candidate.canonical_text.startswith("Host-authored lesson (derived): ")
+        assert [f"{ref.source_id}#{ref.message_id}" for ref in draft_candidate.source_refs] == ["launch_source#launch_msg"]
+        assert "derived" in draft_candidate.topics
         second = _mcp_call(mcp, 3, "tools/call", {"name": "integration.learning.propose", "arguments": args})
         assert second["result"]["structuredContent"]["data"]["proposal_id"] == result["data"]["proposal_id"]
         assert len(queue.list_pending()) == 1
@@ -241,6 +246,39 @@ def test_host_learning_draft_uses_existing_review_queue_without_learning_its_own
             assert len(reopened.list_atoms()) == 2
         finally:
             reopened.close()
+
+
+def test_human_applied_learning_keeps_derived_label_and_real_source(tmp_path):
+    store = SqliteAtomStore(tmp_path / "applied-learning.sqlite3")
+    atom = store.add_candidate(_candidate("launch", "We are not launching on Friday.", "launch_source"))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
+    queue = MutationReviewQueue(store)
+    http_server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=queue)
+    host, port = http_server.server_address
+    base = f"http://{host}:{port}"
+    mcp = MCPServer(config=ServerConfig(runtime_base_url=base, auth=AuthConfig(default_role="operator"), mutations_enabled=True),
+                    api_client=RuntimeApiClient(base_url=base))
+    try:
+        _mcp_call(mcp, 1, "initialize")
+        draft = _mcp_call(mcp, 2, "tools/call", {"name": "integration.learning.propose", "arguments": {
+            "session_id": "learning_session", "run_id": "learning_turn", "idempotency_key": "apply_learning_001",
+            "text": "Confirm the launch date before announcing it.", "evidence_ids": [atom.atom_id]}})
+        proposal_id = draft["result"]["structuredContent"]["data"]["proposal_id"]
+        status, result = _http_json(method="POST", url=f"{base}/api/integration/v1/writeback/resolve",
+            headers={"Authorization": "Bearer local-human-review-token"}, payload={"schema_version": "integration.v1",
+                "request_id": "req_LEARNINGAPPLY001", "session_id": "learning_session", "run_id": "learning_turn",
+                "data": {"proposal_id": proposal_id, "decision": "approve", "apply": True, "decided_by": "reviewer"}})
+        assert status == 200
+        applied = store.get_atom(result["data"]["applied_atom_id"])
+        assert applied.canonical_text.startswith("Host-authored lesson (derived): ")
+        assert "derived" in applied.topics
+        assert [f"{ref.source_id}#{ref.message_id}" for ref in applied.source_refs] == ["launch_source#launch_msg"]
+        assert json.loads(queue.get(proposal_id).metadata["learning_draft"])["authored_by"] == "host_agent"
+        assert result["data"]["authority_tier"] == "evidence_atom"
+        assert result["data"]["human_reviewed"] is False
+    finally:
+        stop_runtime_server(http_server, thread, runtime=runtime)
+        store.close()
 
 
 def test_integration_http_contract_idempotency_and_resolve_noop() -> None:

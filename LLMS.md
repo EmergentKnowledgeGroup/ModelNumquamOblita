@@ -56,11 +56,11 @@ See [API details](docs/API.md#answer-claims-and-verification).
 
 When completed work yields a reusable lesson or revised summary, the existing host may draft it during normal work and call MCP `integration.learning.propose` with `text`, `evidence_ids`, `idempotency_key`, `session_id`, and `run_id`. Optional `kind` is `lesson` (default) or `summary`.
 
-The shortcut resolves existing excerpts/citations and uses the existing writeback queue. It needs operator/admin authority and MCP mutations enabled; stop at `pending_review`. Authorship is `host_agent`, and source references remain in proposal metadata. A derived draft is not independent evidence and never reinforces its sources merely by repeating them. Missing source support creates no draft; idempotent replay returns the existing proposal.
+The shortcut resolves existing excerpts/citations and uses the existing writeback queue. It needs operator/admin authority and MCP mutations enabled; stop at `pending_review`. Authorship is `host_agent`, and source references remain in proposal metadata. A derived draft is not independent evidence and never reinforces its sources merely by repeating them. Missing source support creates no draft; replay of the same resolved evidence returns the existing proposal. Cache-only IDs must be refreshed if their runtime context cache is gone.
 
 MNO initiates no additional model call. Tool exposure is not an automatic learning hook: Hermes's existing automatic provisional observation is separate, and v0.3.0 includes no native OpenClaw hook. Human resolve/apply and the normal build/review/publish/verify/activate path remain required for higher authority. The run-bound HCR profile does not expose this runtime shortcut.
 
-For exploration, `explore.anchor_brief` and runtime anchor briefs use `summary_kind: "extractive"` and `summary_support` to identify the selected source row, with its reference first. Wake-up-pack anchor briefs use the same support mapping. The legacy aggregate `confidence` remains separate from the selected row's support confidence. An extractive brief is not a newly generated or reviewed summary.
+For exploration, `explore.anchor_brief` and runtime anchor briefs use `summary_kind: "source_selection"` and `summary_support` to identify the selected source row, with its reference first. Wake-up-pack anchor briefs use the same support mapping. The legacy aggregate `confidence` remains separate from the selected row's support confidence. An source-selection brief is not a newly generated or reviewed summary.
 
 See [MCP workflow](docs/MCP_INTEGRATION.md#source-linked-learning-drafts).
 
@@ -197,3 +197,7 @@ Use server time as the production clock. `now_utc`, `now_local`, `timezone`, `ti
 4. The optional heartbeat seam is exactly `memory.temporal.list` with `due_only=true`, `include_upcoming=false`, and `limit=3`. It is read-only. It does not keep anything awake, notify a person, wake a model, or perform an action.
 
 Due notes can appear even if lexical retrieval finds nothing. Reviewed canonical corrections stay first and authoritative; due provisional notes remain visibly provisional; dormant fallback is lower priority and only appears for explicit memory/history requests, a strong normalized cue, or an active-result miss. Use `context.why` or temporal `get` for details, not inference from an opaque ID.
+
+Source-selection support has `scope: "selected_source"`: it identifies the selected memory row, not a verified original quotation or proof of every formatted/navigation phrase. Existing deterministic display formatting and next-hop labels remain. STM/WSS ephemeral helper text cannot certify an answer; eligible sourced records retain their existing authority tier, including provisional status where the existing gates permit it. This check never upgrades authority.
+
+Learning candidates retain a visible `Host-authored lesson (derived):` or `Host-authored summary (derived):` label, derived topics, and the real source/message references. Those fields survive ordinary human apply; the original proposal also retains the source/authorship metadata. Apply still produces an evidence atom rather than published canonical truth.

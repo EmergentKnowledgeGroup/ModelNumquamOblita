@@ -172,7 +172,7 @@ MNO v0.3.0 leaves the import/build/review/publish/verify/activate pipeline and r
 
 After completed work, an authorized host can use MCP `integration.learning.propose` to resolve existing source IDs and queue a `lesson` or `summary` through existing writeback. It records host authorship and source metadata, stops at pending human review, and does not count derived text as new independent support. Existing automatic provisional observation stays separate; no background learning loop or extra model call is added.
 
-MCP/runtime anchor briefs and wake-up-pack briefs are extractive and identify the actual selected source row in `summary_support`. This read-time evidence brief is distinct from a host-authored revised-summary proposal and from a WSS helper summary. No summary crosses a review or authority boundary silently. See [packet API](API.md#answer-claims-and-verification) and [MCP workflow](MCP_INTEGRATION.md#source-linked-learning-drafts).
+MCP/runtime anchor briefs and wake-up-pack briefs are source-selection and identify the actual selected source row in `summary_support`. This read-time evidence brief is distinct from a host-authored revised-summary proposal and from a WSS helper summary. No summary crosses a review or authority boundary silently. See [packet API](API.md#answer-claims-and-verification) and [MCP workflow](MCP_INTEGRATION.md#source-linked-learning-drafts).
 
 ## Contract rule
 

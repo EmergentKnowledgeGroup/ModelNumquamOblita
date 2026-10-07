@@ -125,6 +125,14 @@ Typical `context.build` request:
 }
 ```
 
+## Packet verification
+
+V2 HTTP `context.build` accepts optional `data.answer_claims`, a non-empty array of non-empty strings. MCP `integration.context.build` accepts the same array as an argument. The check matches eligible active canonical memory wording with message citations; it does not infer paraphrases or use a new NLP model.
+
+Read `data.service_verdict` and the compact packet's top-level `verification` before using evidence. Both identify `decision`, `scope`, and `answer_status`. `scope: "retrieved_evidence"` checks the pack only; `scope: "answer_claims"` checks the requested statements. `UNVERIFIED` changes an otherwise passing decision to `ABSTAIN`. Existing non-pass gates remain in force. Compact verification survives the context diet even if evidence is dropped.
+
+Unverified packets can retain canonical `related_text`, bounded to 320 characters with `truncated` and `kind: "canonical_memory"`. Preserve authority/conflict labels; expand sources with `context.why` rather than calling the excerpt an original quotation. The local responder gives a fixed factual abstention and one clarification question; an external host owns its response policy and must honor the verdict. See [API details](API.md#answer-claims-and-verification).
+
 ## Work-session scratchpad context
 
 WSS, the work-session scratchpad, is MNO's built-in continuity helper for active agent work. It is live-on for v2 context packages when strict project/thread/workstream scope identity is present, and it appears as `work_session_context` with trust tier `scratchpad_ephemeral`.
@@ -154,13 +162,21 @@ Typical `writeback.propose` rules:
 - proposal only by default
 - no silent truth mutation
 
+## Optional source-linked draft learning
+
+A completed task may produce a useful lesson or revised summary during the host's normal reasoning. In a normal MCP runtime profile, call `integration.learning.propose` with existing `evidence_ids`, `text`, `idempotency_key`, `session_id`, and `run_id`; optional `kind` is `lesson` (default) or `summary`. The shortcut resolves `context.why` excerpts/citations and calls existing `writeback.propose`. It is MCP-only; HTTP clients can use those existing operations directly.
+
+The tool needs operator/admin authority, MCP mutations enabled, and an available authorized runtime proposal path. It persists host authorship/source metadata and stops at `pending_review`; it never resolves or applies the proposal. Derived text is not fresh independent support. Human review and subsequent build/review/publish/verify/activate gates remain authoritative.
+
+MNO starts no extra model call, background learning loop, or new store. Existing Hermes automatic provisional capture stays separate. MCP tool availability alone is not a native automatic hook; v0.3.0 does not include native OpenClaw capture. See [MCP draft contract](MCP_INTEGRATION.md#source-linked-learning-drafts).
+
 ## How the hot loop should look
 
 ### Engineering flow
 
 1. Start one runtime sidecar per assistant/profile/store.
 2. Call `capabilities` once at startup.
-3. Call `context.build` for each user turn when you want MNO evidence.
+3. Call `context.build` for each user turn when you want MNO evidence; inspect the verdict and its scope before making a memory claim.
 4. Feed `agent_context` into the agent prompt, or use `context_text` plus `evidence` if you need a custom wrapper.
 5. If needed, call `context.why` for audit/debug surfaces.
 6. After the turn, optionally call `memory.observe` with signed registration/receipt handles to capture low-risk provisional memory.
@@ -187,6 +203,7 @@ The payload has this shape:
 {
   "schema_version": "mno.agent_context.v2",
   "retrieval": {"route": "ltm_deep", "confidence": 0.82, "evidence_count": 1},
+  "verification": {"decision": "PASS", "scope": "retrieved_evidence", "answer_status": "NOT_CHECKED"},
   "facts": [
     {"kind": "evidence", "value": {"evidence_id": "...", "citations": ["..."]}},
     {"kind": "temporal_context", "value": {"schema_version": "mno.temporal-context.v1", "now_utc": "..."}}

@@ -665,12 +665,12 @@ def runtime_retrieval() -> Diagram:
         Node("retrieval", "Hybrid retrieval\nlexical, BM25, semantic, sequence, graph", 835, 230, 230, 98, "runtime"),
         Node("lineage", "Lineage-aware resolution\nprefer current reviewed truth", 835, 425, 230, 98, "review"),
         Node("shortlist", "Guarded shortlist\nbounded, deduped, evidence-ranked", 835, 620, 230, 98, "runtime"),
-        Node("package", "Context package\nevidence plus scratchpad_ephemeral WSS when strict active scope is present", 1205, 250, 250, 98, "evidence"),
+        Node("package", "Context package\nclaim verdict + related text; scoped WSS stays helper context", 1205, 250, 250, 98, "evidence"),
         Node("quote", "Quote / provenance expansion\nonly for exact wording asks", 1205, 445, 250, 98, "evidence"),
-        Node("verifier", "Verifier and answer path\nPASS, ABSTAIN, or CLARIFY", 1205, 640, 250, 98, "decision"),
+        Node("verifier", "Verifier and answer path\nunverified submitted claims abstain; retrieved evidence scope is explicit", 1205, 640, 250, 98, "decision"),
         Node("answer", "Final response\nanswer text plus evidence metadata", 1600, 225, 220, 96, "integration"),
         Node("why", "context.why\nIDs, citations, and reason trail", 1600, 430, 220, 96, "integration"),
-        Node("proposal", "Remember-this writeback\nreview_apply: create/edit → evidence; delete → tombstone; no canonical mutation", 1600, 635, 220, 96, "govern"),
+        Node("proposal", "Learning / writeback drafts\nsource-linked host lessons; human review before apply; no canonical mutation", 1600, 635, 220, 96, "govern"),
     ]
     edges = [
         Edge("turn", "query", "#b97818", source_side="bottom", target_side="top"),
@@ -783,8 +783,8 @@ def integration_contract() -> Diagram:
         Node("clients", "Agent or app client\norchestrator hot loop", 85, 605, 245, 82, "source"),
         Node("contract_bus", "integration-v1\ncontract bus", 376, 205, 96, 450, "bus", 10, True),
         Node("turn", "Turn request\ninput, mode, scope, memory policy", 485, 185, 270, 82, "integration"),
-        Node("context", "Context build\nread-only package plus signed registration/receipt; WSS only under strict active scope", 485, 315, 270, 82, "evidence"),
-        Node("propose", "Observe / writeback\nmemory.observe is provisional; review_apply create/edit → evidence, delete → tombstone", 485, 445, 270, 82, "govern"),
+        Node("context", "Context build\nread-only claim verdict + signed receipt; WSS stays strict-scope helper", 485, 315, 270, 82, "evidence"),
+        Node("propose", "Observe / writeback\nobserve stays provisional; source-linked host learning drafts await human review", 485, 445, 270, 82, "govern"),
         Node("health", "Health and metadata\ncapabilities, version, diagnostics", 485, 575, 270, 82, "store"),
         Node("session", "RuntimeSession\nmain entry and orchestration", 925, 210, 260, 92, "runtime"),
         Node("retrieval", "Retrieval engine\nmemory fusion and evidence assembly", 925, 375, 260, 96, "runtime"),
@@ -793,7 +793,7 @@ def integration_contract() -> Diagram:
         Node("adapters", "Compatibility adapters\nHermes: auto context → completed-turn provisional observe\nOpenClaw, Nanobot, generic", 1350, 385, 220, 134, "integration"),
         Node("response", "Answer / abstain / clarify\nsame evidence envelope", 1715, 230, 205, 92, "decision"),
         Node("why", "context.why\ntraceable IDs and citations", 1715, 405, 205, 86, "integration"),
-        Node("writeback", "Proposal queue\noperator resolve before truth", 1715, 575, 205, 92, "govern"),
+        Node("writeback", "Proposal queue\nsource-linked learning drafts; human resolve before apply", 1715, 575, 205, 92, "govern"),
     ]
     edges = [
         Edge("desktop", "contract_bus", "#8b5fbf", target_pos=0.12),
@@ -854,8 +854,8 @@ def data_lineage() -> Diagram:
         Node("truth_family", "Truth lineage\ntruth_family_id, current flag, supersedes", 845, 575, 245, 96, "review"),
         Node("resolver", "Lineage resolver\ncurrent reviewed truth wins over superseded", 1220, 245, 245, 92, "review"),
         Node("pack", "Evidence pack\natom IDs, card IDs, quote refs", 1220, 440, 245, 92, "evidence"),
-        Node("verifier", "Verifier path\nclaim must stay supported by evidence", 1220, 635, 245, 92, "decision"),
-        Node("response", "Answer metadata\ncitations and abstain/clarify reason", 1595, 245, 245, 92, "integration"),
+        Node("verifier", "Verifier path\nsubmitted claim status explicit; unverified means abstain", 1220, 635, 245, 92, "decision"),
+        Node("response", "Answer metadata\nselected summary source + confidence; abstain/clarify reason", 1595, 245, 245, 92, "integration"),
         Node("why", "context.why\nreason trail from output back to source", 1595, 440, 245, 92, "integration"),
         Node("audit", "Audit and debug\ntrace cards, atoms, receipts, review choice", 1595, 635, 245, 92, "store"),
     ]

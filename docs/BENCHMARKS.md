@@ -59,6 +59,12 @@ They do not say: MNO has solved all long-term memory, all reasoning, or all answ
 
 That is why the repo separates source-support benchmarks from final answer scoring. The source-support layer is the foundation MNO needs before it can responsibly ask an answer model to speak.
 
+## Lean-memory v0.3.0 scope
+
+MNO v0.3.0 preserves the retrieval/ranking stack. Its optional `answer_claims` check establishes eligible canonical source-text support only; it does not add answer-level semantic scoring or reinterpret the April 8 retrieval aggregates above. Those historical runs have not been rerun for v0.3.0, and no answer-quality improvement is claimed from their scores.
+
+Packet, learning-draft, and selected-summary-source behavior is covered by targeted regression checks. Passing those checks is contract evidence, not a replacement benchmark. See [v0.3.0 release notes](RELEASE_NOTES_v0.3.0.md) and [the packet API](API.md#answer-claims-and-verification).
+
 ## Reproducing
 
 The public repo does not redistribute LongMemEval or LoCoMo data. The aggregate files above are public-safe reductions of local dev harness outputs; they are meant to prove the reported run without publishing raw benchmark content.

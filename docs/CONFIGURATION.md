@@ -192,7 +192,7 @@ Useful env vars for the HTTP integration contract:
 - `NO_INTEGRATION_SECRET_MANAGER_PROVIDER`
 - `NO_INTEGRATION_SECRET_MANAGER_COMMAND`
 
-### Planned Hermes adapter configuration
+### Hermes adapter configuration
 
 The optional v0.2.4 Hermes adapter uses `NO_INTEGRATION_HERMES_ADAPTER_TOKEN`, a dedicated credential whose server-side allow-list is only `health.get`, `capabilities.get`, `context.build`, and `memory.observe`. Install reads the value from the named environment variable and stores it in the ownership-checked adapter credential file so a supervised gateway need not inherit the install shell; neither command-line arguments nor `mno-memory.json` accept a bearer-token value.
 
@@ -218,6 +218,14 @@ Useful MCP env vars:
 - `NO_MCP_OPERATOR_TOKEN`
 - `NO_MCP_ADMIN_TOKEN`
 - `NO_MCP_STDIO_TRACE`
+
+## Lean-memory controls
+
+The lean additions introduce no new model configuration, dependency, worker, or database. Optional `answer_claims` is a v2 request field, not an always-on inference feature. Related canonical text reuses the existing 320-character evidence bound; compact verification stays within the existing host context diet.
+
+MCP `integration.learning.propose` requires operator/admin role and the existing `--mutations-enabled` launcher setting; mutations are disabled by default. The runtime's ordinary proposal authorization and capability state still apply. The tool queues only host-authored `lesson`/`summary` drafts using existing evidence IDs and review storage. Do not broaden the Hermes adapter token's four-operation scope to make it work; explicit authorized MCP use is separate from automatic capture.
+
+See [packet fields](API.md#answer-claims-and-verification) and [MCP draft arguments](MCP_INTEGRATION.md#source-linked-learning-drafts).
 
 ## Runtime helper surfaces
 

@@ -250,6 +250,17 @@ Exported integration bundles use `mno-runtime` and `mno-agent-mcp`. Install the 
 
 See [Compatibility and Support](COMPATIBILITY_AND_SUPPORT.md) for supported hosts and artifact boundaries.
 
+## Use lean memory after setup
+
+Use the same runtime and MCP launch commands. MNO v0.3.0 needs no additional model, runtime dependency, worker, or migration, and initial curation still requires human Review → Publish → Verify → Activate.
+
+1. Call capabilities and build context as usual. Read the packet's verdict and scope before making a memory claim; a passing retrieved pack is not verification of the host's answer.
+2. If you want to check explicit statements, pass optional `answer_claims` on a v2 HTTP/MCP context call. Eligible canonical wording can pass; unverified wording abstains with bounded related text for inspection. See [packet API](API.md#answer-claims-and-verification).
+3. If completed work yields a useful lesson or revised summary, the existing host may draft it during normal work and call MCP `integration.learning.propose` with existing evidence IDs. It needs operator/admin authority and mutations enabled, and stops at pending human review. See [arguments and example](MCP_INTEGRATION.md#source-linked-learning-drafts).
+4. When exploring anchor or wake-up-pack briefs, inspect `summary_support` for the source of the selected source-selection text; aggregate confidence remains a separate field.
+
+Automatic provisional capture remains the existing host integration, such as the optional Hermes plugin. Exposing the learning MCP tool alone does not add automatic lifecycle capture; v0.3.0 includes no native OpenClaw hook.
+
 ## What to read next
 
 - [Pipeline Guide](PIPELINE_GUIDE.md)

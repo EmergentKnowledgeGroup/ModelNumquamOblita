@@ -141,7 +141,17 @@ Example response:
   "data": {
     "context_text": "- Rollback checklist belongs with the launch plan.",
     "agent_context_format": "mno.agent_context.v2",
-    "agent_context": "{\"schema_version\":\"mno.agent_context.v2\",\"retrieval\":{\"route\":\"ltm_deep\",\"confidence\":0.82,\"evidence_count\":1},\"facts\":[{\"kind\":\"evidence\",\"value\":{\"evidence_id\":\"episode_card:ep_launch_plan\",\"summary\":\"Rollback checklist belongs with the launch plan.\",\"citations\":[\"conv_launch#m12\"]}}],\"truncation\":{\"truncated\":false}}",
+    "agent_context": "{\"schema_version\":\"mno.agent_context.v2\",\"retrieval\":{\"route\":\"ltm_deep\",\"confidence\":0.82,\"evidence_count\":1},\"facts\":[{\"kind\":\"evidence\",\"value\":{\"evidence_id\":\"episode_card:ep_launch_plan\",\"summary\":\"Rollback checklist belongs with the launch plan.\",\"citations\":[\"conv_launch#m12\"]}}],\"truncation\":{\"truncated\":false},\"verification\":{\"decision\":\"PASS\",\"scope\":\"retrieved_evidence\",\"answer_status\":\"NOT_CHECKED\"}}",
+    "service_verdict": {
+      "decision": "PASS",
+      "scope": "retrieved_evidence",
+      "answer_status": "NOT_CHECKED",
+      "answer_checks": [],
+      "citations": [
+        "conv_launch#m12"
+      ],
+      "unsupported_claims": []
+    },
     "route": "ltm_deep",
     "confidence": 0.82,
     "evidence": [
@@ -150,7 +160,9 @@ Example response:
         "section": "episode",
         "kind": "episode_card",
         "summary": "Rollback checklist belongs with the launch plan.",
-        "citations": ["conv_launch#m12"],
+        "citations": [
+          "conv_launch#m12"
+        ],
         "confidence": 0.9
       }
     ],
@@ -166,6 +178,44 @@ Example response:
 Use `agent_context` when you want the serialized neutral facts contract. Use `context_text` when your orchestrator already has its own memory wrapper. `agent_context` supplies facts; it never contains instructions for a model's behavior.
 
 `context.build` is read-only. In a SQLite runtime with integration handles available, it also returns a signed `source_registration` for the sanitized user message and a signed `retrieval_receipt`. They bind later observation to the authenticated principal, store, session/run, and the evidence actually retrieved; they are not memory writes.
+
+### Answer claims and verification
+
+V2 context build accepts optional `data.answer_claims` on HTTP and `answer_claims` on MCP `integration.context.build`:
+
+```json
+{"message": "Recall the launch date.", "answer_claims": ["We are not launching on Friday."]}
+```
+
+Omit the field for ordinary recall. When supplied, it must be a non-empty array of non-empty strings; invalid HTTP input returns `INVALID_INPUT`. Lower-level context-package callers must select `package_version: "v2"`.
+
+The deterministic check supports only eligible active canonical memory statements carrying message citations, after whitespace and terminal-period normalization. Case, word order, negation, and clause boundaries remain significant. It is a source-text match, not a natural-language inference classifier or a universal truth check. For example, a source saying “We are not launching on Friday” cannot support “We are launching on Friday” or “We are launching on Monday.” Unverified paraphrases remain unverified.
+
+| Returned field | Meaning |
+| --- | --- |
+| `data.service_verdict` | Full runtime verdict, including `decision`, `scope`, `answer_status`, `answer_checks`, and supporting citations |
+| parsed `data.agent_context.verification` | Compact `decision`, `scope`, and `answer_status`; preserved through the context diet |
+| `scope: "retrieved_evidence"` | Retrieved-pack verification only; no proposed-answer certification |
+| `scope: "answer_claims"` | The explicitly supplied statements were checked |
+| `answer_status` | `SUPPORTED`, `UNVERIFIED`, or `NOT_CHECKED`; an existing abstention is `UNVERIFIED` |
+
+An unsupported answer changes an otherwise passing verdict to `ABSTAIN`. Exact wording cannot override conflict or an existing non-pass gate. A passing retrieval pack alone never certifies an external model's answer.
+
+Unverified evidence rows can include:
+
+```json
+{"related_text": {"kind": "canonical_memory", "text": "We are not launching on Friday.", "truncated": false}}
+```
+
+Related text is at most 320 characters and identifies omitted context with `truncated`. It is stored canonical wording, not a verified quotation of an original message. Here “canonical” identifies the stored text; it does not change the record's authority tier to `human_reviewed_canonical`. Authority and conflict labels remain attached; full stored memory is preserved. Use `context.why` and citation/raw-context expansion to inspect sources. The local response contract returns “I do not have enough supported information to answer that. Could you clarify what you mean?” for an unverified abstention. External hosts must apply the verdict in their own response policy; `agent_context` remains declarative data.
+
+### Source-linked lesson and summary proposals
+
+MCP `integration.learning.propose` is a convenience composition of existing `context.why` and `writeback.propose`, not a new HTTP endpoint. It resolves existing `evidence_ids` and queues a host-authored `lesson` or `summary` for human review, preserving authorship and source metadata. HTTP clients may use the existing why/propose flow. See [MCP arguments and example](MCP_INTEGRATION.md#source-linked-learning-drafts).
+
+### Source-selection anchor briefs
+
+MCP `explore.anchor_brief`, runtime anchor briefs, and wake-up-pack anchor briefs identify the actual selected source row in `summary_support`, label the summary `summary_kind: "source_selection"`, and put its reference first. Selected-row support confidence is distinct from the preserved legacy aggregate `confidence`. `summary_support` is null when no source text was selected; a fallback label alone is not evidence. No generation, new model, or retrieval/ranking replacement is introduced.
 
 ### Work-Session Scratchpad In Context Packages
 
@@ -472,3 +522,7 @@ These are valid local/operator APIs, but not the primary public orchestration co
 - [MCP Integration](MCP_INTEGRATION.md)
 - [API Matrix](api/API_MATRIX.md)
 - [Work-Session Scratchpad](WORK_SESSION_SCRATCHPAD.md)
+
+Source-selection support has `scope: "selected_source"`: it identifies the selected memory row, not a verified original quotation or proof of every formatted/navigation phrase. Existing deterministic display formatting and next-hop labels remain. STM/WSS ephemeral helper text cannot certify an answer; eligible sourced records retain their existing authority tier, including provisional status where the existing gates permit it. This check never upgrades authority.
+
+Learning candidates retain a visible `Host-authored lesson (derived):` or `Host-authored summary (derived):` label, derived topics, and the real source/message references. Those fields survive ordinary human apply; the original proposal also retains the source/authorship metadata. Apply still produces an evidence atom rather than published canonical truth.

@@ -43,3 +43,5 @@ python tools/export_architecture_visuals.py --strict
 - `docs/visuals/exports/clean/` is the caveman-friendly public explanation layer.
 - `docs/visuals/exports/architecture/` is the engineer-facing architecture layer.
 - `docs/visuals/exports/` contains literal page exports from the canonical draw.io files.
+
+The v0.3 runtime labels show claim-specific verification and abstention plus source-linked host learning drafts in the existing human-review queue. Summary support follows the selected source; pending drafts do not become recall-graph evidence. No new model or background learner is depicted.

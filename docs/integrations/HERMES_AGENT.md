@@ -53,3 +53,9 @@ For a reproducible adapter defect, save `mno-hermes doctor --json`, then run `mn
 The adapter is designed and tested against the pinned Hermes v0.19.0 lifecycle. Native Windows with Python 3.12 has a real installed-Hermes proof for CLI and a Discord/gateway-shaped human turn. Other operating systems remain unclaimed until the same installed lifecycle proof runs there. MNO requires Python 3.12+; the copied stdlib-only plugin has an additional standalone Python 3.11 import proof. Standalone loopback MNO operation does not require MCP.
 
 For generic, explicit orchestration, `integration-v1` remains the stable public contract. See [Agent Integration](../AGENT_INTEGRATION.md) and [API](../API.md).
+
+## Lean packet and draft compatibility
+
+MNO v0.3.0 preserves the existing automatic context/observation lifecycle, dedicated four-operation credential scope, and provisional authority. The injected packet now keeps compact `verification` through its context budget. A passing verdict with `scope: "retrieved_evidence"` is pack support, not certification of Hermes's answer; an explicit v2 `answer_claims` check can verify eligible canonical wording and abstains on unsupported statements. See [packet API](../API.md#answer-claims-and-verification).
+
+The new MCP `integration.learning.propose` is a separate explicit workflow for a host-authored source-linked lesson or revised summary. It requires authorized operator/admin access and mutations enabled; the adapter credential cannot call it. It stops at pending human review. Hermes's automatic observer does not automatically submit these drafts, and installing MCP alone does not add a learning lifecycle hook. MNO initiates no extra model call or dependency. See [MCP draft workflow](../MCP_INTEGRATION.md#source-linked-learning-drafts).

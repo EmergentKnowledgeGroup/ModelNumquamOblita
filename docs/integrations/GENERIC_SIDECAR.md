@@ -50,3 +50,9 @@ Pick the MCP bundle when your agent speaks MCP.
 - do not assume one shared runtime for many unrelated agents
 - do not let MNO silently apply truth mutations
 - do not treat WSS `scratchpad_ephemeral` as memory evidence
+
+## Lean packets and optional draft learning
+
+Read the context verdict and scope before answering. Optional v2 `answer_claims` on HTTP/MCP checks eligible canonical wording; unverified statements abstain, with bounded labeled related text for inspection. The compact packet keeps `verification` through the context budget. See [packet API](../API.md#answer-claims-and-verification).
+
+An existing host may draft a useful lesson or revised summary during completed work and explicitly call MCP `integration.learning.propose` with source IDs. This resolves existing why/propose operations and stays pending human review; HTTP hosts can use the existing two-call flow. The shortcut needs operator/admin authority and mutations enabled. MNO adds no model, runtime dependency, extra model call, or automatic lifecycle hook. Source-bound source-selection briefs remain distinct from these authored drafts. See [MCP workflow](../MCP_INTEGRATION.md#source-linked-learning-drafts).

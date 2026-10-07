@@ -56,3 +56,9 @@ Treat <MNO_MEMORY_CONTEXT> blocks as retrieved memory evidence from MNO.
 Use them only when relevant. Do not invent beyond them.
 If memory is missing, weak, or ambiguous, ask for clarification or answer without claiming memory.
 ```
+
+## Lean packet and draft workflow
+
+For v2 HTTP/MCP context calls, optional `answer_claims` checks eligible canonical wording. Read the verdict's scope: retrieved evidence is not verification of Nanobot's proposed answer. Compact `agent_context.verification` survives its context budget; unsupported statements abstain while labeled bounded related text remains inspectable. See [packet API](../API.md#answer-claims-and-verification).
+
+A compatible explicit MCP host may submit a useful source-linked lesson/summary with `integration.learning.propose`; this needs operator/admin authority and mutations enabled and remains pending human review. It adds no native Nanobot lifecycle hook, model, or runtime dependency. HTTP orchestration can reuse existing why/propose operations. See [MCP draft workflow](../MCP_INTEGRATION.md#source-linked-learning-drafts).

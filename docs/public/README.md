@@ -25,7 +25,15 @@ Core pieces:
 
 Truth order is simple: human-reviewed canonical truth wins; evidence atoms remain source-backed substrate; provisional memory is labeled and revisable. A work-session scratchpad or short-term session context can help an agent continue work, but neither is evidence.
 
-For Hermes Agent v0.19.0, the optional v0.2.3 plugin makes ordinary memory flow automatic: factual MNO context goes in before an eligible human turn, and only a successful completed turn is offered to provisional memory afterward. The plugin cannot approve its own memory or bypass HCR/human review.
+For Hermes Agent v0.19.0, the optional plugin inherited from v0.2.4 makes ordinary memory flow automatic: factual MNO context goes in before an eligible human turn, and only a successful completed turn is offered to provisional memory afterward. The plugin cannot approve its own memory or bypass HCR/human review.
+
+## Lean memory, plainly (v0.3.0)
+
+Finding a relevant memory and verifying an answer are different jobs. The packet now preserves which job was checked. A host can supply explicit proposed statements; eligible canonical wording can pass, while unsupported interpretations abstain and retain related source context for inspection. This is a small deterministic source check, not another language model.
+
+When an existing agent finishes useful work, it can propose a source-linked lesson or revised summary through MCP. MNO resolves the sources and queues a host-authored draft for human review. Existing automatic provisional capture stays separate; exposing an MCP tool does not create an automatic host hook. The release adds no native OpenClaw hook or extra model call.
+
+Source-selection memory briefs now identify the source of the text actually selected, including runtime and wake-up-pack briefs. These additions reuse existing storage, retrieval, and human Review → Publish → Verify → Activate, with no new model or runtime dependency. For publication status, see [GitHub Releases](https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases) and [v0.3.0 release notes](../RELEASE_NOTES_v0.3.0.md).
 
 Further reading:
 - [v0.2.1 release notes](../RELEASE_NOTES_v0.2.1.md)

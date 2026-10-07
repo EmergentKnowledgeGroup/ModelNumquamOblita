@@ -66,6 +66,10 @@ This profile is bound to one run and exposes only eight draft-curation tools:
 
 Supplying a different `run_id` fails. Hidden tools also fail if called directly. The agent cannot force-release another curator, promote a proposal into review truth, publish, verify, activate, install integrations, or call unrelated memory/chat/admin tools through this profile.
 
+## Runtime learning drafts remain separate
+
+The normal runtime MCP shortcut `integration.learning.propose` queues source-linked host-authored lessons or summaries through the existing writeback review queue. It does not add a ninth HCR tool and is unavailable in this run-bound profile. HCR card proposals, runtime writeback drafts, and authoritative human review remain distinct. A runtime learning draft cannot bypass the initial curation wall or Publish → Verify → Activate. See [MCP draft workflow](MCP_INTEGRATION.md#source-linked-learning-drafts).
+
 ## Human workflow
 
 The local browser room shows the existing MNO authority path in a focused form:

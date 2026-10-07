@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2f7d4f?style=for-the-badge"></a>
-  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases/tag/v0.2.4"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
+  <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases/latest"><img alt="Releases" src="https://img.shields.io/github/v/release/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=release"></a>
   <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge"></a>
   <a href="https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/EmergentKnowledgeGroup/ModelNumquamOblita?style=for-the-badge&label=ask"></a>
 </p>
@@ -68,6 +68,14 @@ It can start from raw files and folders, or from an existing MNO store.
 - **Abstention is allowed:** weak support should produce restraint, not confident fiction.
 - **Local integrations are practical:** use the desktop shell, HTTP runtime, MCP server, or `integration-v1` contract.
 - **Headless setup has a real review handoff:** `mno-curate` opens one local Headless Curation Room (HCR) when an agent reaches the pre-activation curation wall.
+
+## Lean memory improvements (v0.3.0)
+
+The context packet now keeps its verification verdict through the host's context budget. A retrieval match establishes source support; an optional `answer_claims` array checks proposed statements against eligible canonical memory wording. Unverified statements produce `ABSTAIN` while related canonical excerpts remain available for inspection. This deterministic check does not infer paraphrases or certify that a source is universally true.
+
+An existing host can turn useful completed work into a source-linked lesson or revised-summary draft with MCP `integration.learning.propose`. The shortcut resolves existing evidence and queues the draft for human review. MNO starts no extra model call or background learning task; automatic provisional capture remains a separate host integration.
+
+Source-selection anchor briefs now identify the source row behind the selected summary. These additions reuse the existing retrieval and review surfaces, with no new model or runtime dependency and unchanged Review → Publish → Verify → Activate gates. See [v0.3.0 release notes](docs/RELEASE_NOTES_v0.3.0.md), [packet API](docs/API.md#answer-claims-and-verification), and [MCP draft workflow](docs/MCP_INTEGRATION.md#source-linked-learning-drafts).
 
 ## 🔎 Retrieval Stack
 
@@ -155,7 +163,7 @@ MNO can:
 
 The main public integration boundary is `integration-v1`.
 
-MCP is available when you want tool-style local agent integration. Compatibility adapters also exist for `reference`, `openclaw`, and `nanobot`; v0.2.3 adds an optional automatic turn adapter for Hermes Agent v0.19.0.
+MCP is available when you want tool-style local agent integration. Compatibility adapters exist for `reference`, `openclaw`, and `nanobot`. The optional Hermes Agent v0.19.0 plugin provides automatic turn capture; v0.3.0 adds no native OpenClaw lifecycle hook. MCP availability alone does not make a host integration automatic.
 
 ## 🚫 What It Does Not Promise
 
@@ -327,6 +335,7 @@ Engineer-facing diagrams:
 
 ## 📦 Release Metadata
 
+- [v0.3.0 Lean Memory Release Notes](docs/RELEASE_NOTES_v0.3.0.md)
 - [v0.2.1 Release Notes](docs/RELEASE_NOTES_v0.2.1.md)
 - [v0.2.2 Temporal Agency Notes](docs/RELEASE_NOTES_v0.2.2.md)
 - [v0.2.4 Hermes supervised-gateway fix](docs/RELEASE_NOTES_v0.2.4.md)

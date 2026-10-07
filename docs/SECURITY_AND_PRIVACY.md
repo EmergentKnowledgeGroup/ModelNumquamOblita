@@ -99,6 +99,14 @@ Writeback is propose/resolve gated. With explicit reviewer `review_apply`, an ap
 
 Autonomous observed/reinforced/consolidated provisional memory remains revisable and lower authority than evidence atoms and human-reviewed canonical truth. Decay can demote provisional retrieval eligibility but must preserve its lineage; it does not delete evidence or canonical memory.
 
+## Lean packets and learning drafts
+
+Packet verdicts certify source support only within their declared scope. Preserve `ABSTAIN`, authority/conflict labels, and the difference between bounded canonical `related_text` and original-message quotations. Related excerpts and selected-summary source references can expose private memory; apply the same retention/access policy as existing evidence surfaces.
+
+MCP `integration.learning.propose` needs operator/admin authority, mutations enabled, and an authorized runtime proposal path. It resolves existing excerpts/citations and stores host authorship/source metadata in the existing review proposal; no new learning store or inference runtime is introduced. Draft text and persisted source excerpts remain private review data. The shortcut never resolves, applies, publishes, or changes review decisions. Human `review_apply` and the normal canonical pipeline remain authoritative.
+
+The Hermes adapter credential remains limited to health, capabilities, context build, and provisional observation; it cannot propose learning drafts. Derived lessons and summaries do not become independent support for their own sources. Automatic capture remains separate, and MCP availability alone does not create a native host hook.
+
 ## Deployment Warnings
 
 Before using MNO outside a local workstation:

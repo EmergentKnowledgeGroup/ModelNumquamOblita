@@ -1,5 +1,14 @@
 # Human Changelog
 
+## v0.3.0 — lean packets, source-linked drafts, and briefs
+
+- Preserves the packet verification verdict and scope through the host context budget. Optional `answer_claims` check eligible canonical wording; unverified claims abstain and retain labeled bounded related text for inspection.
+- Adds MCP `integration.learning.propose`, a shortcut that resolves existing sources and queues a host-authored lesson or summary for human review. Automatic provisional capture stays separate; MNO starts no extra model call.
+- Binds MCP/runtime anchor briefs and wake-up-pack briefs to the source row actually selected for the source-selection summary, without changing ranking or legacy aggregate confidence.
+- Adds no model, runtime dependency, background service, schema migration, or native OpenClaw hook. Review, Publish, Verify, and Activate retain their existing authority.
+
+Publication status and verified artifacts are recorded in [GitHub Releases](https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases). See [v0.3.0 release notes](RELEASE_NOTES_v0.3.0.md).
+
 ## v0.2.4 — Hermes supervised-gateway credential fix (2026-07-29)
 
 - Removed the Hermes gateway's dependence on inheriting the install shell's adapter token.

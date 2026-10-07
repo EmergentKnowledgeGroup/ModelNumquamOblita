@@ -41,6 +41,7 @@ from ..ingest import summarize_source_input
 from ..ingest.parser import ConversationIngestor
 from ..memory import AtomStatus, DecisionConflictError, MutationReviewQueue, ProposalStatus, SqliteAtomStore
 from ..memory.content_safety import SecretDetectedError, assert_safe_content
+from ..retrieval.answer_support import normalize_answer_claims
 from .adapters import AdapterRegistry, build_default_registry
 from .methodology import (
     build_operator_readout,
@@ -4413,6 +4414,14 @@ def _quicknote_usage_guide_payload() -> dict[str, Any]:
             "Batch quicknotes with memory.quicknote.propose_batch when possible.",
             "Use explore.whats_new before deep exploration to avoid redundant calls.",
         ],
+        "learning_drafts": {
+            "tool": "integration.learning.propose",
+            "authorship": "host_agent",
+            "authority": "pending_human_review",
+            "when": "After completed work yields a useful reusable lesson or revised summary; skip routine turns.",
+            "sources": "Existing MNO evidence IDs; the shortcut resolves their excerpts and citations.",
+            "processing": "Use the host's normal reasoning. No additional model call, inference service or MNO background learning task.",
+        },
     }
 
 
@@ -6566,22 +6575,33 @@ def _anchor_summary_text(
     connected: list[Mapping[str, Any]],
     next_hops: list[Mapping[str, Any]],
 ) -> str:
-    candidates: list[tuple[str, str]] = []
+    return _anchor_summary_with_support(label=label, snippets=snippets, connected=connected, next_hops=next_hops)[0]
+
+
+def _anchor_summary_with_support(
+    *, label: str, snippets: list[Mapping[str, Any]],
+    connected: list[Mapping[str, Any]], next_hops: list[Mapping[str, Any]],
+) -> tuple[str, dict[str, Any] | None]:
+    candidates: list[tuple[str, str, Mapping[str, Any]]] = []
     for row in snippets:
         sentence = _anchor_brief_evidence_sentence(row.get("snippet"), max_chars=220)
         if sentence:
-            candidates.append((sentence, "snippet"))
+            candidates.append((sentence, "snippet", row))
     for row in connected:
         sentence = _anchor_brief_evidence_sentence(row.get("summary"), max_chars=220)
         if sentence:
-            candidates.append((sentence, "connected"))
+            candidates.append((sentence, "connected", row))
 
     lead = ""
+    support = None
     if candidates:
-        lead = max(
+        selected = max(
             candidates,
             key=lambda item: _anchor_brief_candidate_score(item[0], label=label, source_kind=item[1]),
-        )[0]
+        )
+        lead = selected[0]
+        support = {"scope": "selected_source", "source_kind": selected[1], "source_ref": str(selected[2].get("source_ref") or ""),
+                   "confidence": float(selected[2].get("confidence") or 0.0)}
     if not lead and candidates:
         lead = candidates[0][0]
     if not lead:
@@ -6605,7 +6625,7 @@ def _anchor_summary_text(
             lead = f"{lead} Linked to {hop_labels[0]} and {hop_labels[1]}."
         else:
             lead = f"{lead} Linked to {hop_labels[0]}, {hop_labels[1]}, and {hop_labels[2]}."
-    return _compact_text(f"{label}: {lead}".strip(), max_chars=320)
+    return _compact_text(f"{label}: {lead}".strip(), max_chars=320), support
 
 
 def _build_runtime_anchor_brief_payload(
@@ -6649,17 +6669,21 @@ def _build_runtime_anchor_brief_payload(
         if source_ref and source_ref not in citation_refs:
             citation_refs.append(source_ref)
     mean_confidence = sum(evidence_confidence) / len(evidence_confidence) if evidence_confidence else 0.0
-    summary = _anchor_summary_text(
+    summary, summary_support = _anchor_summary_with_support(
         label=_compact_text(label or anchor_id, max_chars=120),
         snippets=snippets,
         connected=connected,
         next_hops=next_hops,
     )
+    if summary_support and summary_support["source_ref"]:
+        citation_refs = list(dict.fromkeys([summary_support["source_ref"], *citation_refs]))
     return {
         "anchor_id": anchor_id,
         "anchor_type": anchor_type,
         "label": _compact_text(label or anchor_id, max_chars=120),
         "brief": summary,
+        "summary_kind": "source_selection",
+        "summary_support": summary_support,
         "confidence": round(float(mean_confidence), 4),
         "citation_refs": citation_refs[:limit],
     }
@@ -7183,7 +7207,7 @@ def _integration_utf8_bytes(value: str) -> int:
 def _integration_evidence_fact(row: Mapping[str, Any]) -> dict[str, Any]:
     """Project an evidence row into a neutral, serializable fact."""
 
-    return {
+    fact = {
         "evidence_id": str(row.get("evidence_id") or "").strip(),
         "section": str(row.get("section") or "").strip(),
         "kind": str(row.get("kind") or "").strip(),
@@ -7199,6 +7223,9 @@ def _integration_evidence_fact(row: Mapping[str, Any]) -> dict[str, Any]:
         "human_reviewed": bool(row.get("human_reviewed")),
         "claim_key": str(row.get("claim_key") or "").strip(),
     }
+    if isinstance(row.get("related_text"), Mapping):
+        fact["related_text"] = dict(row["related_text"])
+    return fact
 
 
 def _integration_temporal_fact(
@@ -7290,6 +7317,7 @@ def _integration_context_diet_v2(
     total_token_budget: int,
     temporal_token_budget: int,
     temporal_due_text_budget_bytes: int,
+    service_verdict: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the v2 neutral facts surface by removing whole low-priority entries."""
 
@@ -7355,7 +7383,7 @@ def _integration_context_diet_v2(
     selected = list(candidates)
 
     def _payload() -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": "mno.agent_context.v2",
             "retrieval": {
                 "route": str(route or "none"),
@@ -7370,6 +7398,9 @@ def _integration_context_diet_v2(
                 "dropped_temporal_items": dropped_temporal_items,
             },
         }
+        if service_verdict is not None:
+            payload["verification"] = dict(service_verdict)
+        return payload
 
     while selected and estimate_context_tokens(_payload()) > total_budget:
         index = max(range(len(selected)), key=lambda item: (selected[item]["priority"], selected[item]["order"]))
@@ -8352,6 +8383,11 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     include_work_session_diagnostics,
                     explicit_work_session_resume,
                 ) = _parse_work_session_request(request_payload)
+                try:
+                    answer_claims = normalize_answer_claims(request_payload.get("answer_claims"))
+                except ValueError as exc:
+                    raise IntegrationContractError(code="INVALID_INPUT", message=str(exc), retryable=False,
+                        operator_action="provide_non_empty_answer_claims") from exc
                 package = self.server.runtime.build_context_package(
                     message,
                     high_risk=high_risk,
@@ -8366,6 +8402,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     work_session_scope=work_session_scope,
                     explicit_resume=explicit_work_session_resume,
                     principal_id=str(principal.get("principal_id") or ""),
+                    answer_claims=answer_claims,
                 )
                 evidence_rows = []
                 for row in list(package.get("ltm_evidence") or []):
@@ -8389,6 +8426,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                             "conflict_with_ids": list(row.get("conflict_with_ids") or []),
                             "human_reviewed": bool(row.get("human_reviewed")),
                             "lineage_ids": list(row.get("lineage_ids") or []),
+                            **({"related_text": dict(row["related_text"])} if isinstance(row.get("related_text"), Mapping) else {}),
                         }
                     )
                     if len(evidence_rows) >= top_k:
@@ -8438,6 +8476,8 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     temporal_due_text_budget_bytes=int(
                         getattr(provisional_policy, "temporal_due_summary_max_bytes", 160)
                     ),
+                    service_verdict={key: package["service_verdict"][key]
+                                     for key in ("decision", "scope", "answer_status")},
                 )
                 context_text = str(diet["context_text"])
                 original_size = _integration_utf8_bytes(original_context_text)
@@ -8453,6 +8493,8 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     "agent_context_tokens": int(diet["estimated_tokens"]),
                     "agent_context_token_budget": int(diet["token_budget"]),
                     "evidence": evidence_rows,
+                    "service_verdict": dict(package["service_verdict"]),
+                    "responder_guidance": dict(package["responder_guidance"]),
                     "route": clean_route,
                     "confidence": round(max(0.0, min(1.0, confidence)), 4),
                     "timings": timings,
@@ -9101,13 +9143,25 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                             span_start=0,
                             span_end=max(1, min(len(candidate_text), 512)),
                         )
+                        source_refs = [source_ref]
+                        candidate_topics = []
+                        if target_kind == "learning_draft":
+                            kind = str(body_value.get("draft_kind") or "lesson") if isinstance(body_value, dict) else "lesson"
+                            candidate_text = f"Host-authored {kind} (derived): {candidate_text}"
+                            candidate_topics = ["learning_draft", "derived", kind]
+                            source_refs = [SourceRef(source_id=ref.split("#", 1)[0], message_id=ref.split("#", 1)[1])
+                                           for ref in dict.fromkeys(str(dict(row.get("citation") or {}).get("ref") or "")
+                                                                    for row in evidence) if "#" in ref]
+                            if not source_refs:
+                                raise IntegrationContractError(code="INVALID_INPUT", message="Learning drafts require message citations",
+                                    retryable=False, operator_action="provide_real_source_message_citations")
                         candidate = CandidateAtom(
                             candidate_id=f"cand_{uuid4().hex[:16]}",
                             atom_type=AtomType.EPISODE,
                             canonical_text=candidate_text,
-                            source_refs=[source_ref],
+                            source_refs=source_refs,
                             entities=[],
-                            topics=[],
+                            topics=candidate_topics,
                             confidence=max(0.0, min(1.0, float(dict(evidence[0]).get("confidence") or 0.5))),
                             salience=0.5,
                         )
@@ -9128,6 +9182,11 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                             "run_id": run_id,
                             "principal_id": str(principal.get("principal_id") or ""),
                             "intent": intent,
+                            **({"learning_draft": json.dumps({
+                                "authored_by": "host_agent",
+                                "kind": mutation["body"].get("draft_kind", "lesson") if isinstance(mutation.get("body"), dict) else "lesson",
+                                "sources": evidence,
+                            }, separators=(",", ":"))} if target_kind == "learning_draft" else {}),
                         },
                         actor=str(principal.get("principal_id") or ""),
                         idempotency_key=idem_key,
@@ -14289,6 +14348,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     include_work_session_diagnostics=include_work_session_diagnostics,
                     work_session_scope=work_session_scope,
                     explicit_resume=explicit_resume,
+                    answer_claims=data.get("answer_claims"),
                 )
                 return _json_response(self, HTTPStatus.OK, {"ok": True, "package": package})
             except KeyError:

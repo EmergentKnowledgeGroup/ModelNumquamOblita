@@ -136,6 +136,13 @@ def enforce_reply_contract(package: Mapping[str, Any], reply_text: str) -> str:
         text = _strip_hidden_citation_artifacts(text)
     if _service_decision(package) != "ABSTAIN":
         return text
+    return abstain_reply(package)
+
+
+def abstain_reply(package: Mapping[str, Any]) -> str:
+    verdict = package.get("service_verdict")
+    if isinstance(verdict, Mapping) and verdict.get("answer_status") == "UNVERIFIED":
+        return "I do not have enough supported information to answer that. Could you clarify what you mean?"
     return CANONICAL_ABSTAIN_PHRASE
 
 
@@ -198,6 +205,9 @@ def verify_reply_against_package(package: Mapping[str, Any], reply_text: str) ->
         if decision == "ABSTAIN" and not _contains_abstain(text):
             ok = False
             reasons.append("abstain_marker_missing")
+        if decision == "ABSTAIN" and abstain_reply(package) != CANONICAL_ABSTAIN_PHRASE and text != abstain_reply(package):
+            ok = False
+            reasons.append("unverified_answer_reply_mismatch")
     elif decision == "CLARIFY":
         if "?" not in text:
             ok = False

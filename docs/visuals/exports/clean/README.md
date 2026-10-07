@@ -27,3 +27,5 @@ python tools/export_clean_public_visuals.py
 - [Runtime Memory And Decision PNG](mno-runtime-memory-decision-clean.png)
 - [Temporal Agency SVG](mno-temporal-agency-clean.svg)
 - [Temporal Agency PNG](mno-temporal-agency-clean.png)
+
+The v0.3 runtime labels show claim-specific verification and abstention plus source-linked host learning drafts in the existing human-review queue. Summary support follows the selected source; pending drafts do not become recall-graph evidence. No new model or background learner is depicted.

@@ -57,3 +57,11 @@ For a quick structural check, run:
 ```bash
 python3 skills/mno-flowchart-drawio/scripts/drawio_audit.py docs/visuals/*.drawio
 ```
+
+## v0.3 lean context and learning inserts
+
+The current runtime seam accepts optional `answer_claims`. Whole eligible canonical text matches may be supported; other interpretations are `UNVERIFIED` and require abstention from a previously passing packet. Without submitted claims the scope remains retrieved evidence, not a checked answer. Related canonical excerpts use the existing 320-character limit and label truncation; they are not original-source quotations.
+
+The MCP-only `integration.learning.propose` shortcut uses the existing host agent and source IDs to draft a lesson or summary in the existing pending human-review queue. It adds no model, daemon, schema, or automatic promotion. Existing import, observation, human review, publish, verify, and activation paths retain their roles.
+
+MCP anchor briefs and runtime wake/resume briefs retain the selected row's source and confidence in `summary_support`; `summary_kind=source_selection` distinguishes these bounded source selections from generated synthesis. The existing aggregate confidence and graph ranking remain unchanged. Pending learning drafts do not become recall-graph facts.

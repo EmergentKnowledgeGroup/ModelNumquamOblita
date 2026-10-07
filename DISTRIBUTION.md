@@ -3,7 +3,7 @@
 This repo is intended to be the public source distribution for
 ModelNumquamOblita.
 
-## v0.2.4 Artifact Contract
+## v0.3.0 artifact contract
 
 - The Python wheel is a runnable headless runtime, MCP sidecar, import CLI, setup CLI, Headless Curation Room (`mno-curate` + run-bound `mno-curation-mcp`), and Hermes adapter lifecycle CLI (`mno-hermes`). It includes the runtime web UI and packaged Hermes plugin files and uses platform user state outside `site-packages`.
 - The source distribution contains the public source tree plus an empty runtime skeleton. It must never contain a populated store, WAL/SHM file, trace, checkpoint, or private research tree.
@@ -68,3 +68,9 @@ Release documentation must describe temporal notes as provisional facts. A packa
 The wheel and sdist must contain `engine/integrations/hermes_plugin/{plugin.yaml,__init__.py,adapter.py}` plus the `mno-hermes` entry point. Artifact verification must prove those files and the entry point from an isolated install.
 
 The supported product pair is MNO Python 3.12+ with Hermes Agent v0.19.0. The copied plugin is stdlib-only and imports under Hermes's Python 3.11/3.12/3.13 range, but the MNO package itself still requires Python 3.12+. Release claims remain limited to the operating system and real Hermes lifecycle actually tested.
+
+## Lean memory distribution notes
+
+MNO v0.3.0 adds packet verification, a source-linked MCP draft shortcut, and source-selection summary support using the existing Python runtime. It adds no model, inference service, runtime dependency, schema migration, or background worker. The supported artifact/host scope remains the v0.2.4 baseline; consult [GitHub Releases](https://github.com/EmergentKnowledgeGroup/ModelNumquamOblita/releases) for publication status and verified artifacts.
+
+Release checks must exercise optional `answer_claims` and compact verification, `integration.learning.propose` remaining pending human review with mutation policy enforced, and selected-summary source references. Keep learning drafts and their persisted evidence excerpts/citations private like other review-queue content; do not package them. The release includes the existing Hermes automatic adapter, with no native OpenClaw hook. See [v0.3.0 release notes](docs/RELEASE_NOTES_v0.3.0.md).

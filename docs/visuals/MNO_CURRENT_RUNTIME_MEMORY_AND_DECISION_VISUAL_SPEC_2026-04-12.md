@@ -112,3 +112,11 @@ It should still explain:
 The runtime diagrams must order authority families as `human_reviewed_canonical` → `evidence_atom` → `provisional`, then show `observed → reinforced → consolidated` as the separate provisional maturity axis. Consolidated artifacts may outrank direct observations inside provisional retrieval without crossing into evidence or canonical authority. STM and WSS `scratchpad_ephemeral` context are not evidence and must never be shown as claim support.
 
 The engineering path distinguishes raw import (durable atoms), post-turn HTTP `memory.observe` (signed source registration plus retrieval receipt, producing only provisional records), and explicit “remember this” writeback. `writeback.resolve` requires a human-held `review_apply` capability; `apply=true` materializes an evidence atom with `human_reviewed=false`, while publish remains the canonical truth gate. The caveman view must say the same thing in plain language.
+
+## v0.3 lean context and learning inserts
+
+The current runtime seam accepts optional `answer_claims`. Whole eligible canonical text matches may be supported; other interpretations are `UNVERIFIED` and require abstention from a previously passing packet. Without submitted claims the scope remains retrieved evidence, not a checked answer. Related canonical excerpts use the existing 320-character limit and label truncation; they are not original-source quotations.
+
+The MCP-only `integration.learning.propose` shortcut uses the existing host agent and source IDs to draft a lesson or summary in the existing pending human-review queue. It adds no model, daemon, schema, or automatic promotion. Existing import, observation, human review, publish, verify, and activation paths retain their roles.
+
+MCP anchor briefs and runtime wake/resume briefs retain the selected row's source and confidence in `summary_support`; `summary_kind=source_selection` distinguishes these bounded source selections from generated synthesis. The existing aggregate confidence and graph ranking remain unchanged. Pending learning drafts do not become recall-graph facts.

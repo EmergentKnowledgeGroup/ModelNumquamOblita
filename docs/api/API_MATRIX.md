@@ -15,6 +15,16 @@
 
 WSS uses trust tier `scratchpad_ephemeral`. It is work-continuity helper state, not retrieval evidence, reviewed truth, or a writeback path.
 
+## Lean packet and draft surfaces
+
+| Surface | Contract | Authority/write behavior |
+| --- | --- | --- |
+| HTTP `POST /api/integration/v1/context/build`, MCP `integration.context.build` | Optional v2 `answer_claims`; full `service_verdict`, compact `agent_context.verification`, bounded canonical `related_text` | Existing read-only context path; unverified answers abstain |
+| MCP `integration.learning.propose` | Existing source IDs → `context.why` → `writeback.propose`; `lesson`/`summary` host-authored draft | Operator/admin plus mutations enabled; pending human review only; no new HTTP endpoint |
+| MCP `explore.anchor_brief`, runtime anchor briefs, wake-up-pack anchor briefs | Source-selection `summary_kind`, selected-row `summary_support`, source reference first | Existing inspection path; aggregate confidence preserved; no generation or promotion |
+
+`retrieved_evidence` verification does not certify a proposed answer. The additions introduce no model, runtime dependency, migration, or automatic host hook. The HCR tool allowlist is unchanged. See [API](../API.md#answer-claims-and-verification) and [MCP](../MCP_INTEGRATION.md#source-linked-learning-drafts).
+
 ## Temporal operations
 
 - `memory.temporal.schedule` — operator/admin, source-backed structured live schedule, idempotency required

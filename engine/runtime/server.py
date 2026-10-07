@@ -41,6 +41,7 @@ from ..ingest import summarize_source_input
 from ..ingest.parser import ConversationIngestor
 from ..memory import AtomStatus, DecisionConflictError, MutationReviewQueue, ProposalStatus, SqliteAtomStore
 from ..memory.content_safety import SecretDetectedError, assert_safe_content
+from ..retrieval.answer_support import normalize_answer_claims
 from .adapters import AdapterRegistry, build_default_registry
 from .methodology import (
     build_operator_readout,
@@ -7183,7 +7184,7 @@ def _integration_utf8_bytes(value: str) -> int:
 def _integration_evidence_fact(row: Mapping[str, Any]) -> dict[str, Any]:
     """Project an evidence row into a neutral, serializable fact."""
 
-    return {
+    fact = {
         "evidence_id": str(row.get("evidence_id") or "").strip(),
         "section": str(row.get("section") or "").strip(),
         "kind": str(row.get("kind") or "").strip(),
@@ -7199,6 +7200,9 @@ def _integration_evidence_fact(row: Mapping[str, Any]) -> dict[str, Any]:
         "human_reviewed": bool(row.get("human_reviewed")),
         "claim_key": str(row.get("claim_key") or "").strip(),
     }
+    if isinstance(row.get("related_text"), Mapping):
+        fact["related_text"] = dict(row["related_text"])
+    return fact
 
 
 def _integration_temporal_fact(
@@ -7290,6 +7294,7 @@ def _integration_context_diet_v2(
     total_token_budget: int,
     temporal_token_budget: int,
     temporal_due_text_budget_bytes: int,
+    service_verdict: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the v2 neutral facts surface by removing whole low-priority entries."""
 
@@ -7355,7 +7360,7 @@ def _integration_context_diet_v2(
     selected = list(candidates)
 
     def _payload() -> dict[str, Any]:
-        return {
+        payload = {
             "schema_version": "mno.agent_context.v2",
             "retrieval": {
                 "route": str(route or "none"),
@@ -7370,6 +7375,9 @@ def _integration_context_diet_v2(
                 "dropped_temporal_items": dropped_temporal_items,
             },
         }
+        if service_verdict is not None:
+            payload["verification"] = dict(service_verdict)
+        return payload
 
     while selected and estimate_context_tokens(_payload()) > total_budget:
         index = max(range(len(selected)), key=lambda item: (selected[item]["priority"], selected[item]["order"]))
@@ -8352,6 +8360,11 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     include_work_session_diagnostics,
                     explicit_work_session_resume,
                 ) = _parse_work_session_request(request_payload)
+                try:
+                    answer_claims = normalize_answer_claims(request_payload.get("answer_claims"))
+                except ValueError as exc:
+                    raise IntegrationContractError(code="INVALID_INPUT", message=str(exc), retryable=False,
+                        operator_action="provide_non_empty_answer_claims") from exc
                 package = self.server.runtime.build_context_package(
                     message,
                     high_risk=high_risk,
@@ -8366,6 +8379,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     work_session_scope=work_session_scope,
                     explicit_resume=explicit_work_session_resume,
                     principal_id=str(principal.get("principal_id") or ""),
+                    answer_claims=answer_claims,
                 )
                 evidence_rows = []
                 for row in list(package.get("ltm_evidence") or []):
@@ -8389,6 +8403,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                             "conflict_with_ids": list(row.get("conflict_with_ids") or []),
                             "human_reviewed": bool(row.get("human_reviewed")),
                             "lineage_ids": list(row.get("lineage_ids") or []),
+                            **({"related_text": dict(row["related_text"])} if isinstance(row.get("related_text"), Mapping) else {}),
                         }
                     )
                     if len(evidence_rows) >= top_k:
@@ -8438,6 +8453,8 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     temporal_due_text_budget_bytes=int(
                         getattr(provisional_policy, "temporal_due_summary_max_bytes", 160)
                     ),
+                    service_verdict={key: package["service_verdict"][key]
+                                     for key in ("decision", "scope", "answer_status")},
                 )
                 context_text = str(diet["context_text"])
                 original_size = _integration_utf8_bytes(original_context_text)
@@ -8453,6 +8470,8 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     "agent_context_tokens": int(diet["estimated_tokens"]),
                     "agent_context_token_budget": int(diet["token_budget"]),
                     "evidence": evidence_rows,
+                    "service_verdict": dict(package["service_verdict"]),
+                    "responder_guidance": dict(package["responder_guidance"]),
                     "route": clean_route,
                     "confidence": round(max(0.0, min(1.0, confidence)), 4),
                     "timings": timings,
@@ -14289,6 +14308,7 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
                     include_work_session_diagnostics=include_work_session_diagnostics,
                     work_session_scope=work_session_scope,
                     explicit_resume=explicit_resume,
+                    answer_claims=data.get("answer_claims"),
                 )
                 return _json_response(self, HTTPStatus.OK, {"ok": True, "package": package})
             except KeyError:

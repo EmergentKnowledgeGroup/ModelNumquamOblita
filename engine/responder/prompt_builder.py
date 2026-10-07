@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .verifier import CANONICAL_ABSTAIN_PHRASE
+from .verifier import abstain_reply
 
 
 def build_responder_messages(package: Mapping[str, Any]) -> list[dict[str, str]]:
@@ -36,7 +36,9 @@ def build_responder_messages(package: Mapping[str, Any]) -> list[dict[str, str]]
         rule_lines.append("- Use memory evidence internally, but do not output citation tokens or source-id strings.")
         rule_lines.append("- Do not output footnotes/references like [1], 'Source:', or a references section.")
     if decision == "ABSTAIN":
-        rule_lines.append(f"- If service verdict is ABSTAIN, reply exactly: {CANONICAL_ABSTAIN_PHRASE}")
+        rule_lines.append(f"- If service verdict is ABSTAIN, reply exactly: {abstain_reply(package)}")
+    scope = str(verdict.get("scope") or "retrieved_evidence")
+    rule_lines.append(f"- Verification scope: {scope}. Retrieved evidence is not independent verification of your answer.")
     rule_lines.extend(
         [
             "",
@@ -61,6 +63,9 @@ def build_responder_messages(package: Mapping[str, Any]) -> list[dict[str, str]]
                 evidence_lines.append(f"{idx}. {summary}")
                 if sources:
                     evidence_lines.append(f"   Sources: {sources}")
+            related = item.get("related_text")
+            if isinstance(related, Mapping) and related.get("text"):
+                evidence_lines.append(f"   Related canonical memory text (answer unverified): {related['text']}")
     else:
         evidence_lines.append("Memory evidence: (none)")
 

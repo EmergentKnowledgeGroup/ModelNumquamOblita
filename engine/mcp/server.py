@@ -571,6 +571,7 @@ class MCPServer:
                         "risk_signal": {"type": "string", "enum": ["low", "medium", "high"]},
                         "memory_preference": {"type": "string", "enum": ["auto", "chat_first", "memory_assist"]},
                         "retrieval_query": {"type": "string"},
+                        "answer_claims": {"type": "array", "items": {"type": "string"}, "minItems": 1},
                     },
                     "required": ["session_id", "run_id"],
                     "additionalProperties": False,
@@ -1504,6 +1505,7 @@ class MCPServer:
                         "high_risk": {"type": "boolean"},
                         "package_version": {"type": "string", "enum": ["v2"]},
                         "render_citations": {"type": "boolean"},
+                        "answer_claims": {"type": "array", "items": {"type": "string"}, "minItems": 1},
                     },
                     "required": ["message"],
                     "additionalProperties": False,
@@ -2459,6 +2461,8 @@ class MCPServer:
 
     def _tool_integration_context_build(self, args: dict[str, Any]) -> dict[str, Any]:
         data: dict[str, Any] = {}
+        if "answer_claims" in args:
+            data["answer_claims"] = args["answer_claims"]
         if "message" in args:
             data["message"] = str(args.get("message") or "")
         if "message_window" in args and isinstance(args.get("message_window"), Mapping):
@@ -4624,6 +4628,8 @@ class MCPServer:
         render_citations = args.get("render_citations")
         if isinstance(render_citations, bool):
             payload["render_citations"] = render_citations
+        if "answer_claims" in args:
+            payload["answer_claims"] = args["answer_claims"]
         response = self.api_client.post_json("/api/chat/context-package", payload)
         package = response.get("package")
         if not isinstance(package, Mapping):

@@ -111,6 +111,47 @@ def _normalize_parity_payload(payload: dict) -> dict:
     return normalized
 
 
+def test_context_answer_claim_verdict_reaches_http_mcp_and_agent_packet():
+    store = AtomStore()
+    store.add_candidate(_candidate("launch", "We are not launching on Friday.", "launch_source"))
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
+    http_server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0, review_queue=MutationReviewQueue(store))
+    host, port = http_server.server_address
+    base = f"http://{host}:{port}"
+    headers = {"Authorization": "Bearer local-integration-operator-token"}
+    data = {"message": "Recall launching on Friday.", "memory_preference": "memory_assist",
+            "answer_claims": ["We are launching on Friday."]}
+    try:
+        status, result = _http_json(method="POST", url=f"{base}/api/integration/v1/context/build", headers=headers,
+            payload={"schema_version": "integration.v1", "request_id": "req_LEANANSWERHTTP001",
+                     "session_id": "lean_session", "run_id": "lean_turn", "data": data})
+        assert status == 200
+        assert result["data"]["service_verdict"]["decision"] == "ABSTAIN"
+        context = json.loads(result["data"]["agent_context"])
+        assert context["verification"]["answer_status"] == "UNVERIFIED"
+        assert any(row["value"].get("related_text", {}).get("text") == "We are not launching on Friday."
+                   for row in context["facts"] if row["kind"] == "evidence")
+        mcp = MCPServer(config=ServerConfig(runtime_base_url=base, auth=AuthConfig(default_role="operator")),
+                        api_client=RuntimeApiClient(base_url=base))
+        _mcp_call(mcp, 1, "initialize")
+        called = _mcp_call(mcp, 2, "tools/call", {"name": "integration.context.build", "arguments": {
+            "request_id": "req_LEANANSWERMCP001", "session_id": "lean_session", "run_id": "lean_turn", **data}})
+        assert "error" not in called
+        returned = called["result"]["structuredContent"]
+        assert returned["data"]["service_verdict"]["decision"] == "ABSTAIN"
+        chat_called = _mcp_call(mcp, 3, "tools/call", {"name": "chat.build_context_package", "arguments": {
+            "package_version": "v2", **data}})
+        assert "error" not in chat_called
+        assert chat_called["result"]["structuredContent"]["package"]["service_verdict"]["decision"] == "ABSTAIN"
+        invalid_status, invalid = _http_json(method="POST", url=f"{base}/api/integration/v1/context/build", headers=headers,
+            payload={"schema_version": "integration.v1", "request_id": "req_LEANANSWERBAD001", "session_id": "lean_session",
+                     "run_id": "lean_turn", "data": {**data, "answer_claims": "Friday"}})
+        assert invalid_status == 400
+        assert invalid["error"]["code"] == "INVALID_INPUT"
+    finally:
+        stop_runtime_server(http_server, thread, runtime=runtime)
+
+
 def test_integration_http_contract_idempotency_and_resolve_noop() -> None:
     store = AtomStore()
     base_atom = store.add_candidate(_candidate("cand_1", "User prefers tea before bed.", "conv_tea"))

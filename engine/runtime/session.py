@@ -16,6 +16,7 @@ from typing import Any
 from uuid import uuid4
 
 from ..continuity import ContinuityStore
+from ..retrieval.answer_support import check_answer_claims, normalize_answer_claims
 from ..config import NumquamOblitaConfig, default_config
 from ..contracts import (
     AtomType,
@@ -3331,6 +3332,7 @@ class RuntimeSession:
         work_session_scope: dict[str, Any] | None = None,
         explicit_resume: bool = False,
         principal_id: str | None = None,
+        answer_claims: list[str] | None = None,
     ) -> dict[str, Any]:
         text = str(message or "").strip()
         if not text:
@@ -3338,6 +3340,9 @@ class RuntimeSession:
         version = str(package_version or "v1").strip().lower() or "v1"
         if version not in {"v1", "v2"}:
             raise ValueError(f"unsupported package_version: {package_version}")
+        answer_claims = normalize_answer_claims(answer_claims)
+        if version != "v2" and answer_claims is not None:
+            raise ValueError("answer_claims requires package_version v2")
         if version == "v2":
             return self._build_context_package_v2(
                 text,
@@ -3352,6 +3357,7 @@ class RuntimeSession:
                 work_session_scope=work_session_scope,
                 explicit_resume=explicit_resume,
                 principal_id=principal_id,
+                answer_claims=answer_claims,
             )
 
         preview = self.preview_route(
@@ -3414,6 +3420,7 @@ class RuntimeSession:
         work_session_scope: dict[str, Any] | None,
         explicit_resume: bool,
         principal_id: str | None,
+        answer_claims: list[str] | None,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         text = str(message or "").strip()
@@ -3622,13 +3629,30 @@ class RuntimeSession:
             pack,
             memory_route=memory_route,
         )
+        answer_check = check_answer_claims(
+            answer_claims, pack, evidence_eligible=verification.decision is VerificationDecision.PASS,
+        )
+        if answer_check["status"] == "UNVERIFIED" and verification.decision is VerificationDecision.PASS:
+            verification = self._force_abstain(verification, reason="ANSWER_NOT_VERIFIED", confidence=0.0)
+        if verification.decision is VerificationDecision.ABSTAIN:
+            answer_check["status"] = "UNVERIFIED"
         verifier_ms = (time.perf_counter() - verify_start) * 1000.0
 
         citations = self._rank_citations(verification=verification, pack=pack)
+        if answer_claims is not None:
+            citations = sorted({citation for row in answer_check["checks"] for citation in row["citations"]})
+            if answer_check["status"] != "SUPPORTED":
+                citations = []
         stm_cards_full = [self._card_to_dict(item) for item in self._assemble_memory_cards(stm_pack)[:3]]
         stm_cards = [self._compact_card_dict(item) for item in stm_cards_full]
 
         ltm_evidence = self._pack_to_evidence_v2(pack)
+        if answer_check["status"] == "UNVERIFIED":
+            items_by_id = {item.atom_id: item for item in pack.core + pack.context + pack.conflict + pack.continuity}
+            for row in ltm_evidence:
+                item = items_by_id.get(row["evidence_id"])
+                if item is not None:
+                    row["related_text"] = {"kind": "canonical_memory", "text": item.canonical_text}
         evidence_sections_present = self._evidence_sections_present(ltm_evidence)
         evidence_time_window = self._evidence_time_window(pack)
         episode_evidence_present = bool(evidence_sections_present.get("episode"))
@@ -3694,6 +3718,9 @@ class RuntimeSession:
             "evidence_time_window": evidence_time_window,
             "service_verdict": {
                 "decision": verification.decision.value,
+                "scope": "answer_claims" if answer_claims is not None else "retrieved_evidence",
+                "answer_status": answer_check["status"],
+                "answer_checks": answer_check["checks"],
                 "citations": citations,
                 "unsupported_claims": list(getattr(verification, "unsupported_claims", []) or []),
             },
@@ -3705,6 +3732,7 @@ class RuntimeSession:
                 "citation_format": "source_id#message_id",
                 "do_not_quote_verbatim_unless_asked": True,
                 "ask_followup_when_evidence_weak": True,
+                "answer_verified": answer_check["status"] == "SUPPORTED",
             },
         }
         work_context = self._build_work_session_context(
@@ -6570,6 +6598,10 @@ class RuntimeSession:
                 if (left_score > 0.0 or right_score > 0.0) and abs(left_score - right_score) >= 0.05:
                     chosen = left_option if left_score > right_score else right_option
                     rejected = right_option if chosen == left_option else left_option
+                    # Overlap ranks related wording; it cannot prove an alternative.
+                    # Preserve the original winner, never promote its losing option.
+                    if check_answer_claims([chosen], pack)["status"] != "SUPPORTED":
+                        return lead or "I do not have enough supported information to choose between those answers.", citations
                     chosen_compact = self._compact_text(chosen, max_chars=96)
                     rejected_compact = self._compact_text(rejected, max_chars=96)
                     parts = [f"I can support \"{chosen_compact}\", not \"{rejected_compact}\"."]

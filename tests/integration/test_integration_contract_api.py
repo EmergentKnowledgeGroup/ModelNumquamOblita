@@ -111,6 +111,34 @@ def _normalize_parity_payload(payload: dict) -> dict:
     return normalized
 
 
+@pytest.mark.parametrize("route", ["wake-up-pack", "resume-pack"])
+def test_runtime_brief_keeps_the_source_of_its_selected_text(route):
+    store = AtomStore()
+    for candidate_id, text, confidence in [
+        ("first", "Launch haha!", 0.99),
+        ("second", "Launch lol!", 0.95),
+        ("actual", "Launch is not scheduled on Friday because approval is still pending.", 0.4),
+    ]:
+        candidate = _candidate(candidate_id, text, candidate_id)
+        candidate.topics = ["Launch"]
+        candidate.confidence = candidate.salience = confidence
+        store.add_candidate(candidate)
+    runtime = RuntimeSession(retriever=MemoryRetriever(store), verifier=ClaimVerifier(), continuity_store=ContinuityStore())
+    http_server, thread = start_runtime_server(runtime, host="127.0.0.1", port=0)
+    host, port = http_server.server_address
+    try:
+        status, result = _http_json(method="GET", url=f"http://{host}:{port}/api/explore/{route}?limit=4")
+        assert status == 200
+        brief = next(row for row in result["anchor_briefs"] if "not scheduled on Friday" in row["brief"])
+        assert brief["citation_refs"][0] == "actual#actual_msg"
+        assert brief["summary_kind"] == "extractive"
+        assert brief["summary_support"]["source_ref"] == "actual#actual_msg"
+        assert brief["summary_support"]["confidence"] == 0.4
+        assert brief["confidence"] == 0.97  # Preserve the existing aggregate field.
+    finally:
+        stop_runtime_server(http_server, thread)
+
+
 def test_context_answer_claim_verdict_reaches_http_mcp_and_agent_packet():
     store = AtomStore()
     store.add_candidate(_candidate("launch", "We are not launching on Friday.", "launch_source"))

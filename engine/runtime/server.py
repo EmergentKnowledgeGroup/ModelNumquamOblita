@@ -6575,22 +6575,33 @@ def _anchor_summary_text(
     connected: list[Mapping[str, Any]],
     next_hops: list[Mapping[str, Any]],
 ) -> str:
-    candidates: list[tuple[str, str]] = []
+    return _anchor_summary_with_support(label=label, snippets=snippets, connected=connected, next_hops=next_hops)[0]
+
+
+def _anchor_summary_with_support(
+    *, label: str, snippets: list[Mapping[str, Any]],
+    connected: list[Mapping[str, Any]], next_hops: list[Mapping[str, Any]],
+) -> tuple[str, dict[str, Any] | None]:
+    candidates: list[tuple[str, str, Mapping[str, Any]]] = []
     for row in snippets:
         sentence = _anchor_brief_evidence_sentence(row.get("snippet"), max_chars=220)
         if sentence:
-            candidates.append((sentence, "snippet"))
+            candidates.append((sentence, "snippet", row))
     for row in connected:
         sentence = _anchor_brief_evidence_sentence(row.get("summary"), max_chars=220)
         if sentence:
-            candidates.append((sentence, "connected"))
+            candidates.append((sentence, "connected", row))
 
     lead = ""
+    support = None
     if candidates:
-        lead = max(
+        selected = max(
             candidates,
             key=lambda item: _anchor_brief_candidate_score(item[0], label=label, source_kind=item[1]),
-        )[0]
+        )
+        lead = selected[0]
+        support = {"source_kind": selected[1], "source_ref": str(selected[2].get("source_ref") or ""),
+                   "confidence": float(selected[2].get("confidence") or 0.0)}
     if not lead and candidates:
         lead = candidates[0][0]
     if not lead:
@@ -6614,7 +6625,7 @@ def _anchor_summary_text(
             lead = f"{lead} Linked to {hop_labels[0]} and {hop_labels[1]}."
         else:
             lead = f"{lead} Linked to {hop_labels[0]}, {hop_labels[1]}, and {hop_labels[2]}."
-    return _compact_text(f"{label}: {lead}".strip(), max_chars=320)
+    return _compact_text(f"{label}: {lead}".strip(), max_chars=320), support
 
 
 def _build_runtime_anchor_brief_payload(
@@ -6658,17 +6669,21 @@ def _build_runtime_anchor_brief_payload(
         if source_ref and source_ref not in citation_refs:
             citation_refs.append(source_ref)
     mean_confidence = sum(evidence_confidence) / len(evidence_confidence) if evidence_confidence else 0.0
-    summary = _anchor_summary_text(
+    summary, summary_support = _anchor_summary_with_support(
         label=_compact_text(label or anchor_id, max_chars=120),
         snippets=snippets,
         connected=connected,
         next_hops=next_hops,
     )
+    if summary_support and summary_support["source_ref"]:
+        citation_refs = list(dict.fromkeys([summary_support["source_ref"], *citation_refs]))
     return {
         "anchor_id": anchor_id,
         "anchor_type": anchor_type,
         "label": _compact_text(label or anchor_id, max_chars=120),
         "brief": summary,
+        "summary_kind": "extractive",
+        "summary_support": summary_support,
         "confidence": round(float(mean_confidence), 4),
         "citation_refs": citation_refs[:limit],
     }
